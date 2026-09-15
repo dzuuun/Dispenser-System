@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS credential_module_controls (
+  module_key ENUM('VOUCHER', 'SATP', 'SCHOOLOGY', 'KUMOSOFT', 'EMAIL', 'KIOSK') PRIMARY KEY,
+  is_visible BOOLEAN NOT NULL DEFAULT TRUE,
+  is_maintenance BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO credential_module_controls (module_key) VALUES
+  ('VOUCHER'), ('SATP'), ('SCHOOLOGY'), ('KUMOSOFT'), ('EMAIL'), ('KIOSK');

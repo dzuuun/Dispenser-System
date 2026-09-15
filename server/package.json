@@ -1,0 +1,39 @@
+{
+  "name": "ndmu-credentials-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "create-db": "node db/create-database.js",
+    "migrate": "node db/migrate.js",
+    "migrate-separate-accounts": "node db/migrate-separate-accounts.js",
+    "simplify-course-schema": "node db/simplify-course-schema.js",
+    "setup-db": "npm run rebuild-db",
+    "seed-admin": "node db/seed-admin.js",
+    "seed-dummy-students": "node db/seed-dummy-students.js",
+    "migrate-voucher-relationship": "node db/migrate-voucher-relationship.js",
+    "migrate-voucher-status": "node db/migrate-voucher-status.js",
+    "migrate-password-reset-requests": "node db/migrate-password-reset-requests.js",
+    "migrate-kiosk-reminders": "node db/migrate-kiosk-reminders.js",
+    "migrate-credential-controls": "node db/migrate-credential-controls.js",
+    "migrate-account-requests": "node db/migrate-account-requests.js",
+    "migrate-voucher-requests": "node db/migrate-voucher-requests.js",
+    "migrate-kiosk-management": "node db/migrate-kiosk-management.js",
+    "migrate-security-hardening": "node db/migrate-security-hardening.js",
+    "rebuild-db": "set ALLOW_DB_REBUILD=true&& node db/rebuild-development.js"
+  },
+  "dependencies": {
+    "bcrypt": "6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "mysql2": "^3.12.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
+  }
+}
