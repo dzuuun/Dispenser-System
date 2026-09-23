@@ -1,31 +1,226 @@
-# NDMU Student Credentials Dispenser
+# NDMU Credentials Dispenser
 
-MVP for a secure, self-service student credentials kiosk with a React frontend and Express/MySQL API.
+A self-service credentials kiosk for Notre Dame of Midsayap College. Students verify their identity at the kiosk to retrieve approved credentials and WiFi vouchers. Administrators manage student records, service accounts, vouchers, kiosks, requests, and audit activity from the web portal.
 
-## Run locally
+The application uses a React client, an Express API, and MySQL. Express serves
+the compiled client and API beneath `/dispenser` from one application port.
 
-1. Copy `.env.example` to `.env`, fill in database and secrets. Generate a 32-byte AES key with `openssl rand -hex 32`.
-2. During development, run `npm run rebuild-db -w server`. This applies the single canonical schema file at `server/db/rebuild-development.sql` and deliberately removes all development data. The command refuses to run unless `NODE_ENV=development`; the configured MySQL user needs `CREATE` and `DROP` permission.
-3. Run `npm install`, then `npm run serve`.
-4. Open `http://localhost:3000`. The API health check is at `http://localhost:3000/api/health`.
+## Features
 
-The deployed application uses one port only: Express serves both the React site and `/api` endpoints on browser-safe port `3000`. For development, `npm run dev` builds the client once, then runs the API with file watching on that same port.
+- Student kiosk verification using student ID, course, last name, and birth date.
+- Secure display of SATP, Schoology, Kumosoft, institutional-email, and WiFi-voucher credentials.
+- Administrator portal for students, courses, vouchers, bulk imports, credential requests, kiosk monitoring, module controls, and transaction history.
+- XLSX validation and import for students, courses, accounts, and vouchers.
+- WiFi voucher assignment, release, activation, and semester clearing.
+- Super Admin audit logging for sensitive changes.
+- Encrypted account passwords, hashed administrator passwords, rotating refresh sessions, and kiosk device sessions.
 
-## First administrator
+## Requirements
 
-After applying the schema, set a strong `SEED_ADMIN_PASSWORD` (at least 12 characters) in `.env`, then run `npm run seed-admin -w server`. Sign in at `http://localhost:3000/admin`. The script never overwrites an existing administrator.
+- Node.js 20 or later
+- npm 10 or later
+- MySQL 8.0 or later
 
-## Canonical schema
+## Quick start
 
-The development rebuild creates only the active application model: users and roles, courses, students, credential accounts, WiFi vouchers, kiosks, requests, reminders, controls, transactions, and audit logs. It intentionally excludes retired course hierarchy, shared-credential, academic-period, and legacy-settings tables.
+1. Install dependencies.
 
-The rebuilt database contains no administrator until you complete the setup screen or run the seed command. Never use demo defaults in production.
+   ```bash
+   npm install
+   ```
+
+2. Copy `.env.example` to `.env` and set real database credentials and secrets.
+
+3. Create the development database. This deletes and recreates `ndmu_credentials`, so use it only for local development.
+
+   ```powershell
+   $env:NODE_ENV = "development"
+   npm run rebuild-db -w server
+   ```
+
+4. Set a strong `SEED_ADMIN_PASSWORD` in `.env`, then create the first administrator.
+
+   ```bash
+   npm run seed-admin -w server
+   ```
+
+5. Build and run the application.
+
+   ```bash
+   npm run serve
+   ```
+
+Open [http://localhost:3000/dispenser/](http://localhost:3000/dispenser/) for
+the kiosk and [http://localhost:3000/dispenser/admin](http://localhost:3000/dispenser/admin)
+for the administrator portal. The health endpoint is
+[http://localhost:3000/dispenser/api/health](http://localhost:3000/dispenser/api/health).
+
+For local API development with automatic server restart, run:
+
+```bash
+npm run dev
+```
+
+## Configuration
+
+Copy `.env.example` instead of committing a real `.env` file.
+
+| Variable                                                                       | Purpose                                                                                                                                                                   |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                                                     | Use `development` locally and `production` when deployed.                                                                                                                 |
+| `PORT`                                                                         | Express application port; defaults to `3000`.                                                                                                                             |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`                      | MySQL connection settings.                                                                                                                                                |
+| `JWT_ACCESS_SECRET`                                                            | Long random secret for administrator access tokens.                                                                                                                       |
+| `JWT_REFRESH_SECRET`                                                           | Different long random secret for refresh sessions.                                                                                                                        |
+| `CREDENTIAL_ENCRYPTION_KEY`                                                    | Exactly 64 hexadecimal characters for AES-256-GCM credential encryption.                                                                                                  |
+| `KIOSK_CODE`, `KIOSK_SECRET`                                                   | Identity and secret for the configured kiosk device.                                                                                                                      |
+| `INITIAL_SETUP_SECRET`                                                         | One-time deployment setup code required to create the first administrator in production.                                                                                  |
+| `CORS_ORIGIN`                                                                  | Allowed browser origin when the client is hosted separately.                                                                                                              |
+| `SEED_ADMIN_USERNAME`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`                | Initial Super Admin details used by the seed script.                                                                                                                      |
+| `MSSQL_SERVER`, `MSSQL_PORT`, `MSSQL_DATABASE`, `MSSQL_USER`, `MSSQL_PASSWORD` | Optional Microsoft SQL Server registrar connection used by the direct student import.                                                                                     |
+| `MSSQL_STUDENT_VIEW`                                                           | Two-part SQL Server view name, such as `dbo.vw_CredentialsDispenserStudents`.                                                                                             |
+| `MSSQL_ENCRYPT`, `MSSQL_TRUST_SERVER_CERTIFICATE`                              | SQL Server TLS settings. Use `MSSQL_ENCRYPT=false` for an on-premises SQL Server without TLS; use TLS with a hostname and trusted certificate for production deployments. |
+
+Generate the encryption key with:
+
+```bash
+openssl rand -hex 32
+```
+
+Production startup rejects missing or placeholder database, JWT, encryption, and setup settings.
+
+## Administrator workflow
+
+1. Add courses before importing or creating students.
+2. Import student records and credential-account files from **Imports**, reviewing validation results first.
+3. Import WiFi voucher codes from **WiFi vouchers**.
+4. Let students retrieve credentials at the kiosk, or assign a voucher from a student record when needed.
+5. Process password resets, account-creation requests, and replacement-voucher requests in **Credential requests**.
+6. Review transactions and audit records regularly.
+
+Most state-changing administrator functions require the **Super Admin** role, including imports, credential-request processing, voucher operations, module controls, kiosk commands, and administrator management.
+
+### SQL Server student import
+
+The **SQL Server students** import card lets a Super Admin select a school year and semester, preview the source rows, and synchronize enrolled students. New students are created, matching school IDs are updated, and active local students absent from the selected source list are deactivated. The preview shows the pending deactivation count before the import runs; rows whose course is not an active course in this system are reported as invalid.
+
+Create or configure a read-only registrar view that exposes these columns: `SchoolID`, `LastName`, `FirstName`, `MiddleName`, `BirthDate`, `CourseCode`, `SchoolYear`, and `Semester`. A template for the expected registrar schema is available at [server/db/mssql-enrolled-students-view.sql](server/db/mssql-enrolled-students-view.sql). Configure its view name and a least-privilege SQL Server login with the `MSSQL_*` environment variables, then restart the API after updating `.env`.
+
+For a local-network SQL Server that does not have TLS configured, set `MSSQL_ENCRYPT=false`. If SQL Server uses TLS, connect with its certificate hostname rather than an IP address and keep `MSSQL_ENCRYPT=true` with certificate validation enabled.
+
+## Semester voucher reset
+
+At the end of a semester, open **WiFi vouchers** in the administrator portal and select **Clear semester vouchers**. After confirmation, the system:
+
+1. Removes WiFi voucher links from students.
+2. Permanently deletes every voucher record, including active, inactive, and released vouchers.
+3. Removes related voucher-assignment history where that optional legacy table exists.
+
+This cannot be undone. Export or back up any required information before clearing vouchers, then import the next semester's voucher list.
+
+## Database commands
+
+| Command                                 | Use                                                                                       |
+| --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `npm run rebuild-db -w server`          | Rebuild the canonical development database. Requires `NODE_ENV=development`; destructive. |
+| `npm run seed-admin -w server`          | Create the configured initial Super Admin if it does not already exist.                   |
+| `npm run seed-dummy-students -w server` | Add development sample students.                                                          |
+| `npm run migrate -w server`             | Run the project migration script for an existing database.                                |
+
+The canonical development schema is [server/db/rebuild-development.sql](server/db/rebuild-development.sql). It rebuilds from scratch and must not be used against a production database.
+
+## Project structure
+
+```text
+client/                 React + Vite interface
+  src/main.jsx          Kiosk and administrator portal screens
+  src/styles.css        Application styling
+server/                 Express API
+  controllers/          Business logic
+  routes/               API routes
+  middleware/           Authentication and error handling
+  db/                   Schema, migrations, seeds, and database scripts
+  services/             Encryption and audit helpers
+```
 
 ## Security notes
 
-- Credentials are AES-256-GCM encrypted at rest; admin passwords use bcrypt.
-- Admin refresh tokens are HttpOnly, SameSite cookies that are rotated and revoked server-side; access tokens exist only in memory.
-- Kiosk browsers receive an HttpOnly device session from the configured kiosk code. Do not expose `KIOSK_SECRET` through a `VITE_` client variable; it is reserved for a native device agent.
-- Super Admin is required for credential reveals, credential-request processing, imports, voucher releases, kiosk commands, module controls, and administrator management. These mutations are written to the audit log.
-- Temporary kiosk sessions expire in three minutes and can be explicitly invalidated.
-- Production startup rejects missing or placeholder secrets. Configure HTTPS, restrictive CORS, backups, and a reverse proxy before deployment.
+- Administrator passwords are hashed with bcrypt.
+- Credential passwords are encrypted with AES-256-GCM before storage.
+- Administrator refresh tokens are HttpOnly, SameSite cookies that are rotated and can be revoked server-side.
+- Kiosk sessions are device-scoped and temporary.
+- Administrative mutations are recorded in the audit log.
+- Use HTTPS, restrict CORS to the real frontend origin, use a least-privilege MySQL account, and maintain tested database backups.
+
+## Production deployment with PM2
+
+These steps target **Windows Server** with Node.js 20+, Git, MySQL, and IIS with ARR/URL Rewrite installed. Use a dedicated Windows account for the deployment and use that same account for the PM2 Windows service.
+
+1. In PowerShell, clone the production source and install the locked dependency set.
+
+   ```powershell
+   git clone <repository-url> C:\Apps\ndmu-credentials-dispenser
+   Set-Location -LiteralPath "C:\Apps\ndmu-credentials-dispenser"
+   npm ci --omit=dev
+   ```
+
+2. Create `.env` from `.env.example`, set `NODE_ENV=production`, and provide production database credentials, distinct JWT secrets, a 64-character encryption key, kiosk credentials, and the public `CORS_ORIGIN`. Do not use placeholder values.
+
+   ```powershell
+   Copy-Item -LiteralPath .env.example -Destination .env
+   notepad .env
+   ```
+
+3. Build the React client, install PM2, and start the Express server. The server serves the built client from `client/dist`.
+
+   ```powershell
+   npm run build
+   npm install --global pm2
+   pm2 start npm --name ndmu-credentials-dispenser -- start
+   ```
+
+4. Confirm the process and inspect startup errors.
+
+   ```powershell
+   pm2 status
+   pm2 logs ndmu-credentials-dispenser
+   ```
+
+5. As the deployment account, save the running process list. Then open an **elevated PowerShell** window to install PM2 as a Windows service. PM2's normal `pm2 startup` command generates startup scripts for Unix-like init systems; use the Windows service helper instead.
+
+   ```powershell
+   pm2 save
+   ```
+
+   ```powershell
+   npm install --global pm2-windows-service
+   pm2-service-install -n "NDMU Credentials Dispenser"
+   ```
+
+   At the installer prompts, let it configure the environment and use the default restored PM2 process list. In the Windows **Services** console, set the new service's **Log On** account to the same dedicated account that ran `pm2 save`; this ensures it can access the saved PM2 process list. Start the service and confirm it is set to start automatically.
+
+6. Configure IIS ARR/URL Rewrite to forward `/dispenser/` to `http://127.0.0.1:3000` using [the IIS deployment guide](docs/deployment-reverse-proxy.md). Keep port `3000` private to the server and expose only IIS on HTTP/HTTPS. PM2 documents Windows startup as requiring a Windows-compatible installer, while `pm2-windows-service` restores the process list saved by `pm2 save`. [PM2 startup documentation](https://pm2.keymetrics.io/docs/usage/startup/) and [pm2-windows-service documentation](https://www.npmjs.com/package/pm2-windows-service) describe these behaviors.
+
+### Updating a PM2 deployment
+
+Back up the database before schema or bulk-data changes. Then pull the new source, install dependencies, rebuild the client, and restart the managed process:
+
+```powershell
+Set-Location -LiteralPath "C:\Apps\ndmu-credentials-dispenser"
+git pull
+npm ci --omit=dev
+npm run build
+pm2 restart ndmu-credentials-dispenser
+pm2 save
+```
+
+Use `pm2 logs ndmu-credentials-dispenser` to troubleshoot and `pm2 monit` for live process monitoring. If `.env` values change, restart the process after saving the file. After a Node.js upgrade, reinstall or update PM2 and restart the Windows service so it uses the current Node runtime.
+
+## Production checklist
+
+- Use strong, unique values for every secret in `.env`.
+- Set `NODE_ENV=production`.
+- Build the client with `npm run build` before starting the server.
+- Run the app through a process manager or service supervisor.
+- Terminate TLS at a reverse proxy and expose only the required application port.
+- Back up MySQL before bulk changes or semester voucher clearing.

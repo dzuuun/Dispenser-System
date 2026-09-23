@@ -18,6 +18,7 @@ export function encryptPassword(value) {
   };
 }
 export function decryptPassword(row) {
+  if (!row.encrypted_password) return null;
   const decipher = crypto.createDecipheriv(
     "aes-256-gcm",
     key(),

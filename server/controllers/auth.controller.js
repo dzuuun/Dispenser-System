@@ -4,35 +4,63 @@ import jwt from "jsonwebtoken";
 import { pool } from "../config/db.js";
 import { config } from "../config/env.js";
 const refreshCookie = "ndmu_credentials_refresh";
-const hashToken = (value) => crypto.createHash("sha256").update(value).digest("hex");
-const getCookie = (req, name) => String(req.headers.cookie || "").split(";")
-  .map((value) => value.trim()).find((value) => value.startsWith(`${name}=`))?.slice(name.length + 1) || "";
-const setRefreshCookie = (res, token) => res.cookie(refreshCookie, token, {
-  httpOnly: true,
-  sameSite: "strict",
-  secure: process.env.NODE_ENV === "production",
-  path: "/api/auth",
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-});
-const clearRefreshCookie = (res) => res.clearCookie(refreshCookie, {
-  httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", path: "/api/auth",
-});
+const hashToken = (value) =>
+  crypto.createHash("sha256").update(value).digest("hex");
+const secretsMatch = (left, right) => {
+  const leftValue = Buffer.from(String(left || ""));
+  const rightValue = Buffer.from(String(right || ""));
+  return (
+    leftValue.length === rightValue.length &&
+    crypto.timingSafeEqual(leftValue, rightValue)
+  );
+};
+const getCookie = (req, name) =>
+  String(req.headers.cookie || "")
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(`${name}=`))
+    ?.slice(name.length + 1) || "";
+const setRefreshCookie = (res, token) =>
+  res.cookie(refreshCookie, token, {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production",
+    path: "/dispenser/api/auth",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+const clearRefreshCookie = (res) =>
+  res.clearCookie(refreshCookie, {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production",
+    path: "/dispenser/api/auth",
+  });
 const issue = async (admin, req, res) => {
   const sessionId = crypto.randomUUID();
-  const refreshToken = jwt.sign({ sub: admin.id, jti: sessionId }, config().refreshSecret, {
-    expiresIn: "7d",
-  });
+  const refreshToken = jwt.sign(
+    { sub: admin.id, jti: sessionId },
+    config().refreshSecret,
+    {
+      expiresIn: "7d",
+    },
+  );
   await pool.execute(
     "INSERT INTO admin_refresh_sessions (id, admin_user_id, token_hash, expires_at, ip_address, user_agent) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY), ?, ?)",
-    [sessionId, admin.id, hashToken(refreshToken), req.ip, req.header("user-agent")?.slice(0, 255) || null],
+    [
+      sessionId,
+      admin.id,
+      hashToken(refreshToken),
+      req.ip,
+      req.header("user-agent")?.slice(0, 255) || null,
+    ],
   );
   setRefreshCookie(res, refreshToken);
   return {
     accessToken: jwt.sign(
-    { sub: admin.id, username: admin.username, role: admin.role_name },
-    config().accessSecret,
-    { expiresIn: "15m" },
-  ),
+      { sub: admin.id, username: admin.username, role: admin.role_name },
+      config().accessSecret,
+      { expiresIn: "15m" },
+    ),
   };
 };
 export async function login(req, res) {
@@ -67,6 +95,7 @@ export async function me(req, res) {
 }
 export async function refresh(req, res) {
   const refreshToken = getCookie(req, refreshCookie);
+  if (!refreshToken) return res.status(204).end();
   try {
     const payload = jwt.verify(refreshToken, config().refreshSecret);
     const [rows] = await pool.execute(
@@ -79,7 +108,10 @@ export async function refresh(req, res) {
     );
     if (!rows[0] || !session)
       return res.status(401).json({ message: "Session is no longer active." });
-    await pool.execute("UPDATE admin_refresh_sessions SET revoked_at=NOW(), last_used_at=NOW() WHERE id=?", [session.id]);
+    await pool.execute(
+      "UPDATE admin_refresh_sessions SET revoked_at=NOW(), last_used_at=NOW() WHERE id=?",
+      [session.id],
+    );
     res.json(await issue(rows[0], req, res));
   } catch {
     clearRefreshCookie(res);
@@ -90,7 +122,10 @@ export async function logout(req, res) {
   const refreshToken = getCookie(req, refreshCookie);
   try {
     const payload = jwt.verify(refreshToken, config().refreshSecret);
-    await pool.execute("UPDATE admin_refresh_sessions SET revoked_at=NOW() WHERE id=? AND admin_user_id=?", [payload.jti, payload.sub]);
+    await pool.execute(
+      "UPDATE admin_refresh_sessions SET revoked_at=NOW() WHERE id=? AND admin_user_id=?",
+      [payload.jti, payload.sub],
+    );
   } catch {}
   clearRefreshCookie(res);
   res.status(204).end();
@@ -107,6 +142,10 @@ export async function setup(req, res) {
       .trim()
       .toLowerCase(),
     password = String(req.body.password || "");
+  const setupSecret = String(req.body.setupSecret || "");
+  const expectedSetupSecret = config().initialSetupSecret;
+  if (expectedSetupSecret && !secretsMatch(setupSecret, expectedSetupSecret))
+    return res.status(401).json({ message: "Invalid setup code." });
   if (!firstName || !lastName || !email || password.length < 12)
     return res.status(400).json({
       message:

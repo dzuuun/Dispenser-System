@@ -10,7 +10,10 @@ if (!existing) {
     path.join(here, "migrations/004_kiosk_reminders.sql"),
     "utf8",
   );
-  for (const statement of sql.split(";").map((value) => value.trim()).filter(Boolean))
+  for (const statement of sql
+    .split(";")
+    .map((value) => value.trim())
+    .filter(Boolean))
     await pool.query(statement);
 }
 console.log("Kiosk reminders schema applied.");

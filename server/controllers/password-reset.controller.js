@@ -1,5 +1,8 @@
 import { pool } from "../config/db.js";
-import { decryptPassword, encryptPassword } from "../services/encryption.service.js";
+import {
+  decryptPassword,
+  encryptPassword,
+} from "../services/encryption.service.js";
 
 const accountTables = {
   SATP: "satp_accounts",
@@ -60,12 +63,18 @@ export async function listPasswordResetRequests(_req, res) {
   );
 
   res.set("Cache-Control", "no-store").json(
-    rows.map(({ encrypted_password, password_iv, password_auth_tag, ...row }) => ({
-      ...row,
-      default_password: encrypted_password
-        ? decryptPassword({ encrypted_password, password_iv, password_auth_tag })
-        : null,
-    })),
+    rows.map(
+      ({ encrypted_password, password_iv, password_auth_tag, ...row }) => ({
+        ...row,
+        default_password: encrypted_password
+          ? decryptPassword({
+              encrypted_password,
+              password_iv,
+              password_auth_tag,
+            })
+          : null,
+      }),
+    ),
   );
 }
 
@@ -83,18 +92,30 @@ export async function completePasswordResetRequest(req, res) {
     );
     if (!request) {
       await connection.rollback();
-      return res.status(404).json({ message: "Pending credential request not found." });
+      return res
+        .status(404)
+        .json({ message: "Pending credential request not found." });
     }
     if (request.request_kind === "ACCOUNT_CREATION") {
       const password = String(req.body?.password || "");
-      const emailAddress = String(req.body?.emailAddress || "").trim().toLowerCase();
+      const emailAddress = String(req.body?.emailAddress || "")
+        .trim()
+        .toLowerCase();
       if (!password) {
         await connection.rollback();
-        return res.status(400).json({ message: "Enter the new account password before completing this request." });
+        return res.status(400).json({
+          message:
+            "Enter the new account password before completing this request.",
+        });
       }
-      if (request.credential_type === "EMAIL" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)) {
+      if (
+        request.credential_type === "EMAIL" &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)
+      ) {
         await connection.rollback();
-        return res.status(400).json({ message: "Enter a valid institutional email address." });
+        return res
+          .status(400)
+          .json({ message: "Enter a valid institutional email address." });
       }
       const [[account]] = await connection.execute(
         `SELECT id FROM ${accountTables[request.credential_type]} WHERE student_id=? FOR UPDATE`,
@@ -107,16 +128,28 @@ export async function completePasswordResetRequest(req, res) {
         );
         if (!student) {
           await connection.rollback();
-          return res.status(404).json({ message: "The active student record was not found." });
+          return res
+            .status(404)
+            .json({ message: "The active student record was not found." });
         }
         const encrypted = encryptPassword(password);
-        const loginColumn = request.credential_type === "EMAIL" ? "email_address" : "username";
-        const login = request.credential_type === "EMAIL" ? emailAddress : student.student_id;
+        const loginColumn =
+          request.credential_type === "EMAIL" ? "email_address" : "username";
+        const login =
+          request.credential_type === "EMAIL"
+            ? emailAddress
+            : student.student_id;
         await connection.execute(
           `INSERT INTO ${accountTables[request.credential_type]}
              (student_id, ${loginColumn}, encrypted_password, password_iv, password_auth_tag, is_active)
            VALUES (?, ?, ?, ?, ?, 1)`,
-          [request.student_id, login, encrypted.encrypted_password, encrypted.password_iv, encrypted.password_auth_tag],
+          [
+            request.student_id,
+            login,
+            encrypted.encrypted_password,
+            encrypted.password_iv,
+            encrypted.password_auth_tag,
+          ],
         );
       }
     }
@@ -131,12 +164,24 @@ export async function completePasswordResetRequest(req, res) {
       );
       if (!available) {
         await connection.rollback();
-        return res.status(409).json({ message: "No active voucher is available. Add voucher stock before approving this request." });
+        return res.status(409).json({
+          message:
+            "No active voucher is available. Add voucher stock before approving this request.",
+        });
       }
       if (student?.voucher_id)
-        await connection.execute("UPDATE wifi_vouchers SET is_assigned=0, is_released=1, assigned_at=NULL, released_at=NOW() WHERE id=?", [student.voucher_id]);
-      await connection.execute("UPDATE students SET voucher_id=? WHERE id=?", [available.id, request.student_id]);
-      await connection.execute("UPDATE wifi_vouchers SET is_assigned=1, is_released=0, assigned_at=NOW(), released_at=NULL WHERE id=?", [available.id]);
+        await connection.execute(
+          "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, assigned_at=NULL, released_at=NOW() WHERE id=?",
+          [student.voucher_id],
+        );
+      await connection.execute("UPDATE students SET voucher_id=? WHERE id=?", [
+        available.id,
+        request.student_id,
+      ]);
+      await connection.execute(
+        "UPDATE wifi_vouchers SET is_assigned=1, is_released=0, assigned_at=NOW(), released_at=NULL WHERE id=?",
+        [available.id],
+      );
       assignedVoucher = available.voucher_code;
     }
     const [result] = await connection.execute(
@@ -147,19 +192,25 @@ export async function completePasswordResetRequest(req, res) {
     );
     if (!result.affectedRows) {
       await connection.rollback();
-      return res.status(404).json({ message: "Pending credential request not found." });
+      return res
+        .status(404)
+        .json({ message: "Pending credential request not found." });
     }
     await connection.commit();
-    const message = request.request_kind === "ACCOUNT_CREATION"
-      ? "Account created and request completed."
-      : request.request_kind === "VOUCHER_REQUEST"
-        ? `Voucher request approved. ${assignedVoucher} was assigned to the student.`
-        : "Password reset request marked completed.";
+    const message =
+      request.request_kind === "ACCOUNT_CREATION"
+        ? "Account created and request completed."
+        : request.request_kind === "VOUCHER_REQUEST"
+          ? `Voucher request approved. ${assignedVoucher} was assigned to the student.`
+          : "Password reset request marked completed.";
     res.json({ message });
   } catch (error) {
     await connection.rollback();
     if (error.code === "ER_DUP_ENTRY")
-      return res.status(409).json({ message: "That username or email address is already assigned to another account." });
+      return res.status(409).json({
+        message:
+          "That username or email address is already assigned to another account.",
+      });
     throw error;
   } finally {
     connection.release();
@@ -177,6 +228,11 @@ export async function rejectVoucherRequest(req, res) {
     [req.admin.sub, id],
   );
   if (!result.affectedRows)
-    return res.status(404).json({ message: "Pending voucher request not found." });
-  res.json({ message: "Voucher request rejected. The student's current voucher was not changed." });
+    return res
+      .status(404)
+      .json({ message: "Pending voucher request not found." });
+  res.json({
+    message:
+      "Voucher request rejected. The student's current voucher was not changed.",
+  });
 }

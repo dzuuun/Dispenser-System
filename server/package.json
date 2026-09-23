@@ -20,6 +20,7 @@
     "migrate-account-requests": "node db/migrate-account-requests.js",
     "migrate-voucher-requests": "node db/migrate-voucher-requests.js",
     "migrate-kiosk-management": "node db/migrate-kiosk-management.js",
+    "migrate-kiosk-credential-sessions": "node db/migrate-kiosk-credential-sessions.js",
     "migrate-security-hardening": "node db/migrate-security-hardening.js",
     "rebuild-db": "set ALLOW_DB_REBUILD=true&& node db/rebuild-development.js"
   },
@@ -27,13 +28,14 @@
     "bcrypt": "6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.2",
+    "mssql": "11.0.1",
+    "multer": "^2.3.0",
     "mysql2": "^3.12.0",
-    "xlsx": "^0.18.5",
     "zod": "^3.24.1"
   }
 }

@@ -11,7 +11,6 @@ const verification = z.object({
   birthDate: z.string().date(),
   courseId: z.coerce.number().int().positive(),
 });
-const kioskSession = new Map();
 const accountTables = {
   SATP: "satp_accounts",
   SCHOOLOGY: "schoology_accounts",
@@ -31,20 +30,29 @@ async function moduleControls(executor = pool) {
   const [rows] = await executor.query(
     "SELECT module_key, is_visible, is_maintenance FROM credential_module_controls",
   );
-  return new Map(rows.map((row) => [row.module_key, {
-    visible: Boolean(row.is_visible),
-    maintenance: Boolean(row.is_maintenance),
-  }]));
+  return new Map(
+    rows.map((row) => [
+      row.module_key,
+      {
+        visible: Boolean(row.is_visible),
+        maintenance: Boolean(row.is_maintenance),
+      },
+    ]),
+  );
 }
 
-function activeKioskSession(req) {
+async function activeKioskSession(req) {
   try {
     const session = jwt.verify(
       req.headers.authorization?.replace(/^Bearer\s+/i, ""),
       config().accessSecret,
     );
-    return session.scope === "kiosk-credentials" &&
-      kioskSession.get(session.jti) === session.sub
+    if (session.scope !== "kiosk-credentials") return null;
+    const [[stored]] = await pool.execute(
+      "SELECT student_id FROM kiosk_credential_sessions WHERE id=? AND expires_at>NOW()",
+      [session.jti],
+    );
+    return stored && Number(stored.student_id) === Number(session.sub)
       ? session
       : null;
   } catch {
@@ -70,7 +78,9 @@ export async function verify(req, res) {
   const controls = await moduleControls();
   const kioskControl = controls.get("KIOSK");
   if (kioskControl?.maintenance)
-    return res.status(503).json({ message: "The credentials dispenser is currently under maintenance." });
+    return res.status(503).json({
+      message: "The credentials dispenser is currently under maintenance.",
+    });
   const parsed = verification.safeParse(req.body);
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];
@@ -80,7 +90,9 @@ export async function verify(req, res) {
       birthDate: "Enter a valid birthday.",
       courseId: "Search for and select your course.",
     };
-    return res.status(400).json({ message: messages[field] || "Please complete all fields." });
+    return res
+      .status(400)
+      .json({ message: messages[field] || "Please complete all fields." });
   }
   const v = parsed.data;
   const [rows] = await pool.execute(
@@ -93,21 +105,28 @@ export async function verify(req, res) {
   );
   const student = rows[0];
   let failureMessage = "";
-  if (!student)
-    failureMessage = "Student ID or Kumosoft ID was not found.";
+  if (!student) failureMessage = "Student ID or Kumosoft ID was not found.";
   else if (!student.is_active)
-    failureMessage = "This student record is inactive. Please proceed to the ICT/MIS Office.";
-  else if (normalizeNameForVerification(student.last_name) !== normalizeNameForVerification(v.lastName))
+    failureMessage =
+      "This student record is inactive. Please proceed to the ICT/MIS Office.";
+  else if (
+    normalizeNameForVerification(student.last_name) !==
+    normalizeNameForVerification(v.lastName)
+  )
     failureMessage = "The last name does not match the student record.";
   else if (String(student.birth_date) !== v.birthDate)
     failureMessage = "The birthday does not match the student record.";
   else if (Number(student.course_id) !== Number(v.courseId))
     failureMessage = "The selected course does not match the student record.";
   if (failureMessage)
-    return res.status(student && !student.is_active ? 403 : 401).json({ message: failureMessage });
+    return res
+      .status(student && !student.is_active ? 403 : 401)
+      .json({ message: failureMessage });
   const jti = crypto.randomUUID();
-  kioskSession.set(jti, student.id);
-  setTimeout(() => kioskSession.delete(jti), 3 * 60_000).unref();
+  await pool.execute(
+    "INSERT INTO kiosk_credential_sessions (id, student_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 3 MINUTE))",
+    [jti, student.id],
+  );
   res.set("Cache-Control", "no-store").json({
     token: jwt.sign(
       { sub: student.id, scope: "kiosk-credentials", jti },
@@ -124,7 +143,7 @@ export async function verify(req, res) {
   });
 }
 export async function credentials(req, res) {
-  const session = activeKioskSession(req);
+  const session = await activeKioskSession(req);
   if (!session) {
     return res
       .status(401)
@@ -141,19 +160,32 @@ export async function credentials(req, res) {
       "SELECT 'SATP' credential_type, username FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
       [session.sub, session.sub, session.sub, session.sub],
     );
-    const [pendingRequests] = await conn.execute(
-      `SELECT credential_type, request_kind
+    const [requestRecords] = await conn.execute(
+      `SELECT credential_type, request_kind, status,
+              DATE_FORMAT(requested_at, '%Y-%m-%d %H:%i:%s') requested_at,
+              DATE_FORMAT(resolved_at, '%Y-%m-%d %H:%i:%s') resolved_at
          FROM password_reset_requests
-        WHERE student_id=? AND status='PENDING'`,
+        WHERE student_id=?
+        ORDER BY requested_at DESC, id DESC`,
       [session.sub],
     );
+    const latestRequests = new Map();
+    for (const request of requestRecords) {
+      const key = `${request.credential_type}:${request.request_kind}`;
+      if (!latestRequests.has(key)) latestRequests.set(key, request);
+    }
     const controls = await moduleControls(conn);
     const kioskControl = controls.get("KIOSK");
     if (kioskControl?.maintenance) {
       await conn.rollback();
-      return res.status(503).json({ message: "The credentials dispenser is currently under maintenance." });
+      return res.status(503).json({
+        message: "The credentials dispenser is currently under maintenance.",
+      });
     }
-    const voucherControl = controls.get("VOUCHER") || { visible: true, maintenance: false };
+    const voucherControl = controls.get("VOUCHER") || {
+      visible: true,
+      maintenance: false,
+    };
     const [[existing]] = await conn.execute(
       "SELECT w.voucher_code FROM students s JOIN wifi_vouchers w ON w.id=s.voucher_id WHERE s.id=?",
       [session.sub],
@@ -190,12 +222,12 @@ export async function credentials(req, res) {
         credentials: ["SATP", "SCHOOLOGY", "KUMOSOFT", "EMAIL"]
           .filter((type) => controls.get(type)?.visible ?? true)
           .map((type) => {
-            const credential = creds.find((item) => item.credential_type === type);
+            const credential = creds.find(
+              (item) => item.credential_type === type,
+            );
             return {
               type,
-              username: credential
-                ? type === "EMAIL" ? credential.username : student.student_id
-                : null,
+              username: credential?.username || null,
               unavailable: !credential,
               maintenance: controls.get(type)?.maintenance || false,
             };
@@ -208,10 +240,21 @@ export async function credentials(req, res) {
               ? "AVAILABLE"
               : "PENDING",
         hasWifiVoucher: voucherControl.visible && Boolean(voucher),
-        pendingRequests: pendingRequests.map((request) => ({
-          type: request.credential_type,
-          kind: request.request_kind,
-        })),
+        pendingRequests: [...latestRequests.values()]
+          .filter((request) => request.status === "PENDING")
+          .map((request) => ({
+            type: request.credential_type,
+            kind: request.request_kind,
+            requestedAt: request.requested_at,
+          })),
+        requestOutcomes: [...latestRequests.values()]
+          .filter((request) => request.status !== "PENDING")
+          .map((request) => ({
+            type: request.credential_type,
+            kind: request.request_kind,
+            status: request.status,
+            resolvedAt: request.resolved_at,
+          })),
       });
   } catch (error) {
     await conn.rollback();
@@ -221,20 +264,26 @@ export async function credentials(req, res) {
   }
 }
 export async function revealCredentials(req, res) {
-  const session = activeKioskSession(req);
+  const session = await activeKioskSession(req);
   if (!session)
-    return res.status(401).json({ message: "Session expired. Please verify again." });
+    return res
+      .status(401)
+      .json({ message: "Session expired. Please verify again." });
   try {
     const controls = await moduleControls();
     const kioskControl = controls.get("KIOSK");
     if (kioskControl?.maintenance)
-      return res.status(503).json({ message: "The credentials dispenser is currently under maintenance." });
+      return res.status(503).json({
+        message: "The credentials dispenser is currently under maintenance.",
+      });
     const [[student]] = await pool.execute(
       "SELECT student_id FROM students WHERE id=? AND is_active=1",
       [session.sub],
     );
     if (!student)
-      return res.status(404).json({ message: "Student record is not available." });
+      return res
+        .status(404)
+        .json({ message: "Student record is not available." });
     const [rows] = await pool.execute(
       "SELECT 'SATP' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username, encrypted_password, password_iv, password_auth_tag FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
       [session.sub, session.sub, session.sub, session.sub],
@@ -243,48 +292,61 @@ export async function revealCredentials(req, res) {
       "SELECT w.voucher_code FROM students s LEFT JOIN wifi_vouchers w ON w.id=s.voucher_id WHERE s.id=?",
       [session.sub],
     );
-    const revealedCredentials = rows.filter((row) => {
-      const control = controls.get(row.credential_type);
-      return (control?.visible ?? true) && !control?.maintenance;
-    }).map((row) => ({
-      type: row.credential_type,
-      username: row.credential_type === "EMAIL" ? row.username : student.student_id,
-      password: decryptPassword(row),
-    }));
-    if (revealedCredentials.length)
-      await transaction({
-        studentId: session.sub,
-        kioskCode: req.kioskCode,
-        type: "VIEW_CREDENTIALS",
-        success: true,
-        ip: req.ip,
-        userAgent: req.header("user-agent"),
-      });
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private").json({
-      credentials: revealedCredentials,
-      wifiVoucher: controls.get("VOUCHER")?.visible !== false && !controls.get("VOUCHER")?.maintenance
-        ? voucher?.voucher_code || null
-        : null,
+    const revealedCredentials = rows
+      .filter((row) => {
+        const control = controls.get(row.credential_type);
+        return (control?.visible ?? true) && !control?.maintenance;
+      })
+      .map((row) => ({
+        type: row.credential_type,
+        username: row.username,
+        password: decryptPassword(row),
+      }));
+    // A student explicitly confirmed Show All. Record that security-sensitive
+    // action even when every credential is currently unavailable or hidden.
+    await transaction({
+      studentId: session.sub,
+      kioskCode: req.kioskCode,
+      type: "VIEW_CREDENTIALS",
+      success: true,
+      ip: req.ip,
+      userAgent: req.header("user-agent"),
     });
+    res
+      .set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+      .json({
+        credentials: revealedCredentials,
+        wifiVoucher:
+          controls.get("VOUCHER")?.visible !== false &&
+          !controls.get("VOUCHER")?.maintenance
+            ? voucher?.voucher_code || null
+            : null,
+      });
   } catch (error) {
     res.status(500).json({ message: "Unable to reveal credentials." });
   }
 }
 export async function requestPasswordReset(req, res) {
-  const session = activeKioskSession(req);
+  const session = await activeKioskSession(req);
   if (!session)
-    return res.status(401).json({ message: "Session expired. Please verify again." });
+    return res
+      .status(401)
+      .json({ message: "Session expired. Please verify again." });
 
   const credentialType = String(req.body?.credentialType || "").toUpperCase();
   if (credentialType === "SATP")
-    return res.status(400).json({ message: "SATP password reset requests are not required." });
+    return res
+      .status(400)
+      .json({ message: "SATP password reset requests are not required." });
   const table = accountTables[credentialType];
   if (!table)
     return res.status(400).json({ message: "Select a valid account." });
   const controls = await moduleControls();
   const control = controls.get(credentialType);
   if (control && (!control.visible || control.maintenance))
-    return res.status(503).json({ message: `${credentialType} is not currently available.` });
+    return res
+      .status(503)
+      .json({ message: `${credentialType} is not currently available.` });
 
   const connection = await pool.getConnection();
   try {
@@ -295,7 +357,9 @@ export async function requestPasswordReset(req, res) {
     );
     if (!account) {
       await connection.rollback();
-      return res.status(404).json({ message: "This account is not available." });
+      return res
+        .status(404)
+        .json({ message: "This account is not available." });
     }
     const [[pending]] = await connection.execute(
       `SELECT id FROM password_reset_requests
@@ -324,23 +388,33 @@ export async function requestPasswordReset(req, res) {
   } catch (error) {
     await connection.rollback();
     if (error.code === "ER_DUP_ENTRY")
-      return res.json({ message: `Your ${credentialType} password reset request is already pending.` });
-    res.status(500).json({ message: "Unable to submit the password reset request." });
+      return res.json({
+        message: `Your ${credentialType} password reset request is already pending.`,
+      });
+    res
+      .status(500)
+      .json({ message: "Unable to submit the password reset request." });
   } finally {
     connection.release();
   }
 }
 export async function requestNewVoucher(req, res) {
-  const session = activeKioskSession(req);
+  const session = await activeKioskSession(req);
   if (!session)
-    return res.status(401).json({ message: "Session expired. Please verify again." });
+    return res
+      .status(401)
+      .json({ message: "Session expired. Please verify again." });
   const controls = await moduleControls();
   const control = controls.get("VOUCHER");
   if (control && (!control.visible || control.maintenance))
-    return res.status(503).json({ message: "WiFi vouchers are not currently available." });
+    return res
+      .status(503)
+      .json({ message: "WiFi vouchers are not currently available." });
   const reason = String(req.body?.reason || "").trim();
   if (reason.length < 10 || reason.length > 500)
-    return res.status(400).json({ message: "Explain why you need a new voucher using 10 to 500 characters." });
+    return res.status(400).json({
+      message: "Explain why you need a new voucher using 10 to 500 characters.",
+    });
 
   const connection = await pool.getConnection();
   try {
@@ -351,11 +425,15 @@ export async function requestNewVoucher(req, res) {
     );
     if (!student) {
       await connection.rollback();
-      return res.status(404).json({ message: "Student record is not available." });
+      return res
+        .status(404)
+        .json({ message: "Student record is not available." });
     }
     if (!student.voucher_id) {
       await connection.rollback();
-      return res.status(409).json({ message: "There is no current voucher to replace." });
+      return res
+        .status(409)
+        .json({ message: "There is no current voucher to replace." });
     }
     const [[pending]] = await connection.execute(
       `SELECT id FROM password_reset_requests
@@ -365,7 +443,10 @@ export async function requestNewVoucher(req, res) {
     );
     if (pending) {
       await connection.rollback();
-      return res.json({ requestId: pending.id, message: "Your new voucher request is already pending." });
+      return res.json({
+        requestId: pending.id,
+        message: "Your new voucher request is already pending.",
+      });
     }
     const [result] = await connection.execute(
       `INSERT INTO password_reset_requests
@@ -374,20 +455,30 @@ export async function requestNewVoucher(req, res) {
       [session.sub, reason, req.kioskCode],
     );
     await connection.commit();
-    res.status(201).json({ requestId: result.insertId, message: "Your new voucher request was submitted for administrator approval." });
+    res.status(201).json({
+      requestId: result.insertId,
+      message:
+        "Your new voucher request was submitted for administrator approval.",
+    });
   } catch (error) {
     await connection.rollback();
     if (error.code === "ER_DUP_ENTRY")
-      return res.json({ message: "Your new voucher request is already pending." });
-    res.status(500).json({ message: "Unable to submit the new voucher request." });
+      return res.json({
+        message: "Your new voucher request is already pending.",
+      });
+    res
+      .status(500)
+      .json({ message: "Unable to submit the new voucher request." });
   } finally {
     connection.release();
   }
 }
 export async function requestAccount(req, res) {
-  const session = activeKioskSession(req);
+  const session = await activeKioskSession(req);
   if (!session)
-    return res.status(401).json({ message: "Session expired. Please verify again." });
+    return res
+      .status(401)
+      .json({ message: "Session expired. Please verify again." });
   const credentialType = String(req.body?.credentialType || "").toUpperCase();
   const table = accountTables[credentialType];
   if (!table)
@@ -395,7 +486,9 @@ export async function requestAccount(req, res) {
   const controls = await moduleControls();
   const control = controls.get(credentialType);
   if (control && (!control.visible || control.maintenance))
-    return res.status(503).json({ message: `${credentialType} is not currently available.` });
+    return res
+      .status(503)
+      .json({ message: `${credentialType} is not currently available.` });
 
   const connection = await pool.getConnection();
   try {
@@ -439,7 +532,9 @@ export async function requestAccount(req, res) {
   } catch (error) {
     await connection.rollback();
     if (error.code === "ER_DUP_ENTRY")
-      return res.json({ message: `Your ${credentialType} account request is already pending.` });
+      return res.json({
+        message: `Your ${credentialType} account request is already pending.`,
+      });
     res.status(500).json({ message: "Unable to submit the account request." });
   } finally {
     connection.release();
@@ -451,7 +546,9 @@ export async function endSession(req, res) {
       req.headers.authorization?.replace(/^Bearer\s+/i, ""),
       config().accessSecret,
     );
-    kioskSession.delete(p.jti);
+    await pool.execute("DELETE FROM kiosk_credential_sessions WHERE id=?", [
+      p.jti,
+    ]);
   } catch {}
   res.status(204).end();
 }

@@ -11,7 +11,8 @@ if (!column)
 const [indexes] = await pool.query(
   "SHOW INDEX FROM wifi_vouchers WHERE Key_name='available_voucher'",
 );
-if (indexes.length) await pool.query("ALTER TABLE wifi_vouchers DROP INDEX available_voucher");
+if (indexes.length)
+  await pool.query("ALTER TABLE wifi_vouchers DROP INDEX available_voucher");
 await pool.query(
   "ALTER TABLE wifi_vouchers ADD INDEX available_voucher (is_active, is_assigned)",
 );

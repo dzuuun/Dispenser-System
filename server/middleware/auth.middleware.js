@@ -10,8 +10,12 @@ export function requireAdmin(req, res, next) {
   }
 }
 
-export const requireRoles = (...roles) => (req, res, next) => {
-  if (!req.admin || !roles.includes(req.admin.role))
-    return res.status(403).json({ message: `${roles.join(" or ")} access is required.` });
-  next();
-};
+export const requireRoles =
+  (...roles) =>
+  (req, res, next) => {
+    if (!req.admin || !roles.includes(req.admin.role))
+      return res
+        .status(403)
+        .json({ message: `${roles.join(" or ")} access is required.` });
+    next();
+  };

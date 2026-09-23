@@ -1,5 +1,31 @@
 import { pool } from "../config/db.js";
-import XLSX from "xlsx";
+import {
+  readWorkbookRows,
+  workbookBase64,
+} from "../services/workbook.service.js";
+
+const safeExportValue = (value) => {
+  const text = String(value ?? "");
+  return /^[=+\-@]/.test(text) ? `'${text}` : text;
+};
+const buildErrorReport = async (rows, errors) => {
+  if (!errors.length) return null;
+  const messages = new Map(errors.map((error) => [error.row, error.message]));
+  return workbookBase64(
+    rows
+      .map((row, index) => ({
+        ...Object.fromEntries(
+          Object.entries(row).map(([key, value]) => [
+            key,
+            safeExportValue(value),
+          ]),
+        ),
+        Error: messages.get(index + 2),
+      }))
+      .filter((row) => row.Error),
+    "Import errors",
+  );
+};
 
 export async function listCourses(_req, res) {
   const [rows] = await pool.query(
@@ -64,7 +90,7 @@ export async function updateCourse(req, res) {
     throw error;
   }
 }
-function readImportRows(file) {
+async function readImportRows(file) {
   if (!file) {
     const error = new Error("Choose a CSV or XLSX file.");
     error.status = 400;
@@ -72,9 +98,7 @@ function readImportRows(file) {
   }
   let rows;
   try {
-    const workbook = XLSX.read(file.buffer, { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    rows = await readWorkbookRows(file.buffer, file.originalname);
   } catch {
     const error = new Error("The uploaded file could not be read.");
     error.status = 400;
@@ -86,6 +110,7 @@ function readImportRows(file) {
     throw error;
   }
   const valid = [],
+    sourceRows = [],
     errors = [],
     seen = new Set();
   rows.forEach((sourceRow, index) => {
@@ -95,6 +120,7 @@ function readImportRows(file) {
         value,
       ]),
     );
+    sourceRows.push(row);
     const code = String(row.CourseCode || row.Code || row.course_code || "")
       .trim()
       .toUpperCase();
@@ -114,11 +140,11 @@ function readImportRows(file) {
     seen.add(code);
     valid.push({ row: index + 2, code, name });
   });
-  return { total: rows.length, valid, errors };
+  return { total: rows.length, valid, errors, sourceRows };
 }
 
 async function classifyImport(file, executor = pool) {
-  const parsed = readImportRows(file);
+  const parsed = await readImportRows(file);
   const codes = parsed.valid.map((item) => item.code);
   const existing = new Map();
   if (codes.length) {
@@ -155,6 +181,7 @@ export async function validateCourseImport(req, res) {
       unchanged: result.unchanged,
       invalid: result.errors.length,
       errors: result.errors,
+      errorReport: await buildErrorReport(result.sourceRows, result.errors),
       preview: result.items,
     });
   } catch (error) {

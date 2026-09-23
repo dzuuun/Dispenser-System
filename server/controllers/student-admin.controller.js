@@ -4,37 +4,74 @@ import { encryptPassword } from "../services/encryption.service.js";
 import { auditAdminAction } from "../services/audit.service.js";
 
 export async function listStudents(req, res) {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(1000, Math.max(10, Number(req.query.limit) || 20));
-  const search = String(req.query.search || "").trim();
+  // Supports both the regular API and DataTables server-side paging requests.
+  const draw = Number(req.query.draw) || null;
+  const limit = Math.min(
+    draw ? 100 : 10000,
+    Math.max(10, Number(req.query.length || req.query.limit) || 20),
+  );
+  const page = Math.max(
+    1,
+    draw
+      ? Math.floor((Number(req.query.start) || 0) / limit) + 1
+      : Number(req.query.page) || 1,
+  );
+  const search = String(
+    req.query["search[value]"] || req.query.search || "",
+  ).trim();
   const status = String(req.query.status || "all");
   const filters = [],
     values = [];
   if (search) {
-    filters.push(
-      "(s.student_id LIKE ? OR s.kumosoft_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)",
-    );
     const q = `%${search}%`;
-    values.push(q, q, q, q);
+    const numericSearch = /^\d+$/.test(search);
+    filters.push(
+      `(s.student_id LIKE ? OR s.kumosoft_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?${numericSearch ? " OR s.id=?" : ""})`,
+    );
+    values.push(q, q, q, q, q);
+    if (numericSearch) values.push(Number(search));
   }
   if (status === "active") filters.push("s.is_active=1");
   if (status === "inactive") filters.push("s.is_active=0");
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const orderBy =
+    {
+      name: "s.last_name, s.first_name, s.student_id",
+      studentId: "s.student_id",
+      course: "c.code, s.last_name, s.first_name",
+      status: "s.is_active DESC, s.last_name, s.first_name",
+    }[String(req.query.sort || "name")] ||
+    "s.last_name, s.first_name, s.student_id";
+  const direction =
+    String(req.query.direction || "asc").toLowerCase() === "desc"
+      ? "DESC"
+      : "ASC";
   const [[count]] = await pool.execute(
-    `SELECT COUNT(*) total FROM students s ${where}`,
+    `SELECT COUNT(*) total, SUM(s.is_active=1) active_total FROM students s ${where}`,
     values,
   );
   const [rows] = await pool.execute(
-    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, s.is_active, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id ${where} ORDER BY s.last_name, s.first_name LIMIT ? OFFSET ?`,
+    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, s.is_active, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id ${where} ORDER BY ${orderBy} ${direction} LIMIT ? OFFSET ?`,
     [...values, limit, (page - 1) * limit],
   );
-  res.json({
+  const response = {
     rows,
     page,
     limit,
     total: Number(count.total),
     pages: Math.max(1, Math.ceil(Number(count.total) / limit)),
-  });
+    activeTotal: Number(count.active_total || 0),
+  };
+  res.json(
+    draw
+      ? {
+          draw,
+          recordsTotal: Number(count.total),
+          recordsFiltered: Number(count.total),
+          data: rows,
+        }
+      : response,
+  );
 }
 export async function getStudent(req, res) {
   const id = Number(req.params.id);
@@ -73,7 +110,7 @@ export async function getStudent(req, res) {
     row
       ? {
           type,
-          username: type === "EMAIL" ? row.email_address : student.student_id,
+          username: type === "EMAIL" ? row.email_address : row.username,
           password: decryptPassword(row),
           isActive: Boolean(row.is_active),
         }
@@ -94,8 +131,13 @@ export async function getStudent(req, res) {
         }
       : null,
   });
-  auditAdminAction({ req, action: "VIEW_CREDENTIALS", module: "STUDENT", recordId: id, description: "Viewed linked student credentials." })
-    .catch((error) => console.error("Audit logging failed:", error.message));
+  auditAdminAction({
+    req,
+    action: "VIEW_CREDENTIALS",
+    module: "STUDENT",
+    recordId: id,
+    description: "Viewed linked student credentials.",
+  }).catch((error) => console.error("Audit logging failed:", error.message));
 }
 export async function courseOptions(_req, res) {
   const [courses] = await pool.query(
@@ -162,11 +204,16 @@ export async function createStudent(req, res) {
         isActive,
       ],
     );
-    const addAccount = async (table, password, email = false) => {
+    const addAccount = async (
+      table,
+      password,
+      email = false,
+      username = studentId,
+    ) => {
       if (!password) return;
       const encrypted = encryptPassword(password);
       const column = email ? "email_address" : "username";
-      const login = email ? emailAddress : studentId;
+      const login = email ? emailAddress : username;
       await connection.execute(
         `INSERT INTO ${table} (student_id, ${column}, encrypted_password, password_iv, password_auth_tag, is_active) VALUES (?, ?, ?, ?, ?, 1)`,
         [
@@ -180,7 +227,12 @@ export async function createStudent(req, res) {
     };
     await addAccount("satp_accounts", satpPassword);
     await addAccount("schoology_accounts", schoologyPassword);
-    await addAccount("kumosoft_accounts", kumosoftPassword);
+    await addAccount(
+      "kumosoft_accounts",
+      kumosoftPassword,
+      false,
+      kumosoftId || studentId,
+    );
     await addAccount("institutional_email_accounts", emailPassword, true);
     await connection.commit();
     res
@@ -200,6 +252,7 @@ export async function createStudent(req, res) {
 export async function updateStudent(req, res) {
   const id = Number(req.params.id),
     studentId = String(req.body.studentId || "").trim(),
+    kumosoftId = String(req.body.kumosoftId || "").trim() || null,
     firstName = String(req.body.firstName || "").trim(),
     middleName = String(req.body.middleName || "").trim() || null,
     lastName = String(req.body.lastName || "").trim(),
@@ -228,24 +281,26 @@ export async function updateStudent(req, res) {
   const assignNextVoucher = req.body.assignNextVoucher === true,
     unassignVoucher = req.body.unassignVoucher === true;
   if (Boolean(emailAddress) !== Boolean(emailPassword))
-    return res
-      .status(400)
-      .json({
-        message:
-          "Provide both the institutional email address and its password, or leave both empty.",
-      });
+    return res.status(400).json({
+      message:
+        "Provide both the institutional email address and its password, or leave both empty.",
+    });
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [[course]] = await connection.execute("SELECT id FROM courses WHERE id=? AND is_active=1", [courseId]);
+    const [[course]] = await connection.execute(
+      "SELECT id FROM courses WHERE id=? AND is_active=1",
+      [courseId],
+    );
     if (!course) {
       await connection.rollback();
       return res.status(400).json({ message: "Select an active course." });
     }
     const [updated] = await connection.execute(
-      "UPDATE students SET student_id=?, first_name=?, middle_name=?, last_name=?, birth_date=?, course_id=?, is_active=? WHERE id=?",
+      "UPDATE students SET student_id=?, kumosoft_id=?, first_name=?, middle_name=?, last_name=?, birth_date=?, course_id=?, is_active=? WHERE id=?",
       [
         studentId,
+        kumosoftId,
         firstName,
         middleName,
         lastName,
@@ -259,17 +314,28 @@ export async function updateStudent(req, res) {
       await connection.rollback();
       return res.status(404).json({ message: "Student record not found." });
     }
-    await Promise.all(["satp_accounts", "schoology_accounts", "kumosoft_accounts"].map(
-      (table) => connection.execute(`UPDATE ${table} SET username=? WHERE student_id=?`, [
-            studentId,
-            id,
-          ]),
-    ));
-    const saveAccount = async (table, password, email = false) => {
+    await Promise.all(
+      [
+        ["satp_accounts", studentId],
+        ["schoology_accounts", studentId],
+        ["kumosoft_accounts", kumosoftId || studentId],
+      ].map(([table, username]) =>
+        connection.execute(
+          `UPDATE ${table} SET username=? WHERE student_id=?`,
+          [username, id],
+        ),
+      ),
+    );
+    const saveAccount = async (
+      table,
+      password,
+      email = false,
+      username = studentId,
+    ) => {
       if (!password) return;
       const encrypted = encryptPassword(password),
         column = email ? "email_address" : "username",
-        login = email ? emailAddress : studentId;
+        login = email ? emailAddress : username;
       await connection.execute(
         `INSERT INTO ${table} (student_id, ${column}, encrypted_password, password_iv, password_auth_tag, is_active) VALUES (?, ?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE ${column}=VALUES(${column}), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag), is_active=1`,
         [
@@ -283,16 +349,22 @@ export async function updateStudent(req, res) {
     };
     await saveAccount("satp_accounts", satpPassword);
     await saveAccount("schoology_accounts", schoologyPassword);
-    await saveAccount("kumosoft_accounts", kumosoftPassword);
+    await saveAccount(
+      "kumosoft_accounts",
+      kumosoftPassword,
+      false,
+      kumosoftId || studentId,
+    );
     await saveAccount("institutional_email_accounts", emailPassword, true);
     if (unassignVoucher) {
       const [[current]] = await connection.execute(
         "SELECT voucher_id FROM students WHERE id=?",
         [id],
       );
-      await connection.execute("UPDATE students SET voucher_id=NULL WHERE id=?", [
-        id,
-      ]);
+      await connection.execute(
+        "UPDATE students SET voucher_id=NULL WHERE id=?",
+        [id],
+      );
       if (current?.voucher_id)
         await connection.execute(
           "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
@@ -304,12 +376,9 @@ export async function updateStudent(req, res) {
       );
       if (!available) {
         await connection.rollback();
-        return res
-          .status(400)
-          .json({
-            message:
-              "No available WiFi vouchers remain for the current period.",
-          });
+        return res.status(400).json({
+          message: "No available WiFi vouchers remain for the current period.",
+        });
       }
       const [[current]] = await connection.execute(
         "SELECT voucher_id FROM students WHERE id=? FOR UPDATE",
@@ -341,7 +410,9 @@ export async function updateStudent(req, res) {
       }
       if (!voucher.is_active) {
         await connection.rollback();
-        return res.status(400).json({ message: "This WiFi voucher is inactive." });
+        return res
+          .status(400)
+          .json({ message: "This WiFi voucher is inactive." });
       }
       const [[otherStudent]] = await connection.execute(
         "SELECT id FROM students WHERE voucher_id=? AND id<>? LIMIT 1",
@@ -349,7 +420,9 @@ export async function updateStudent(req, res) {
       );
       if (otherStudent) {
         await connection.rollback();
-        return res.status(409).json({ message: "This WiFi voucher is already assigned." });
+        return res
+          .status(409)
+          .json({ message: "This WiFi voucher is already assigned." });
       }
       const [[current]] = await connection.execute(
         "SELECT voucher_id FROM students WHERE id=? FOR UPDATE",
@@ -400,11 +473,9 @@ export async function generateStudentVoucher(req, res) {
       "SELECT id, voucher_code FROM wifi_vouchers WHERE is_active=1 AND is_assigned=0 AND is_released=0 LIMIT 1 FOR UPDATE",
     );
     if (!voucher)
-      return res
-        .status(400)
-        .json({
-          message: "No available WiFi vouchers remain for the current period.",
-        });
+      return res.status(400).json({
+        message: "No available WiFi vouchers remain for the current period.",
+      });
     if (student.voucher_id)
       await connection.execute(
         "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",

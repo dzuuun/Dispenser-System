@@ -8,7 +8,10 @@ const sql = await fs.readFile(
   path.join(here, "migrations/005_credential_module_controls.sql"),
   "utf8",
 );
-for (const statement of sql.split(";").map((value) => value.trim()).filter(Boolean))
+for (const statement of sql
+  .split(";")
+  .map((value) => value.trim())
+  .filter(Boolean))
   await pool.query(statement);
 console.log("Credential module controls schema applied.");
 await pool.end();

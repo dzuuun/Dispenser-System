@@ -4,10 +4,16 @@ import { fileURLToPath } from "node:url";
 import { pool } from "../config/db.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const sql = await fs.readFile(path.join(here, "migrations/006_kiosk_management.sql"), "utf8");
+const sql = await fs.readFile(
+  path.join(here, "migrations/006_kiosk_management.sql"),
+  "utf8",
+);
 
 try {
-  for (const statement of sql.split(";").map((value) => value.trim()).filter(Boolean)) {
+  for (const statement of sql
+    .split(";")
+    .map((value) => value.trim())
+    .filter(Boolean)) {
     try {
       await pool.query(statement);
     } catch (error) {

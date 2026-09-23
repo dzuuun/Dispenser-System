@@ -13,21 +13,39 @@ export async function transaction({
   );
 }
 
-export async function auditAdminAction({ req, action, module, recordId = null, description = null }) {
+export async function auditAdminAction({
+  req,
+  action,
+  module,
+  recordId = null,
+  description = null,
+}) {
   if (!req.admin?.sub) return;
-  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  const ip = forwarded || req.socket.remoteAddress?.replace(/^::ffff:/, "") || null;
+  const ip = req.ip?.replace(/^::ffff:/, "") || null;
   await pool.execute(
     "INSERT INTO audit_logs (admin_user_id, action, module, record_id, description, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
-    [req.admin.sub, action, module, recordId ? String(recordId) : null, description, ip],
+    [
+      req.admin.sub,
+      action,
+      module,
+      recordId ? String(recordId) : null,
+      description,
+      ip,
+    ],
   );
 }
 
 export const auditAdminMutation = (action, module) => (req, res, next) => {
   res.once("finish", () => {
     if (res.statusCode >= 200 && res.statusCode < 300)
-      auditAdminAction({ req, action, module, recordId: req.params.id || req.params.module || null })
-        .catch((error) => console.error("Audit logging failed:", error.message));
+      auditAdminAction({
+        req,
+        action,
+        module,
+        recordId: req.params.id || req.params.module || null,
+      }).catch((error) =>
+        console.error("Audit logging failed:", error.message),
+      );
   });
   next();
 };

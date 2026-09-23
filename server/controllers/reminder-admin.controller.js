@@ -19,13 +19,23 @@ export async function listReminders(_req, res) {
 export async function createReminder(req, res) {
   const parsed = reminderSchema.safeParse(req.body);
   if (!parsed.success)
-    return res.status(400).json({ message: "Complete all required reminder fields." });
+    return res
+      .status(400)
+      .json({ message: "Complete all required reminder fields." });
   const value = parsed.data;
   const [result] = await pool.execute(
     "INSERT INTO kiosk_reminders (placement, title, message, sort_order, is_active) VALUES (?, ?, ?, ?, ?)",
-    [value.placement, value.title, value.message || null, value.sortOrder, value.isActive],
+    [
+      value.placement,
+      value.title,
+      value.message || null,
+      value.sortOrder,
+      value.isActive,
+    ],
   );
-  res.status(201).json({ id: result.insertId, message: "Kiosk reminder created." });
+  res
+    .status(201)
+    .json({ id: result.insertId, message: "Kiosk reminder created." });
 }
 
 export async function updateReminder(req, res) {
@@ -36,7 +46,14 @@ export async function updateReminder(req, res) {
   const value = parsed.data;
   const [result] = await pool.execute(
     "UPDATE kiosk_reminders SET placement=?, title=?, message=?, sort_order=?, is_active=? WHERE id=?",
-    [value.placement, value.title, value.message || null, value.sortOrder, value.isActive, id],
+    [
+      value.placement,
+      value.title,
+      value.message || null,
+      value.sortOrder,
+      value.isActive,
+      id,
+    ],
   );
   if (!result.affectedRows)
     return res.status(404).json({ message: "Reminder not found." });

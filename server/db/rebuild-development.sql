@@ -81,7 +81,9 @@ CREATE TABLE students (
   CONSTRAINT fk_students_course FOREIGN KEY (course_id) REFERENCES courses(id),
   CONSTRAINT fk_students_voucher FOREIGN KEY (voucher_id) REFERENCES wifi_vouchers(id),
   INDEX student_verification (student_id, last_name, birth_date, course_id, is_active),
-  INDEX student_course_status (course_id, is_active, last_name, first_name)
+  INDEX student_course_status (course_id, is_active, last_name, first_name),
+  INDEX student_list_sort (is_active, last_name, first_name, id),
+  INDEX student_name_search (last_name, first_name)
 );
 
 -- Each external service remains a separate bounded module. Its account data is
@@ -118,9 +120,9 @@ CREATE TABLE kumosoft_accounts (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   student_id BIGINT UNSIGNED NOT NULL UNIQUE,
   username VARCHAR(255) NOT NULL,
-  encrypted_password TEXT NOT NULL,
-  password_iv VARCHAR(50) NOT NULL,
-  password_auth_tag VARCHAR(50) NOT NULL,
+  encrypted_password TEXT NULL,
+  password_iv VARCHAR(50) NULL,
+  password_auth_tag VARCHAR(50) NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -141,6 +143,19 @@ CREATE TABLE institutional_email_accounts (
   CONSTRAINT fk_email_student FOREIGN KEY (student_id) REFERENCES students(id)
 );
 
+CREATE TABLE pending_account_imports (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  account_type VARCHAR(30) NOT NULL,
+  school_id VARCHAR(40) NOT NULL,
+  account_name VARCHAR(255) NOT NULL,
+  encrypted_password TEXT NULL,
+  password_iv VARCHAR(50) NULL,
+  password_auth_tag VARCHAR(50) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY pending_account_identity (account_type, school_id)
+);
+
 CREATE TABLE kiosks (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   kiosk_code VARCHAR(80) NOT NULL UNIQUE,
@@ -159,6 +174,16 @@ CREATE TABLE kiosks (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX kiosk_heartbeat (is_active, last_seen)
+);
+
+CREATE TABLE kiosk_credential_sessions (
+  id CHAR(36) PRIMARY KEY,
+  student_id BIGINT UNSIGNED NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX kiosk_credential_session_expiry (expires_at),
+  CONSTRAINT fk_kiosk_credential_sessions_student
+    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
 );
 
 CREATE TABLE kiosk_commands (

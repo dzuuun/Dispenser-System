@@ -1,4 +1,4 @@
-import React, { Component, useEffect, useState } from "react";
+import React, { Component, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import DataTable from "datatables.net-react";
 import DT from "datatables.net-dt";
@@ -7,7 +7,8 @@ import "material-symbols/rounded.css";
 import "./styles.css";
 import ndmuLogo from "./assets/ndmu-logo.png";
 
-const API = "/api";
+const APP_BASE = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
+const API = `${APP_BASE}/api`;
 DataTable.use(DT);
 const kioskHeaders = {
   "Content-Type": "application/json",
@@ -19,14 +20,54 @@ const kioskIdentity = {
   location: import.meta.env.VITE_KIOSK_LOCATION || "",
 };
 async function request(path, options = {}) {
-  const res = await fetch(`${API}${path}`, { credentials: "same-origin", ...options });
+  const res = await fetch(`${API}${path}`, {
+    credentials: "same-origin",
+    cache: "no-store",
+    ...options,
+  });
   const data = res.status === 204 ? null : await res.json();
   if (!res.ok) throw new Error(data.message || "Unable to continue.");
   return data;
 }
+
+function addDataTablePageJump() {
+  const api = this.api();
+  const container = api.table().container();
+  const paging = container.querySelector(".dt-paging");
+  if (!paging || paging.querySelector(".dt-page-jump")) return;
+
+  const form = document.createElement("form");
+  form.className = "dt-page-jump";
+  form.setAttribute("aria-label", "Jump to page");
+  form.innerHTML =
+    '<label>Go to page <input type="number" min="1" inputmode="numeric" aria-label="Page number"></label>';
+  const input = form.querySelector("input");
+  const update = () => {
+    const info = api.page.info();
+    input.max = String(Math.max(1, info.pages));
+    input.value = String(info.page + 1);
+    form.hidden = info.pages < 2;
+  };
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const page = Number(input.value);
+    const pages = api.page.info().pages;
+    if (Number.isInteger(page) && page >= 1 && page <= pages)
+      api.page(page - 1).draw("page");
+    update();
+  });
+  paging.append(form);
+  api.on("draw.pageJump", update);
+  update();
+}
 async function adminFetch(path, options = {}) {
-  let response = await fetch(`${API}${path}`, { credentials: "same-origin", ...options });
-  if (response.status !== 401 || !options.headers?.Authorization) return response;
+  let response = await fetch(`${API}${path}`, {
+    credentials: "same-origin",
+    cache: "no-store",
+    ...options,
+  });
+  if (response.status !== 401 || !options.headers?.Authorization)
+    return response;
   const refreshed = await fetch(`${API}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -34,24 +75,41 @@ async function adminFetch(path, options = {}) {
   });
   if (!refreshed.ok) return response;
   const session = await refreshed.json();
-  dispatchEvent(new CustomEvent("admin-token-refreshed", { detail: session.accessToken }));
+  dispatchEvent(
+    new CustomEvent("admin-token-refreshed", { detail: session.accessToken }),
+  );
   const headers = new Headers(options.headers);
   headers.set("Authorization", `Bearer ${session.accessToken}`);
-  response = await fetch(`${API}${path}`, { credentials: "same-origin", ...options, headers });
+  response = await fetch(`${API}${path}`, {
+    credentials: "same-origin",
+    cache: "no-store",
+    ...options,
+    headers,
+  });
   return response;
 }
+const appPath = () => {
+  const path = location.pathname;
+  return APP_BASE && path.startsWith(APP_BASE)
+    ? path.slice(APP_BASE.length) || "/"
+    : path;
+};
 const go = (path) => {
-  history.pushState({}, "", path);
+  history.pushState({}, "", `${APP_BASE}${path}`);
   dispatchEvent(new PopStateEvent("popstate"));
 };
 function usePath() {
-  const [path, setPath] = useState(location.pathname);
+  const [route, setRoute] = useState({ path: appPath(), revision: 0 });
   useEffect(() => {
-    const update = () => setPath(location.pathname);
+    const update = () =>
+      setRoute((current) => ({
+        path: appPath(),
+        revision: current.revision + 1,
+      }));
     addEventListener("popstate", update);
     return () => removeEventListener("popstate", update);
   }, []);
-  return path;
+  return route;
 }
 function Button({ children, onClick, variant = "primary" }) {
   return (
@@ -87,43 +145,144 @@ function ConfirmModal({
   );
 }
 
-function PasswordResetInfoModal({ accountTitle, submitting, onSubmit, onClose }) {
+function PasswordResetInfoModal({
+  accountTitle,
+  submitting,
+  onSubmit,
+  onClose,
+}) {
   return (
-    <div className="modal-backdrop system-modal-backdrop" onMouseDown={submitting ? undefined : onClose}>
-      <section className="system-modal password-reset-info-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <div
+      className="modal-backdrop system-modal-backdrop"
+      onMouseDown={submitting ? undefined : onClose}
+    >
+      <section
+        className="system-modal system-modal--informational password-reset-info-modal"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <p className="eyebrow">PASSWORD RESET REQUEST</p>
         <h2>Reset your {accountTitle} password?</h2>
-        <p>This sends a request to the ICT/MIS administrator. Your password will not change immediately.</p>
+        <p>
+          This sends a request to the ICT/MIS administrator. Your password will
+          not change immediately.
+        </p>
         <div className="password-reset-info-list">
-          <article><AppIcon name="schedule" size={22} /><span><b>When to expect it</b><small>Requests are processed during regular ICT/MIS office hours. Completion time depends on the administrator's request queue.</small></span></article>
-          <article><AppIcon name="notifications" size={22} /><span><b>How you will know</b><small>Return to this kiosk after one business day. The pending label will disappear once the reset is completed.</small></span></article>
-          <article><AppIcon name="password" size={22} /><span><b>Use the default password</b><small>After one business day, use the account's default password. You can also open Credentials Summary and tap Show All to view it.</small></span></article>
+          <article>
+            <AppIcon name="schedule" size={22} />
+            <span>
+              <b>When to expect it</b>
+              <small>
+                Requests are processed during regular ICT/MIS office hours.
+                Completion time depends on the administrator's request queue.
+              </small>
+            </span>
+          </article>
+          <article>
+            <AppIcon name="notifications" size={22} />
+            <span>
+              <b>How you will know</b>
+              <small>
+                Return to this kiosk after one business day. The pending label
+                will disappear once the reset is completed.
+              </small>
+            </span>
+          </article>
+          <article>
+            <AppIcon name="password" size={22} />
+            <span>
+              <b>Use the default password</b>
+              <small>
+                After one business day, use the account's default password. You
+                can also open Credentials Summary and tap Show All to view it.
+              </small>
+            </span>
+          </article>
         </div>
         <footer>
-          <button type="button" className="btn secondary" disabled={submitting} onClick={onClose}>Cancel</button>
-          <button type="button" className="btn primary" disabled={submitting} onClick={onSubmit}>{submitting ? "Submitting..." : "Submit request"}</button>
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={submitting}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={submitting}
+            onClick={onSubmit}
+          >
+            {submitting ? "Submitting..." : "Submit request"}
+          </button>
         </footer>
       </section>
     </div>
   );
 }
-function VoucherRequestModal({ reason, submitting, onReasonChange, onSubmit, onClose }) {
+function VoucherRequestModal({
+  reason,
+  submitting,
+  onReasonChange,
+  onSubmit,
+  onClose,
+}) {
   const valid = reason.trim().length >= 10;
   return (
-    <div className="modal-backdrop system-modal-backdrop" onMouseDown={submitting ? undefined : onClose}>
-      <section className="system-modal voucher-request-info-modal" onMouseDown={(event) => event.stopPropagation()}>
+    <div
+      className="modal-backdrop system-modal-backdrop"
+      onMouseDown={submitting ? undefined : onClose}
+    >
+      <section
+        className="system-modal system-modal--informational voucher-request-info-modal"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <p className="eyebrow">NEW VOUCHER REQUEST</p>
         <h2>Why do you need a new voucher?</h2>
-        <p>Your current voucher remains active while this request waits for administrator approval.</p>
+        <p>
+          Your current voucher remains active while this request waits for
+          administrator approval.
+        </p>
         <label className="field voucher-request-reason">
           <span>Reason for replacement</span>
-          <textarea autoFocus rows="4" minLength="10" maxLength="500" value={reason} onChange={(event) => onReasonChange(event.target.value)} placeholder="Explain what happened to your current voucher..." />
+          <textarea
+            autoFocus
+            rows="4"
+            minLength="10"
+            maxLength="500"
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+            placeholder="Explain what happened to your current voucher..."
+          />
           <small>{reason.trim().length} / 500 characters · Minimum 10</small>
         </label>
-        <div className="voucher-request-note"><AppIcon name="approval" size={22} /><span><b>Administrator approval required</b><small>If approved, the old voucher will be released and a new available voucher will be assigned.</small></span></div>
+        <div className="voucher-request-note">
+          <AppIcon name="approval" size={22} />
+          <span>
+            <b>Administrator approval required</b>
+            <small>
+              If approved, the old voucher will be released and a new available
+              voucher will be assigned.
+            </small>
+          </span>
+        </div>
         <footer>
-          <button type="button" className="btn secondary" disabled={submitting} onClick={onClose}>Cancel</button>
-          <button type="button" className="btn primary" disabled={submitting || !valid} onClick={onSubmit}>{submitting ? "Submitting..." : "Submit request"}</button>
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={submitting}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={submitting || !valid}
+            onClick={onSubmit}
+          >
+            {submitting ? "Submitting..." : "Submit request"}
+          </button>
         </footer>
       </section>
     </div>
@@ -138,22 +297,47 @@ function LoadingModal({
       <section className="system-modal loading-modal" role="status">
         <span className="loading-spinner" />
         <div>
+          <p className="loading-modal-label">PLEASE WAIT</p>
           <h2>{title}</h2>
           <p>{message}</p>
         </div>
+        <span className="loading-progress" aria-hidden="true">
+          <i />
+        </span>
       </section>
     </div>
   );
 }
 function AppIcon({ name, size = 18 }) {
-  const materialName = { eye: "visibility", eyeOff: "visibility_off", settings: "settings" }[name] || name;
-  return <span className="material-symbols-rounded app-icon" style={{ fontSize: `${size}px` }} aria-hidden="true">{materialName}</span>;
+  const materialName =
+    {
+      eye: "visibility",
+      eyeOff: "visibility_off",
+      settings: "settings",
+      students: "school",
+      requests: "pending_actions",
+      kiosk: "desktop_windows",
+    }[name] || name;
+  return (
+    <span
+      className="material-symbols-rounded app-icon"
+      style={{ fontSize: `${size}px` }}
+      aria-hidden="true"
+    >
+      {materialName}
+    </span>
+  );
 }
 function Toast({ message, onClose, tone = "success" }) {
   const isError = tone === "error";
   return (
-    <div className={`toast-notification${isError ? " error-toast" : ""}`} role={isError ? "alert" : "status"}>
-      <span><AppIcon name={isError ? "error" : "check"} size={17} /></span>
+    <div
+      className={`toast-notification${isError ? " error-toast" : ""}`}
+      role={isError ? "alert" : "status"}
+    >
+      <span>
+        <AppIcon name={isError ? "error" : "check"} size={17} />
+      </span>
       <p>{message}</p>
       <button onClick={onClose} aria-label="Dismiss">
         <AppIcon name="close" size={19} />
@@ -167,7 +351,9 @@ function Status({ children, tone = "green" }) {
 function Empty({ title, detail, action }) {
   return (
     <div className="empty">
-      <div className="empty-icon">+</div>
+      <div className="empty-icon">
+        <AppIcon name="inbox" size={20} />
+      </div>
       <h3>{title}</h3>
       <p>{detail}</p>
       {action}
@@ -197,6 +383,7 @@ function SetupPage() {
     lastName: "",
     email: "",
     password: "",
+    setupSecret: "",
   });
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
@@ -245,7 +432,9 @@ function SetupPage() {
         </aside>
         <section className="setup-form-panel">
           <div className="setup-title">
-            <span className="setup-icon">A</span>
+            <span className="setup-icon">
+              <AppIcon name="admin_panel_settings" size={24} />
+            </span>
             <div>
               <span className="setup-kicker">INITIAL SETUP</span>
               <h2>Create administrator</h2>
@@ -282,6 +471,12 @@ function SetupPage() {
               value={form.password}
               onChange={(v) => setForm({ ...form, password: v })}
             />
+            <Field
+              label="Deployment setup code"
+              type="password"
+              value={form.setupSecret}
+              onChange={(v) => setForm({ ...form, setupSecret: v })}
+            />
             {error && <p className="error">{error}</p>}
             <button className="btn primary wide">
               Create administrator <AppIcon name="arrow_forward" size={18} />
@@ -295,7 +490,16 @@ function SetupPage() {
     </main>
   );
 }
-function Field({ label, value, onChange, type = "text", placeholder }) {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  revealPassword = false,
+  passwordVisible = false,
+  onPasswordVisibilityChange,
+}) {
   const schoolId = label === "School ID";
   const visibleAccountPassword =
     label.toLowerCase().includes("password") &&
@@ -308,19 +512,41 @@ function Field({ label, value, onChange, type = "text", placeholder }) {
   const kumosoftField = label.toLowerCase().startsWith("kumosoft password")
     ? " kumosoft-password-field"
     : "";
+  const canRevealPassword =
+    revealPassword && type === "password" && !visibleAccountPassword;
   return (
     <label className={`field${emailField}${kumosoftField}`}>
       <span>{label}</span>
-      <input
-        type={visibleAccountPassword ? "text" : type}
-        required={label.includes("optional") ? false : undefined}
-        placeholder={placeholder || label.replace(/\s*\(.+\)/, "")}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <span className={canRevealPassword ? "password-field-control" : ""}>
+        <input
+          type={
+            visibleAccountPassword || (canRevealPassword && passwordVisible)
+              ? "text"
+              : type
+          }
+          required={label.includes("optional") ? false : undefined}
+          placeholder={placeholder || label.replace(/\s*\(.+\)/, "")}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {canRevealPassword && (
+          <button
+            type="button"
+            onClick={() => onPasswordVisibilityChange?.(!passwordVisible)}
+            aria-label={passwordVisible ? "Hide password" : "Show password"}
+          >
+            <AppIcon
+              name={passwordVisible ? "visibility_off" : "visibility"}
+              size={19}
+            />
+            {passwordVisible ? "Hide" : "Show"}
+          </button>
+        )}
+      </span>
       {schoolId && (
         <small className="field-hint">
-          Automatically used as the SATP, Schoology, and Kumosoft username.
+          Used as the SATP and Schoology username. Kumosoft uses the Kumosoft ID
+          when provided.
         </small>
       )}
     </label>
@@ -332,9 +558,19 @@ const navGroups = [
   ["Records", "/admin/students", "Students", "school"],
   ["Courses", "/admin/courses", "Courses", "menu_book"],
   ["Vouchers", "/admin/vouchers", "WiFi vouchers", "confirmation_number"],
-  ["ReleaseVouchers", "/admin/release-vouchers", "Release vouchers", "assignment_turned_in"],
+  [
+    "ReleaseVouchers",
+    "/admin/release-vouchers",
+    "Release vouchers",
+    "assignment_turned_in",
+  ],
   ["Imports", "/admin/imports", "Imports", "upload_file"],
-  ["ResetRequests", "/admin/password-resets", "Credential requests", "contact_support"],
+  [
+    "ResetRequests",
+    "/admin/password-resets",
+    "Credential requests",
+    "pending_actions",
+  ],
   ["Monitoring", "/admin/transactions", "Transactions", "receipt_long"],
   ["Kiosks", "/admin/kiosks", "Kiosks", "desktop_windows"],
   ["Reminders", "/admin/reminders", "Kiosk reminders", "notifications"],
@@ -342,18 +578,43 @@ const navGroups = [
   ["Administration", "/admin/users", "Admin users", "admin_panel_settings"],
 ];
 function AdminShell({ children, path, onLogout, token }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const pendingCountRequestInFlight = useRef(false);
   useEffect(() => {
-    const loadPendingCount = () => request("/admin/password-reset-requests/pending-count", {
-      headers: { Authorization: `Bearer ${token}` },
-    }).then((result) => setPendingRequestCount(result.count)).catch(() => {});
+    let active = true;
+    const loadPendingCount = async () => {
+      if (pendingCountRequestInFlight.current) return;
+      pendingCountRequestInFlight.current = true;
+      try {
+        const result = await request(
+          "/admin/password-reset-requests/pending-count",
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (active) setPendingRequestCount(Number(result.count) || 0);
+      } catch {
+        // Keep the last known badge count if a short refresh fails.
+      } finally {
+        pendingCountRequestInFlight.current = false;
+      }
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") loadPendingCount();
+    };
     loadPendingCount();
-    const timer = setInterval(loadPendingCount, 30000);
+    const timer = setInterval(loadPendingCount, 3000);
+    window.addEventListener("focus", loadPendingCount);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     window.addEventListener("credential-requests-updated", loadPendingCount);
     return () => {
+      active = false;
       clearInterval(timer);
-      window.removeEventListener("credential-requests-updated", loadPendingCount);
+      window.removeEventListener("focus", loadPendingCount);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener(
+        "credential-requests-updated",
+        loadPendingCount,
+      );
     };
   }, [token]);
   return (
@@ -367,8 +628,8 @@ function AdminShell({ children, path, onLogout, token }) {
         >
           <Brand compact light />
         </button>
-        <p className="nav-section">OPERATIONS</p>
         <nav>
+          <p className="nav-section">OPERATIONS</p>
           {navGroups.map(([group, to, label, icon], index) => (
             <React.Fragment key={to}>
               {[1, 6, 10].includes(index) && (
@@ -390,9 +651,18 @@ function AdminShell({ children, path, onLogout, token }) {
                 }
                 onClick={() => go(to)}
               >
-                <span className="nav-icon"><AppIcon name={icon} size={20} /></span>
+                <span className="nav-icon">
+                  <AppIcon name={icon} size={20} />
+                </span>
                 <span className="nav-label">{label}</span>
-                {to === "/admin/password-resets" && pendingRequestCount > 0 && <span className="nav-notification-badge" aria-label={`${pendingRequestCount} pending requests`}>{pendingRequestCount > 99 ? "99+" : pendingRequestCount}</span>}
+                {to === "/admin/password-resets" && pendingRequestCount > 0 && (
+                  <span
+                    className="nav-notification-badge"
+                    aria-label={`${pendingRequestCount} pending requests`}
+                  >
+                    {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
+                  </span>
+                )}
               </button>
             </React.Fragment>
           ))}
@@ -408,7 +678,9 @@ function AdminShell({ children, path, onLogout, token }) {
             title="Student kiosk"
             onClick={() => go("/")}
           >
-            <span className="nav-icon"><AppIcon name="desktop_windows" size={20} /></span>
+            <span className="nav-icon">
+              <AppIcon name="desktop_windows" size={20} />
+            </span>
             <span className="nav-label">Student kiosk</span>
           </button>
           <button
@@ -417,7 +689,9 @@ function AdminShell({ children, path, onLogout, token }) {
             title="Sign out"
             onClick={onLogout}
           >
-            <span className="nav-icon"><AppIcon name="logout" size={20} /></span>
+            <span className="nav-icon">
+              <AppIcon name="logout" size={20} />
+            </span>
             <span className="nav-label">Sign out</span>
           </button>
         </div>
@@ -457,6 +731,17 @@ function PageHeader({ title, description, actions }) {
 function AdminLogin({ onLogin }) {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
+  const [setupRequired, setSetupRequired] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  useEffect(() => {
+    let active = true;
+    request("/auth/setup-status")
+      .then(({ required }) => active && setSetupRequired(Boolean(required)))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
   const submit = async (e) => {
     e.preventDefault();
     setError("");
@@ -472,60 +757,118 @@ function AdminLogin({ onLogin }) {
     }
   };
   return (
-    <main className="admin-login">
-      <section className="admin-panel">
-        <Brand />
-        <span className="mark">MIS ADMINISTRATION</span>
-        <h1>Administration portal</h1>
-        <p>Sign in using your institutional email.</p>
-        <form onSubmit={submit}>
-          <Field
-            label="Institutional email"
-            type="email"
-            value={form.email}
-            onChange={(v) => setForm({ ...form, email: v })}
-          />
-          <Field
-            label="Password"
-            type="password"
-            value={form.password}
-            onChange={(v) => setForm({ ...form, password: v })}
-          />
-          {error && <p className="error">{error}</p>}
-          <button className="btn primary wide">Sign in</button>
-        </form>
-        <button className="link-button" onClick={() => go("/setup")}>
-          First-time setup
-        </button>
-      </section>
-    </main>
+    <div className="admin-login-page">
+      <KioskHeader
+        mode="Administration"
+        subtitle="Credentials Dispenser Administration"
+      />
+      <main className="admin-login">
+        <section className="admin-login-card">
+          <aside className="admin-login-intro">
+            <Brand light />
+            <div>
+              <span className="mark">MIS ADMINISTRATION</span>
+              <h1>Manage credentials with confidence.</h1>
+              <p>
+                A secure workspace for student accounts, WiFi vouchers, imports,
+                and kiosk operations.
+              </p>
+            </div>
+            <small>Authorized personnel only</small>
+          </aside>
+          <section className="admin-panel">
+            <span className="mark">ADMINISTRATOR SIGN-IN</span>
+            <h2>Welcome back</h2>
+            <p>Use your institutional administrator account to continue.</p>
+            <form onSubmit={submit}>
+              <Field
+                label="Institutional email"
+                type="email"
+                value={form.email}
+                onChange={(v) => setForm({ ...form, email: v })}
+              />
+              <Field
+                label="Password"
+                type="password"
+                value={form.password}
+                onChange={(v) => setForm({ ...form, password: v })}
+                revealPassword
+                passwordVisible={passwordVisible}
+                onPasswordVisibilityChange={setPasswordVisible}
+              />
+              {error && <p className="error">{error}</p>}
+              <button className="btn primary wide">Sign in</button>
+            </form>
+            {setupRequired && (
+              <button className="link-button" onClick={() => go("/setup")}>
+                First-time setup
+              </button>
+            )}
+          </section>
+        </section>
+      </main>
+    </div>
   );
 }
 function Dashboard({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const load = () =>
-    request("/admin/dashboard", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(setData)
-      .catch((e) => setError(e.message));
+  const [refreshVersion, setRefreshVersion] = useState(0);
   useEffect(() => {
-    load();
-  }, []);
+    let active = true;
+    let loading = false;
+    const refresh = async () => {
+      if (loading || document.visibilityState === "hidden") return;
+      loading = true;
+      try {
+        const next = await request("/admin/dashboard", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (active) {
+          setData(next);
+          setError("");
+        }
+      } catch (err) {
+        if (active) setError(err.message);
+      } finally {
+        loading = false;
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 5000);
+    addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [token, refreshVersion]);
   const credentials = Array.isArray(data?.credentials) ? data.credentials : [];
   const activity = Array.isArray(data?.recentActivity)
     ? data.recentActivity
     : [];
   const vouchers = data?.vouchers || { available: 0, assigned: 0 };
   const kiosks = data?.kiosks || { online: 0, total: 0 };
+  const voucherTotal = vouchers.total || vouchers.available + vouchers.assigned;
+  const assignedRate = voucherTotal
+    ? Math.round((vouchers.assigned / voucherTotal) * 100)
+    : 0;
+  const accountTotal = credentials.reduce(
+    (total, account) => total + Number(account.total || 0),
+    0,
+  );
   return (
     <>
       <PageHeader
         title="Dashboard"
         description="Operational overview for the NDMU Credentials Dispenser."
         actions={
-          <Button variant="secondary" onClick={load}>
+          <Button
+            variant="secondary"
+            onClick={() => setRefreshVersion((version) => version + 1)}
+          >
             Refresh
           </Button>
         }
@@ -535,25 +878,113 @@ function Dashboard({ token }) {
         <p>Loading dashboard...</p>
       ) : (
         <>
-          <section className="metric-grid">
-            <Metric label="Active students" value={data.activeStudents || 0} />
+          <section className="dashboard-hero panel">
+            <div>
+              <p className="eyebrow">SYSTEM STATUS</p>
+              <h2>
+                {data.pendingRequests
+                  ? `${data.pendingRequests} request${data.pendingRequests === 1 ? "" : "s"} need attention`
+                  : "Everything is up to date"}
+              </h2>
+              <p>
+                {data.pendingRequests
+                  ? "Review incoming account, password, and voucher requests before they affect student access."
+                  : "No pending credential requests. Kiosk activity and stock are being monitored below."}
+              </p>
+            </div>
+            <div className="dashboard-hero-actions">
+              {data.pendingRequests > 0 && (
+                <Button onClick={() => go("/admin/password-resets")}>
+                  <AppIcon name="assignment" /> Review requests
+                </Button>
+              )}
+              <Button variant="secondary" onClick={() => go("/admin/imports")}>
+                <AppIcon name="upload_file" /> Import records
+              </Button>
+            </div>
+          </section>
+          <section className="dashboard-metric-grid">
             <Metric
-              label="Available WiFi vouchers"
-              value={vouchers.available}
+              icon="students"
+              label="Active students"
+              value={data.activeStudents || 0}
+              note={`${data.activeCourses} active courses`}
+              tone="green"
             />
-            <Metric label="Assigned WiFi vouchers" value={vouchers.assigned} />
             <Metric
-              label="Online kiosks"
+              icon="confirmation_number"
+              label="Available vouchers"
+              value={vouchers.available}
+              note={`${voucherTotal} in active stock`}
+              tone="gold"
+            />
+            <Metric
+              icon="requests"
+              label="Pending requests"
+              value={data.pendingRequests || 0}
+              note={
+                data.pendingRequests
+                  ? "Needs administrator review"
+                  : "Request queue is clear"
+              }
+              tone={data.pendingRequests ? "danger" : "green"}
+            />
+            <Metric
+              icon="kiosk"
+              label="Kiosks online"
               value={`${kiosks.online} / ${kiosks.total}`}
+              note={
+                kiosks.online === kiosks.total
+                  ? "All registered kiosks reachable"
+                  : "Check kiosk connection status"
+              }
+              tone="blue"
             />
           </section>
-          <section className="two-column">
-            <article className="panel">
-              <h2>Credential coverage</h2>
+          <section className="dashboard-layout">
+            <article className="panel dashboard-stock-panel">
+              <header>
+                <div>
+                  <p className="eyebrow">WIFI VOUCHERS</p>
+                  <h2>Voucher stock</h2>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => go("/admin/vouchers")}
+                >
+                  Manage
+                </Button>
+              </header>
+              <div className="voucher-stock-figure">
+                <strong>{vouchers.available}</strong>
+                <span>available for automatic assignment</span>
+              </div>
+              <div className="voucher-stock-bar">
+                <i style={{ width: `${assignedRate}%` }} />
+              </div>
+              <div className="voucher-stock-labels">
+                <span>{vouchers.assigned} assigned</span>
+                <span>{assignedRate}% in use</span>
+              </div>
+              <p className="dashboard-panel-note">
+                Released and inactive vouchers are excluded from active stock.
+              </p>
+            </article>
+            <article className="panel dashboard-coverage-panel">
+              <header>
+                <div>
+                  <p className="eyebrow">ACCOUNT COVERAGE</p>
+                  <h2>Credential accounts</h2>
+                </div>
+                <span className="coverage-total">{accountTotal} linked</span>
+              </header>
               {credentials.length ? (
                 credentials.map((c) => (
-                  <div className="list-row" key={c.credential_type}>
-                    <span>{c.credential_type}</span>
+                  <div className="coverage-row" key={c.credential_type}>
+                    <span>
+                      <AppIcon name="key" size={17} />
+                      {c.credential_type}
+                    </span>
                     <b>{c.total}</b>
                   </div>
                 ))
@@ -564,13 +995,39 @@ function Dashboard({ token }) {
                 />
               )}
             </article>
-            <article className="panel">
-              <h2>Recent kiosk activity</h2>
+            <article className="panel dashboard-activity-panel">
+              <header>
+                <div>
+                  <p className="eyebrow">LIVE ACTIVITY</p>
+                  <h2>Recent credential reveals</h2>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => go("/admin/transactions")}
+                >
+                  View all
+                </Button>
+              </header>
               {activity.length ? (
                 activity.map((a, i) => (
-                  <div className="list-row" key={i}>
-                    <span>{a.transaction_type.replace("_", " ")}</span>
-                    <small>{new Date(a.created_at).toLocaleString()}</small>
+                  <div className="dashboard-activity-row" key={i}>
+                    <span className="activity-icon">
+                      <AppIcon name="visibility" size={18} />
+                    </span>
+                    <span>
+                      <b>
+                        {a.first_name
+                          ? [a.first_name, a.middle_name, a.last_name]
+                              .filter(Boolean)
+                              .join(" ")
+                          : "Student credentials viewed"}
+                      </b>
+                      <small>
+                        {a.student_id || "Unknown student"}
+                        {a.kiosk_code ? ` · ${a.kiosk_code}` : ""}
+                      </small>
+                    </span>
+                    <time>{new Date(a.created_at).toLocaleString()}</time>
                   </div>
                 ))
               ) : (
@@ -586,11 +1043,17 @@ function Dashboard({ token }) {
     </>
   );
 }
-function Metric({ label, value }) {
+function Metric({ icon, label, value, note, tone = "green" }) {
   return (
-    <article className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <article className={`metric dashboard-metric ${tone}`}>
+      <span className="dashboard-metric-icon">
+        <AppIcon name={icon} size={22} />
+      </span>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <small>{note}</small>
+      </div>
     </article>
   );
 }
@@ -1048,8 +1511,8 @@ function LegacyStudentFormModalV2({ token, onClose, onSaved }) {
           <div className="form-section">
             <h3>Optional account credentials</h3>
             <p className="form-note">
-              SATP, Schoology, and Kumosoft usernames automatically use the
-              School ID.
+              SATP and Schoology use the School ID. Kumosoft uses the Kumosoft
+              ID when provided.
             </p>
             <div className="form-grid">
               <Field
@@ -1214,8 +1677,8 @@ function LegacyStudentFormModalV3({ token, onClose, onSaved }) {
           <div className="form-section">
             <h3>Optional account credentials</h3>
             <p className="form-note">
-              SATP, Schoology, and Kumosoft usernames automatically use the
-              School ID.
+              SATP and Schoology use the School ID. Kumosoft uses the Kumosoft
+              ID when provided.
             </p>
             <div className="form-grid">
               <Field
@@ -1398,39 +1861,39 @@ function LegacyStudentFormModalV4({ token, onClose, onSaved }) {
               </div>
             </div>
             <div className="form-section">
-              <h3>Optional account credentials</h3>
+              <h3>Account credentials</h3>
               <p className="form-note">
-                SATP, Schoology, and Kumosoft usernames automatically use the
-                School ID.
+                SATP and Schoology use the School ID. Kumosoft uses the Kumosoft
+                ID when provided.
               </p>
               <div className="form-grid">
                 <Field
-                  label="SATP password (optional)"
-                  type="password"
+                  label="SATP password"
+                  type="text"
                   value={form.satpPassword}
                   onChange={(v) => update("satpPassword", v)}
                 />
                 <Field
-                  label="Schoology password (optional)"
-                  type="password"
+                  label="Schoology password"
+                  type="text"
                   value={form.schoologyPassword}
                   onChange={(v) => update("schoologyPassword", v)}
                 />
                 <Field
-                  label="Kumosoft password (optional)"
-                  type="password"
+                  label="Kumosoft password"
+                  type="text"
                   value={form.kumosoftPassword}
                   onChange={(v) => update("kumosoftPassword", v)}
                 />
                 <Field
-                  label="Institutional email (optional)"
+                  label="Institutional email"
                   type="email"
                   value={form.emailAddress}
                   onChange={(v) => update("emailAddress", v)}
                 />
                 <Field
-                  label="Email password (optional)"
-                  type="password"
+                  label="Email password"
+                  type="text"
                   value={form.emailPassword}
                   onChange={(v) => update("emailPassword", v)}
                 />
@@ -1474,34 +1937,97 @@ function LegacyStudentFormModalV4({ token, onClose, onSaved }) {
 }
 function CourseSearchSelect({ courses, value, onChange }) {
   const [query, setQuery] = useState("");
-  const pick = (next) => {
-    setQuery(next);
-    const course = courses.find(
-      (item) => `${item.code} - ${item.name}` === next,
-    );
-    onChange(course ? String(course.id) : "");
+  const [open, setOpen] = useState(false);
+  const selected = courses.find(
+    (course) => String(course.id) === String(value),
+  );
+  const selectedLabel = selected ? `${selected.code} - ${selected.name}` : "";
+  useEffect(() => {
+    if (!open) setQuery(selectedLabel);
+  }, [open, selectedLabel]);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredCourses = courses.filter((course) =>
+    `${course.code} ${course.name}`.toLowerCase().includes(normalizedQuery),
+  );
+  const choose = (course) => {
+    onChange(String(course.id));
+    setQuery(`${course.code} - ${course.name}`);
+    setOpen(false);
   };
   return (
     <label className="field course-search-field">
       <span>Course</span>
-      <input
-        required
-        list="student-course-options"
-        value={query}
-        onChange={(e) => pick(e.target.value)}
-        placeholder="Search course code or name"
-      />
-      <datalist id="student-course-options">
-        {courses.map((course) => (
-          <option key={course.id} value={`${course.code} - ${course.name}`} />
-        ))}
-      </datalist>
-      {value && <small className="field-hint">Selected course</small>}
+      <div className={`course-search-combobox${open ? " open" : ""}`}>
+        <input
+          required
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="student-course-results"
+          autoComplete="off"
+          value={query}
+          placeholder="Search course code or name"
+          onFocus={() => {
+            setQuery("");
+            setOpen(true);
+          }}
+          onBlur={() =>
+            setTimeout(() => {
+              setOpen(false);
+              setQuery(selectedLabel);
+            }, 120)
+          }
+          onChange={(event) => {
+            setQuery(event.target.value);
+            onChange("");
+            setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setOpen(false);
+              setQuery(selectedLabel);
+            }
+            if (event.key === "Enter" && open && filteredCourses.length) {
+              event.preventDefault();
+              choose(filteredCourses[0]);
+            }
+          }}
+        />
+        <span className="course-search-chevron" aria-hidden="true">
+          <AppIcon name="expand_more" size={20} />
+        </span>
+        {open && (
+          <div
+            className="course-search-results"
+            id="student-course-results"
+            role="listbox"
+          >
+            {filteredCourses.length ? (
+              filteredCourses.map((course) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={String(course.id) === String(value)}
+                  key={course.id}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(course)}
+                >
+                  <b>{course.code}</b>
+                  <span>{course.name}</span>
+                </button>
+              ))
+            ) : (
+              <p>No matching courses found.</p>
+            )}
+          </div>
+        )}
+      </div>
     </label>
   );
 }
 function KioskCourseSelect({ courses, value, onChange }) {
-  const selected = courses.find((course) => String(course.id) === String(value));
+  const selected = courses.find(
+    (course) => String(course.id) === String(value),
+  );
   const [query, setQuery] = useState(""),
     [open, setOpen] = useState(false);
   useEffect(() => {
@@ -1542,14 +2068,32 @@ function KioskCourseSelect({ courses, value, onChange }) {
             }
           }}
         />
-        <span className="kiosk-course-chevron" aria-hidden="true"><AppIcon name="expand_more" size={20} /></span>
+        <span className="kiosk-course-chevron" aria-hidden="true">
+          <AppIcon name="expand_more" size={20} />
+        </span>
         {open && (
-          <div className="kiosk-course-results" id="kiosk-course-results" role="listbox">
-            {filtered.length ? filtered.map((course) => (
-              <button type="button" role="option" aria-selected={String(course.id) === String(value)} key={course.id} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(course)}>
-                <b>{course.code}</b><span>{course.name}</span>
-              </button>
-            )) : <p>No matching courses found.</p>}
+          <div
+            className="kiosk-course-results"
+            id="kiosk-course-results"
+            role="listbox"
+          >
+            {filtered.length ? (
+              filtered.map((course) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={String(course.id) === String(value)}
+                  key={course.id}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(course)}
+                >
+                  <b>{course.code}</b>
+                  <span>{course.name}</span>
+                </button>
+              ))
+            ) : (
+              <p>No matching courses found.</p>
+            )}
           </div>
         )}
       </div>
@@ -1605,7 +2149,7 @@ function StudentFormModal({ token, onClose, onSaved }) {
     <>
       <div className="modal-backdrop" onMouseDown={onClose}>
         <section
-          className="student-modal add-student-modal"
+          className="student-modal edit-student-modal"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <header>
@@ -1671,8 +2215,8 @@ function StudentFormModal({ token, onClose, onSaved }) {
             <div className="form-section">
               <h3>Optional account credentials</h3>
               <p className="form-note">
-                SATP, Schoology, and Kumosoft usernames automatically use the
-                School ID.
+                SATP and Schoology use the School ID. Kumosoft uses the Kumosoft
+                ID when provided.
               </p>
               <div className="form-grid">
                 <Field
@@ -2028,6 +2572,10 @@ function CourseImportModal({ token, onClose, onImported, onToast }) {
     [busy, setBusy] = useState(false),
     [done, setDone] = useState(null),
     [confirm, setConfirm] = useState(false);
+  const validationRef = useRef(null);
+  useEffect(() => {
+    if (validation) validationRef.current?.scrollTo({ top: 0 });
+  }, [validation]);
   const template = () => {
     const blob = new Blob(
       [
@@ -2130,7 +2678,10 @@ function CourseImportModal({ token, onClose, onImported, onToast }) {
               <Button onClick={onClose}>Done</Button>
             </div>
           ) : validation ? (
-            <div className="validation-result">
+            <div
+              className="validation-result course-import-validation"
+              ref={validationRef}
+            >
               <p className="eyebrow">VALIDATION RESULT</p>
               <h3>Review before importing</h3>
               {summary(validation)}
@@ -2150,6 +2701,16 @@ function CourseImportModal({ token, onClose, onImported, onToast }) {
                   Row {item.row}: {item.message}
                 </small>
               ))}
+              {validation.invalid > 0 && validation.errorReport && (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    downloadErrorReport(validation.errorReport, "courses")
+                  }
+                >
+                  <AppIcon name="download" /> Download error rows
+                </Button>
+              )}
               {error && <p className="error">{error}</p>}
               <footer>
                 <Button variant="secondary" onClick={() => setValidation(null)}>
@@ -2886,6 +3447,7 @@ function LegacyCoursesPageV6({ token }) {
 function CoursesPage({ token }) {
   const [courses, setCourses] = useState([]),
     [editor, setEditor] = useState(null),
+    [confirm, setConfirm] = useState(false),
     [form, setForm] = useState({ code: "", name: "", isActive: true }),
     [error, setError] = useState(""),
     [toast, setToast] = useState("");
@@ -2904,6 +3466,7 @@ function CoursesPage({ token }) {
     return () => clearTimeout(timer);
   }, [toast]);
   const edit = (course) => {
+    setConfirm(false);
     setForm(
       course
         ? {
@@ -2915,8 +3478,7 @@ function CoursesPage({ token }) {
     );
     setEditor(course || {});
   };
-  const save = async (e) => {
-    e.preventDefault();
+  const save = async () => {
     try {
       await request(
         editor?.id
@@ -3036,7 +3598,12 @@ function CoursesPage({ token }) {
                 &times;
               </button>
             </header>
-            <form onSubmit={save}>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                setConfirm(true);
+              }}
+            >
               <Field
                 label="Course code"
                 value={form.code}
@@ -3072,6 +3639,19 @@ function CoursesPage({ token }) {
             </form>
           </section>
         </div>
+      )}
+      {confirm && editor && (
+        <ConfirmModal
+          title={editor.id ? "Save course changes?" : "Add this course?"}
+          message={
+            editor.id
+              ? `Update ${form.code} — ${form.name}?`
+              : `Add ${form.code} — ${form.name} to the course list?`
+          }
+          confirmLabel={editor.id ? "Save changes" : "Add course"}
+          onClose={() => setConfirm(false)}
+          onConfirm={save}
+        />
       )}
     </>
   );
@@ -3178,6 +3758,7 @@ function LegacyStudentsPageV5({ token }) {
               pageLength: 10,
               lengthMenu: [10, 25, 50, 100],
               order: [[1, "asc"]],
+              initComplete: addDataTablePageJump,
               language: {
                 search: "Search students:",
                 emptyTable: "No students found.",
@@ -3625,7 +4206,7 @@ function StudentProfileModal({ record, onClose, onEdit }) {
                 {account ? (
                   <div className="account-credentials">
                     <span>
-                      <small>Username</small>
+                      <small>{type === "EMAIL" ? "Email" : "Username"}</small>
                       {account.username}
                     </span>
                     <code>
@@ -3821,14 +4402,59 @@ function LegacyStudentsPageV2({ token }) {
   );
 }
 const importTypes = [
-  { id: "courses", title: "Courses", detail: "CourseCode, CourseName", endpoint: "/admin/course-records/import" },
-  { id: "students", title: "Students", detail: "SchoolID, LastName, FirstName, MiddleName, BirthDate, and CourseCode", endpoint: "/admin/imports/students" },
-  { id: "satp", title: "SATP accounts", detail: "SchoolID and Password", endpoint: "/admin/imports/satp" },
-  { id: "schoology", title: "Schoology accounts", detail: "SchoolID and Password", endpoint: "/admin/imports/schoology" },
-  { id: "kumosoft", title: "Kumosoft accounts", detail: "SchoolID and Password", endpoint: "/admin/imports/kumosoft" },
-  { id: "email", title: "Institutional email", detail: "SchoolID, EmailAddress, and Password", endpoint: "/admin/imports/email" },
-  { id: "vouchers", title: "WiFi vouchers", detail: "VoucherCode", endpoint: "/admin/voucher-records/import", xlsxOnly: true },
+  {
+    id: "courses",
+    title: "Courses",
+    detail: "CourseCode, CourseName",
+    endpoint: "/admin/course-records/import",
+  },
+  {
+    id: "students",
+    title: "Students",
+    detail:
+      "SchoolID, optional KumosoftID, LastName, FirstName, MiddleName, BirthDate, and CourseCode",
+    endpoint: "/admin/imports/students",
+  },
+  {
+    id: "student-deactivate",
+    title: "Deactivate students",
+    detail: "SchoolID (one student per row)",
+    endpoint: "/admin/imports/student-deactivate",
+  },
+  {
+    id: "satp",
+    title: "SATP accounts",
+    detail: "SchoolID and Password",
+    endpoint: "/admin/imports/satp",
+  },
+  {
+    id: "schoology",
+    title: "Schoology accounts",
+    detail: "SchoolID and Password",
+    endpoint: "/admin/imports/schoology",
+  },
+  {
+    id: "kumosoft",
+    title: "Kumosoft accounts",
+    detail: "SchoolID, KumosoftID, and Password",
+    endpoint: "/admin/imports/kumosoft",
+  },
+  {
+    id: "email",
+    title: "Institutional email",
+    detail: "SchoolID, EmailAddress, and Password",
+    endpoint: "/admin/imports/email",
+  },
+  {
+    id: "vouchers",
+    title: "WiFi vouchers",
+    detail: "VoucherCode",
+    endpoint: "/admin/voucher-records/import",
+    xlsxOnly: true,
+  },
 ];
+
+const voucherImportType = importTypes.find((type) => type.id === "vouchers");
 
 async function downloadImportTemplate(type, token) {
   const response = await adminFetch(`/admin/imports/${type.id}/template`, {
@@ -3836,7 +4462,9 @@ async function downloadImportTemplate(type, token) {
   });
   if (!response.ok) {
     let message = "Unable to download the import template.";
-    try { message = (await response.json()).message || message; } catch {}
+    try {
+      message = (await response.json()).message || message;
+    } catch {}
     throw new Error(message);
   }
   const url = URL.createObjectURL(await response.blob());
@@ -3847,11 +4475,47 @@ async function downloadImportTemplate(type, token) {
   URL.revokeObjectURL(url);
 }
 
+async function downloadCredentialWorkbook(token) {
+  const response = await adminFetch("/admin/account-exports", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    let message = "Unable to export account credentials.";
+    try {
+      message = (await response.json()).message || message;
+    } catch {}
+    throw new Error(message);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "credential-account-export.xlsx";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function downloadErrorReport(base64, type) {
+  if (!base64) return;
+  const binary = atob(base64);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const url = URL.createObjectURL(
+    new Blob([bytes], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${type}-import-errors.xlsx`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function ImportHubModal({ type, token, onClose, onComplete }) {
   const [file, setFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [importErrorReport, setImportErrorReport] = useState(null);
   const send = async (suffix = "") => {
     const body = new FormData();
     body.append("file", file);
@@ -3861,7 +4525,11 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
       body,
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || "Import failed.");
+    if (!response.ok) {
+      const error = new Error(data.message || "Import failed.");
+      error.errorReport = data.errorReport;
+      throw error;
+    }
     return data;
   };
   const validate = async (event) => {
@@ -3869,40 +4537,575 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
     if (!file) return setError("Choose a file first.");
     setBusy(true);
     setError("");
-    try { setValidation(await send("/validate")); }
-    catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    setImportErrorReport(null);
+    try {
+      const result = await send("/validate");
+      setValidation(result);
+    } catch (err) {
+      setError(err.message);
+      setImportErrorReport(err.errorReport || null);
+      if (err.errorReport) downloadErrorReport(err.errorReport, type.id);
+    } finally {
+      setBusy(false);
+    }
   };
   const runImport = async () => {
     setBusy(true);
     setError("");
+    setImportErrorReport(null);
     try {
       const result = await send();
       const inserted = Number(result.inserted ?? result.added ?? 0);
       const updated = Number(result.updated ?? 0);
-      onComplete(`${type.title}: ${inserted} added${updated ? `, ${updated} updated` : ""}.`);
+      const skipped = Number(result.invalid ?? result.errors?.length ?? 0);
+      if (result.errorReport) downloadErrorReport(result.errorReport, type.id);
+      onComplete(
+        type.id === "student-deactivate"
+          ? `${result.deactivated || 0} student${result.deactivated === 1 ? "" : "s"} deactivated${skipped ? `; ${skipped} invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`
+          : `${type.title}: ${inserted} added${updated ? `, ${updated} updated` : ""}${skipped ? `; ${skipped} unmatched or invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`,
+      );
       onClose();
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    } catch (err) {
+      setError(err.message);
+      setImportErrorReport(err.errorReport || null);
+      if (err.errorReport) downloadErrorReport(err.errorReport, type.id);
+    } finally {
+      setBusy(false);
+    }
   };
-  const invalid = Number(validation?.invalid ?? validation?.errors?.length ?? 0);
-  const changes = Number(validation?.new || 0) + Number(validation?.update || 0);
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="course-modal bulk-import-modal import-hub-modal" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">BULK IMPORT</p><h2>Import {type.title}</h2></div><button className="modal-close" onClick={onClose} aria-label="Close">&times;</button></header>{validation ? <div className="validation-result"><p className="eyebrow">VALIDATION RESULT</p><h3>Review before importing</h3><div className="validation-summary"><span><b>{validation.new || 0}</b> new</span>{type.id === "vouchers" ? <span><b>{validation.duplicates || 0}</b> duplicates</span> : <span><b>{validation.update || 0}</b> updates</span>}<span className={invalid ? "has-errors" : ""}><b>{invalid}</b> errors</span></div>{validation.errors?.slice(0, 6).map((item) => <small className="validation-error" key={`${item.row}-${item.message}`}>Row {item.row}: {item.message}</small>)}{error && <p className="error">{error}</p>}<footer><Button variant="secondary" onClick={() => { setValidation(null); setError(""); }}>Choose another file</Button><button className="btn primary" disabled={busy || invalid > 0 || changes < 1} onClick={runImport}>{busy ? "Importing..." : `Import ${changes} records`}</button></footer></div> : <form onSubmit={validate}><label className="bulk-file-picker"><input type="file" accept={type.xlsxOnly ? ".xlsx" : ".csv,.xlsx,.xls"} onChange={(event) => { setFile(event.target.files?.[0] || null); setError(""); }} /><span className="upload-icon">&#8679;</span><b>{file ? file.name : `Choose ${type.xlsxOnly ? "an Excel" : "a CSV or Excel"} file`}</b><small>{file ? "Ready to validate" : `Required columns: ${type.detail}`}</small></label><p className="template-link">Need the format? <button type="button" onClick={() => downloadImportTemplate(type, token).catch((err) => setError(err.message))}>Download template</button></p>{error && <p className="error">{error}</p>}<footer><Button variant="secondary" onClick={onClose}>Cancel</Button><button className="btn primary" disabled={busy || !file}>{busy ? "Validating..." : "Validate file"}</button></footer></form>}</section></div>;
+  const invalid = Number(
+    validation?.invalid ?? validation?.errors?.length ?? 0,
+  );
+  // Voucher imports never update existing codes. Some validation responses
+  // report duplicate rows in `update`, so only genuinely new vouchers count
+  // as importable records.
+  const changes =
+    type.id === "vouchers"
+      ? Number(validation?.new || 0)
+      : Number(validation?.new || 0) + Number(validation?.update || 0);
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section
+        className="course-modal bulk-import-modal import-hub-modal"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">BULK IMPORT</p>
+            <h2>Import {type.title}</h2>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
+        </header>
+        {validation ? (
+          <div className="validation-result">
+            <p className="eyebrow">VALIDATION RESULT</p>
+            <h3>Review before importing</h3>
+            <div className="validation-summary">
+              <span>
+                <b>{validation.new || 0}</b> new
+              </span>
+              {type.id === "vouchers" ? (
+                <span>
+                  <b>{validation.duplicates || 0}</b> duplicates
+                </span>
+              ) : (
+                <span>
+                  <b>{validation.update || 0}</b> updates
+                </span>
+              )}
+              <span className={invalid ? "has-errors" : ""}>
+                <b>{invalid}</b> errors
+              </span>
+            </div>
+            {validation.errors?.slice(0, 6).map((item) => (
+              <small
+                className="validation-error"
+                key={`${item.row}-${item.message}`}
+              >
+                Row {item.row}: {item.message}
+              </small>
+            ))}
+            {invalid > 0 && validation.errorReport && (
+              <>
+                <p className="import-validation-note">
+                  Valid rows can still be imported. Rows with errors will be
+                  skipped.
+                </p>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    downloadErrorReport(validation.errorReport, type.id)
+                  }
+                >
+                  <AppIcon name="download" /> Download error rows
+                </Button>
+              </>
+            )}
+            {error && <p className="error">{error}</p>}
+            {importErrorReport && (
+              <Button
+                variant="secondary"
+                onClick={() => downloadErrorReport(importErrorReport, type.id)}
+              >
+                <AppIcon name="download" /> Download failed rows
+              </Button>
+            )}
+            {busy && (
+              <p className="import-progress" role="status">
+                <span className="import-progress-spinner" aria-hidden="true">
+                  <AppIcon name="progress_activity" size={19} />
+                </span>
+                <span>
+                  Importing {changes} records. Please keep this window open.
+                </span>
+              </p>
+            )}
+            <footer>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setValidation(null);
+                  setError("");
+                }}
+              >
+                Choose another file
+              </Button>
+              <button
+                className="btn primary"
+                disabled={busy || changes < 1}
+                onClick={runImport}
+              >
+                {busy ? "Importing..." : `Import ${changes} records`}
+              </button>
+            </footer>
+          </div>
+        ) : (
+          <form onSubmit={validate}>
+            <label className="bulk-file-picker">
+              <input
+                type="file"
+                accept={type.xlsxOnly ? ".xlsx" : ".csv,.xlsx,.xls"}
+                onChange={(event) => {
+                  setFile(event.target.files?.[0] || null);
+                  setError("");
+                }}
+              />
+              <span className="upload-icon">&#8679;</span>
+              <b>
+                {file
+                  ? file.name
+                  : `Choose ${type.xlsxOnly ? "an Excel" : "a CSV or Excel"} file`}
+              </b>
+              <small>
+                {file
+                  ? "Ready to validate"
+                  : `Required columns: ${type.detail}`}
+              </small>
+            </label>
+            <p className="template-link">
+              Need the format?{" "}
+              <button
+                type="button"
+                onClick={() =>
+                  downloadImportTemplate(type, token).catch((err) =>
+                    setError(err.message),
+                  )
+                }
+              >
+                Download template
+              </button>
+            </p>
+            {error && <p className="error">{error}</p>}
+            <footer>
+              <Button variant="secondary" onClick={onClose}>
+                Cancel
+              </Button>
+              <button className="btn primary" disabled={busy || !file}>
+                {busy ? "Validating..." : "Validate file"}
+              </button>
+            </footer>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function MssqlStudentImportModal({ token, onClose, onComplete }) {
+  const currentYear = new Date().getFullYear();
+  const [schoolYear, setSchoolYear] = useState(
+      `${currentYear}-${currentYear + 1}`,
+    ),
+    [semester, setSemester] = useState("1"),
+    [preview, setPreview] = useState(null),
+    [busy, setBusy] = useState(false),
+    [confirmDeactivation, setConfirmDeactivation] = useState(false),
+    [error, setError] = useState("");
+  const headers = { Authorization: `Bearer ${token}` };
+  const loadPreview = async (category = "", offset = 0) => {
+    setBusy(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ schoolYear, semester, offset });
+      if (category) params.set("category", category);
+      const data = await request(
+        `/admin/imports/mssql-students/preview?${params}`,
+        { headers },
+      );
+      setPreview((current) =>
+        !category
+          ? data
+          : {
+              ...current,
+              groups: {
+                ...current.groups,
+                [category]: {
+                  ...data.page,
+                  records: [
+                    ...(current.groups[category]?.records || []),
+                    ...data.page.records,
+                  ],
+                },
+              },
+            },
+      );
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const importStudents = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await request("/admin/imports/mssql-students", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schoolYear,
+          semester: Number(semester),
+          confirmDeactivation,
+        }),
+      });
+      onComplete(result.message);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="modal-backdrop" onMouseDown={busy ? undefined : onClose}>
+      <section
+        className={`course-modal bulk-import-modal mssql-student-import-modal${preview ? " is-validation" : ""}`}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">
+              {preview ? "VALIDATION COMPLETE" : "SQL SERVER IMPORT"}
+            </p>
+            <h2>
+              {preview
+                ? "Review student enrollment import"
+                : "Import enrolled students"}
+            </h2>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
+        </header>
+        {!preview ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              loadPreview();
+            }}
+          >
+            <p className="form-note">
+              Pulls student records from the configured SQL Server view. The
+              selected school year and semester are used to filter the source.
+            </p>
+            <div className="form-grid">
+              <label className="field">
+                <span>School year</span>
+                <input
+                  required
+                  pattern="[0-9]{4}-[0-9]{4}"
+                  placeholder="2026-2027"
+                  value={schoolYear}
+                  onChange={(event) => setSchoolYear(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Semester</span>
+                <select
+                  value={semester}
+                  onChange={(event) => setSemester(event.target.value)}
+                >
+                  <option value="1">First semester</option>
+                  <option value="2">Second semester</option>
+                  <option value="3">Summer</option>
+                </select>
+              </label>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <footer>
+              <Button variant="secondary" onClick={onClose}>
+                Cancel
+              </Button>
+              <button className="btn primary" disabled={busy}>
+                {busy ? "Loading..." : "Preview students"}
+              </button>
+            </footer>
+          </form>
+        ) : (
+          <div className="validation-result mssql-validation-result">
+            <p className="eyebrow">
+              {preview.period.schoolYear} · Semester {preview.period.semester}
+            </p>
+            <h3>Review semester student import</h3>
+            <div className="validation-summary">
+              <span>
+                <b>{preview.total}</b> source rows
+              </span>
+              <span>
+                <b>{preview.new}</b> new
+              </span>
+              <span>
+                <b>{preview.update}</b> updates
+              </span>
+              <span className={preview.invalid ? "has-errors" : ""}>
+                <b>{preview.invalid}</b> invalid
+              </span>
+            </div>
+            <p className="mssql-validation-copy">
+              Review all detected rows before updating enrollment records. Each
+              list initially shows up to 250 rows; loading more rows is optional
+              and does not affect the import.
+            </p>
+            <div className="mssql-validation-groups">
+              {[
+                [
+                  "Created students",
+                  "created",
+                  "new",
+                  preview.new,
+                  "No students will be created.",
+                ],
+                [
+                  "Updated students",
+                  "updated",
+                  "update",
+                  preview.update,
+                  "No students will be updated.",
+                ],
+                [
+                  "Errors",
+                  "errors",
+                  "error",
+                  preview.invalid,
+                  "No errors found.",
+                ],
+              ].map(([title, tone, kind, count, empty]) => {
+                const group = preview.groups[kind];
+                const rows = group.records;
+                return (
+                  <section
+                    className={`mssql-validation-group ${tone}`}
+                    key={kind}
+                  >
+                    <header>
+                      <span>{title}</span>
+                      <b>{count}</b>
+                    </header>
+                    {rows.length ? (
+                      <div className="mssql-validation-rows">
+                        {rows.map((row) => (
+                          <article key={`${row.kind}-${row.row}`}>
+                            <small>Row {row.row}</small>
+                            <span>
+                              {row.schoolId
+                                ? `${row.schoolId} — ${row.name} (${row.courseCode})`
+                                : row.message}
+                            </span>
+                            {row.schoolId && <em>{row.message}</em>}
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>{empty}</p>
+                    )}
+                    {group.hasMore && (
+                      <footer>
+                        <Button
+                          variant="secondary"
+                          onClick={() => loadPreview(kind, group.nextOffset)}
+                        >
+                          {busy ? "Loading..." : "Load next 250"}
+                        </Button>
+                      </footer>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
+            <p className="mssql-sync-warning">
+              <b>{preview.deactivate}</b> currently active student
+              {preview.deactivate === 1 ? " is" : "s are"} not in this
+              semester&apos;s source list and will be deactivated.
+            </p>
+            {preview.deactivate > 0 && (
+              <label className="mssql-deactivation-confirmation">
+                <input
+                  type="checkbox"
+                  checked={confirmDeactivation}
+                  onChange={(event) =>
+                    setConfirmDeactivation(event.target.checked)
+                  }
+                />
+                <span>
+                  I reviewed the source and approve deactivating these students.
+                </span>
+              </label>
+            )}
+            {error && <p className="error">{error}</p>}
+            <footer>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setPreview(null);
+                  setConfirmDeactivation(false);
+                  setError("");
+                }}
+              >
+                Change period
+              </Button>
+              <button
+                className="btn primary"
+                disabled={
+                  busy ||
+                  (!preview.new && !preview.update) ||
+                  (preview.deactivate > 0 && !confirmDeactivation)
+                }
+                onClick={importStudents}
+              >
+                {busy ? "Importing..." : "Import and synchronize"}
+              </button>
+            </footer>
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function ImportsPage({ token }) {
   const [activeType, setActiveType] = useState(null);
+  const [mssqlImportOpen, setMssqlImportOpen] = useState(false);
+  const [confirmExport, setConfirmExport] = useState(false);
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
-  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 5000); return () => clearTimeout(timer); }, [toast]);
-  const template = (type) => downloadImportTemplate(type, token).catch((err) => setError(err.message));
-  return <>
-    {toast && <Toast message={toast} onClose={() => setToast("")} />}
-    <PageHeader title="Imports" description="Download the required template, validate your file, and import records in bulk." />
-    {error && <p className="error imports-page-error">{error}</p>}
-    <section className="import-hub-grid">{importTypes.map((type, index) => <article className="panel import-hub-card" key={type.id}><div className="import-card-icon">{String(index + 1).padStart(2, "0")}</div><div className="import-card-copy"><h2>{type.title}</h2><p>{type.detail}</p><small>{type.xlsxOnly ? "XLSX format" : "CSV or XLSX format"}</small></div><footer><Button variant="secondary" onClick={() => template(type)}>Download template</Button><Button onClick={() => setActiveType(type)}>Upload file</Button></footer></article>)}</section>
-    {activeType && <ImportHubModal type={activeType} token={token} onClose={() => setActiveType(null)} onComplete={setToast} />}
-  </>;
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 5000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  const template = (type) =>
+    downloadImportTemplate(type, token).catch((err) => setError(err.message));
+  return (
+    <>
+      {toast && <Toast message={toast} onClose={() => setToast("")} />}
+      <PageHeader
+        title="Imports"
+        description="Download the required template, validate your file, and import records in bulk."
+        actions={
+          <Button variant="secondary" onClick={() => setConfirmExport(true)}>
+            <AppIcon name="download" /> Export account workbook
+          </Button>
+        }
+      />
+      {error && <p className="error imports-page-error">{error}</p>}
+      <section className="panel import-hub-card mssql-import-card">
+        <div className="import-card-icon">SQL</div>
+        <div className="import-card-copy">
+          <h2>SQL Server students</h2>
+          <p>Pull enrolled students directly from the configured MSSQL view.</p>
+          <small>
+            Select the school year and semester, then review the result before
+            importing.
+          </small>
+        </div>
+        <footer>
+          <Button onClick={() => setMssqlImportOpen(true)}>
+            Import from SQL Server
+          </Button>
+        </footer>
+      </section>
+      <section className="import-hub-grid">
+        {importTypes.map((type, index) => (
+          <article
+            className={`panel import-hub-card${type.id === "student-deactivate" ? " deactivation-import-card" : ""}`}
+            key={type.id}
+          >
+            <div className="import-card-icon">
+              {String(index + 1).padStart(2, "0")}
+            </div>
+            <div className="import-card-copy">
+              <h2>{type.title}</h2>
+              <p>{type.detail}</p>
+              <small>
+                {type.id === "student-deactivate"
+                  ? "Marks matched students inactive"
+                  : type.xlsxOnly
+                    ? "XLSX format"
+                    : "CSV or XLSX format"}
+              </small>
+            </div>
+            <footer>
+              <Button variant="secondary" onClick={() => template(type)}>
+                Download template
+              </Button>
+              <Button onClick={() => setActiveType(type)}>Upload file</Button>
+            </footer>
+          </article>
+        ))}
+      </section>
+      {activeType && (
+        <ImportHubModal
+          type={activeType}
+          token={token}
+          onClose={() => setActiveType(null)}
+          onComplete={setToast}
+        />
+      )}
+      {mssqlImportOpen && (
+        <MssqlStudentImportModal
+          token={token}
+          onClose={() => setMssqlImportOpen(false)}
+          onComplete={setToast}
+        />
+      )}
+      {confirmExport && (
+        <ConfirmModal
+          title="Export account credentials?"
+          message="This downloads all active usernames and passwords in one XLSX workbook. It contains separate sheets for SATP, Schoology, Kumosoft, and Email, and the export is recorded in the audit log."
+          confirmLabel="Download workbook"
+          onClose={() => setConfirmExport(false)}
+          onConfirm={() => {
+            setConfirmExport(false);
+            downloadCredentialWorkbook(token)
+              .then(() => setToast("Credential workbook downloaded."))
+              .catch((err) => setError(err.message));
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 function KiosksPage({ token }) {
@@ -3921,30 +5124,42 @@ function KiosksPage({ token }) {
     try {
       setKiosks(await request("/admin/kiosks", { headers }));
       setError("");
-    } catch (err) { setError(err.message); }
-    finally { if (!quiet) setLoading(false); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      if (!quiet) setLoading(false);
+    }
   };
   useEffect(() => {
     load();
     const timer = setInterval(() => load({ quiet: true }), 30000);
     return () => clearInterval(timer);
   }, []);
-  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 4500); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
   const openKiosk = async (id) => {
     setSelectedId(id);
     setDetailsLoading(true);
-    try { setDetails(await request(`/admin/kiosks/${id}`, { headers })); }
-    catch (err) { setError(err.message); }
-    finally { setDetailsLoading(false); }
+    try {
+      setDetails(await request(`/admin/kiosks/${id}`, { headers }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDetailsLoading(false);
+    }
   };
   useEffect(() => {
     if (!selectedId && kiosks[0]) openKiosk(kiosks[0].id);
   }, [kiosks]);
   useEffect(() => {
     if (!selectedId) return;
-    const refreshDetails = () => request(`/admin/kiosks/${selectedId}`, { headers })
-      .then(setDetails)
-      .catch((err) => setError(err.message));
+    const refreshDetails = () =>
+      request(`/admin/kiosks/${selectedId}`, { headers })
+        .then(setDetails)
+        .catch((err) => setError(err.message));
     const timer = setInterval(refreshDetails, 30000);
     return () => clearInterval(timer);
   }, [selectedId, token]);
@@ -3959,34 +5174,300 @@ function KiosksPage({ token }) {
       setToast(response.message);
       setPendingAction("");
       openKiosk(selectedId);
-    } catch (err) { setError(err.message); setPendingAction(""); }
+    } catch (err) {
+      setError(err.message);
+      setPendingAction("");
+    }
   };
   const online = kiosks.filter((item) => item.is_online).length;
-  const filtered = kiosks.filter((item) => [item.kiosk_name, item.kiosk_code, item.location].filter(Boolean).join(" ").toLowerCase().includes(query.trim().toLowerCase()));
+  const filtered = kiosks.filter((item) =>
+    [item.kiosk_name, item.kiosk_code, item.location]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
   const selected = details?.kiosk;
-  const actionLabel = { reload: "Reload dispenser", restartBrowser: "Restart browser", reboot: "Reboot device", shutdown: "Shut down device" };
+  const actionLabel = {
+    reload: "Reload dispenser",
+    restartBrowser: "Restart browser",
+    reboot: "Reboot device",
+    shutdown: "Shut down device",
+  };
   const duration = (seconds) => {
     if (!Number.isFinite(Number(seconds))) return "Not reported";
     const value = Math.max(0, Number(seconds));
-    const days = Math.floor(value / 86400), hours = Math.floor((value % 86400) / 3600), minutes = Math.floor((value % 3600) / 60);
-    return [days && `${days}d`, hours && `${hours}h`, `${minutes}m`].filter(Boolean).join(" ");
+    const days = Math.floor(value / 86400),
+      hours = Math.floor((value % 86400) / 3600),
+      minutes = Math.floor((value % 3600) / 60);
+    return [days && `${days}d`, hours && `${hours}h`, `${minutes}m`]
+      .filter(Boolean)
+      .join(" ");
   };
-  return <>
-    {toast && <Toast message={toast} onClose={() => setToast("")} />}
-    <PageHeader title="Kiosks" description="Monitor dispenser devices that have opened and connected to the system." actions={<Button variant="secondary" onClick={() => load()}><AppIcon name="refresh" /> Refresh</Button>} />
-    <section className="student-summary kiosk-admin-summary">
-      <article><span>Detected kiosks</span><strong>{kiosks.length}</strong></article>
-      <article><span>Online now</span><strong>{online}</strong></article>
-      <article><span>Offline</span><strong>{kiosks.length - online}</strong></article>
-    </section>
-    <section className="panel kiosk-admin-panel">
-      <div className="course-intro">This list updates automatically. A kiosk is online when it has authenticated within the last five minutes.</div>
-      {error && <p className="error">{error}</p>}
-      {loading ? <div className="kiosk-loading" role="status"><span className="loading-spinner" /> Loading kiosks...</div> : kiosks.length ? <><div className="kiosk-monitor-toolbar"><label><AppIcon name="search" size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search kiosks" aria-label="Search kiosks" /></label><small>{filtered.length} of {kiosks.length} devices</small></div><div className="kiosk-admin-table-wrap"><table className="kiosk-admin-table kiosk-monitor-table"><thead><tr><th>Location</th><th>Device</th><th>Status</th><th>Last seen</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id} className={item.id === selectedId ? "selected" : ""} onClick={() => openKiosk(item.id)}><td>{item.location || <span className="muted-cell">Not reported</span>}</td><td><span className="student-cell"><b>{item.kiosk_name}</b><small>{item.kiosk_code}</small></span></td><td><span className={`kiosk-connection ${item.is_online ? "online" : "offline"}`}><i />{item.is_online ? "Online" : "Offline"}</span></td><td>{item.last_seen ? <span className="request-date"><b>{new Date(item.last_seen).toLocaleDateString()}</b><small>{new Date(item.last_seen).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small></span> : <span className="muted-cell">Never connected</span>}</td></tr>)}</tbody></table></div>{!filtered.length && <p className="kiosk-no-results">No kiosk matches your search.</p>}</> : <Empty title="No kiosk detected" detail="Open the student dispenser on a kiosk device. It will appear here after connecting." />}
-    </section>
-    {selectedId && <section className="panel kiosk-detail-panel">{detailsLoading || !selected ? <div className="kiosk-loading" role="status"><span className="loading-spinner" /> Loading kiosk details...</div> : <><header><div><p className="eyebrow">KIOSK DETAILS</p><h2>{selected.location || "Kiosk"} — {selected.kiosk_code}</h2><p>{selected.kiosk_name}</p></div><span className={`kiosk-connection ${selected.is_online ? "online" : "offline"}`}><i />{selected.is_online ? "Online" : "Offline"}</span></header><dl className="kiosk-detail-grid"><div><dt>IP address</dt><dd>{selected.ip_address || "Not reported"}</dd></div><div><dt>MAC address</dt><dd>{selected.mac_address || "Not available in browser kiosk"}</dd></div><div><dt>Operating system</dt><dd>{selected.operating_system || "Not reported"}</dd></div><div><dt>Uptime</dt><dd>{duration(selected.uptime_seconds)}</dd></div><div><dt>Browser</dt><dd>{selected.browser_status || "Not reported"}</dd></div><div><dt>Browser status</dt><dd>{selected.is_online ? "Running" : "Not connected"}</dd></div><div><dt>Website</dt><dd>{selected.current_page || "Not reported"}</dd></div><div><dt>Website status</dt><dd>{selected.is_online ? "Reachable" : "Unavailable"}</dd></div><div><dt>Last seen</dt><dd>{selected.last_seen ? new Date(selected.last_seen).toLocaleString() : "Never"}</dd></div></dl><div className="kiosk-command-actions"><Button variant="secondary" onClick={() => setPendingAction("reload")}><AppIcon name="refresh" /> Reload dispenser</Button><Button variant="secondary" onClick={() => setPendingAction("restartBrowser")}><AppIcon name="restart_alt" /> Restart browser</Button><Button variant="secondary" onClick={() => setPendingAction("reboot")}><AppIcon name="restart_alt" /> Reboot</Button><Button variant="secondary" onClick={() => setPendingAction("shutdown")}><AppIcon name="power_settings_new" /> Shut down</Button></div><div className="kiosk-command-note"><AppIcon name="info" size={18} /> Reload and restart run in the browser kiosk. Reboot and shut down require the optional device agent and will be reported as unsupported until it is installed.</div>{details.commands?.length > 0 && <section className="kiosk-command-history"><h3>Recent commands</h3>{details.commands.map((command) => <div key={command.id}><span>{command.command.replace(/_/g, " ")}</span><Status tone={command.status === "COMPLETED" ? "green" : command.status === "UNSUPPORTED" || command.status === "FAILED" ? "danger" : "gold"}>{command.status.toLowerCase()}</Status><small>{command.result_text || new Date(command.created_at).toLocaleString()}</small></div>)}</section>}</>}</section>}
-    {pendingAction && <ConfirmModal title={`${actionLabel[pendingAction]}?`} message={pendingAction === "reboot" || pendingAction === "shutdown" ? "This command requires a kiosk device agent. Without one, the kiosk will report the command as unsupported." : "The command will run on the selected kiosk as soon as it checks in."} confirmLabel={actionLabel[pendingAction]} onConfirm={queueAction} onClose={() => setPendingAction("")} />}
-  </>;
+  return (
+    <>
+      {toast && <Toast message={toast} onClose={() => setToast("")} />}
+      <PageHeader
+        title="Kiosks"
+        description="Monitor dispenser devices that have opened and connected to the system."
+        actions={
+          <Button variant="secondary" onClick={() => load()}>
+            <AppIcon name="refresh" /> Refresh
+          </Button>
+        }
+      />
+      <section className="student-summary kiosk-admin-summary">
+        <article>
+          <span>Detected kiosks</span>
+          <strong>{kiosks.length}</strong>
+        </article>
+        <article>
+          <span>Online now</span>
+          <strong>{online}</strong>
+        </article>
+        <article>
+          <span>Offline</span>
+          <strong>{kiosks.length - online}</strong>
+        </article>
+      </section>
+      <section className="panel kiosk-admin-panel">
+        <div className="course-intro">
+          This list updates automatically. A kiosk is online when it has
+          authenticated within the last five minutes.
+        </div>
+        {error && <p className="error">{error}</p>}
+        {loading ? (
+          <div className="kiosk-loading" role="status">
+            <span className="loading-spinner" /> Loading kiosks...
+          </div>
+        ) : kiosks.length ? (
+          <>
+            <div className="kiosk-monitor-toolbar">
+              <label>
+                <AppIcon name="search" size={19} />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search kiosks"
+                  aria-label="Search kiosks"
+                />
+              </label>
+              <small>
+                {filtered.length} of {kiosks.length} devices
+              </small>
+            </div>
+            <div className="kiosk-admin-table-wrap">
+              <table className="kiosk-admin-table kiosk-monitor-table">
+                <thead>
+                  <tr>
+                    <th>Location</th>
+                    <th>Device</th>
+                    <th>Status</th>
+                    <th>Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((item) => (
+                    <tr
+                      key={item.id}
+                      className={item.id === selectedId ? "selected" : ""}
+                      onClick={() => openKiosk(item.id)}
+                    >
+                      <td>
+                        {item.location || (
+                          <span className="muted-cell">Not reported</span>
+                        )}
+                      </td>
+                      <td>
+                        <span className="student-cell">
+                          <b>{item.kiosk_name}</b>
+                          <small>{item.kiosk_code}</small>
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`kiosk-connection ${item.is_online ? "online" : "offline"}`}
+                        >
+                          <i />
+                          {item.is_online ? "Online" : "Offline"}
+                        </span>
+                      </td>
+                      <td>
+                        {item.last_seen ? (
+                          <span className="request-date">
+                            <b>
+                              {new Date(item.last_seen).toLocaleDateString()}
+                            </b>
+                            <small>
+                              {new Date(item.last_seen).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </small>
+                          </span>
+                        ) : (
+                          <span className="muted-cell">Never connected</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!filtered.length && (
+              <p className="kiosk-no-results">No kiosk matches your search.</p>
+            )}
+          </>
+        ) : (
+          <Empty
+            title="No kiosk detected"
+            detail="Open the student dispenser on a kiosk device. It will appear here after connecting."
+          />
+        )}
+      </section>
+      {selectedId && (
+        <section className="panel kiosk-detail-panel">
+          {detailsLoading || !selected ? (
+            <div className="kiosk-loading" role="status">
+              <span className="loading-spinner" /> Loading kiosk details...
+            </div>
+          ) : (
+            <>
+              <header>
+                <div>
+                  <p className="eyebrow">KIOSK DETAILS</p>
+                  <h2>
+                    {selected.location || "Kiosk"} — {selected.kiosk_code}
+                  </h2>
+                  <p>{selected.kiosk_name}</p>
+                </div>
+                <span
+                  className={`kiosk-connection ${selected.is_online ? "online" : "offline"}`}
+                >
+                  <i />
+                  {selected.is_online ? "Online" : "Offline"}
+                </span>
+              </header>
+              <dl className="kiosk-detail-grid">
+                <div>
+                  <dt>IP address</dt>
+                  <dd>{selected.ip_address || "Not reported"}</dd>
+                </div>
+                <div>
+                  <dt>MAC address</dt>
+                  <dd>
+                    {selected.mac_address || "Not available in browser kiosk"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Operating system</dt>
+                  <dd>{selected.operating_system || "Not reported"}</dd>
+                </div>
+                <div>
+                  <dt>Uptime</dt>
+                  <dd>{duration(selected.uptime_seconds)}</dd>
+                </div>
+                <div>
+                  <dt>Browser</dt>
+                  <dd>{selected.browser_status || "Not reported"}</dd>
+                </div>
+                <div>
+                  <dt>Browser status</dt>
+                  <dd>{selected.is_online ? "Running" : "Not connected"}</dd>
+                </div>
+                <div>
+                  <dt>Website</dt>
+                  <dd>{selected.current_page || "Not reported"}</dd>
+                </div>
+                <div>
+                  <dt>Website status</dt>
+                  <dd>{selected.is_online ? "Reachable" : "Unavailable"}</dd>
+                </div>
+                <div>
+                  <dt>Last seen</dt>
+                  <dd>
+                    {selected.last_seen
+                      ? new Date(selected.last_seen).toLocaleString()
+                      : "Never"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="kiosk-command-actions">
+                <Button
+                  variant="secondary"
+                  onClick={() => setPendingAction("reload")}
+                >
+                  <AppIcon name="refresh" /> Reload dispenser
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setPendingAction("restartBrowser")}
+                >
+                  <AppIcon name="restart_alt" /> Restart browser
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setPendingAction("reboot")}
+                >
+                  <AppIcon name="restart_alt" /> Reboot
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setPendingAction("shutdown")}
+                >
+                  <AppIcon name="power_settings_new" /> Shut down
+                </Button>
+              </div>
+              <div className="kiosk-command-note">
+                <AppIcon name="info" size={18} /> Reload and restart run in the
+                browser kiosk. Reboot and shut down require the optional device
+                agent and will be reported as unsupported until it is installed.
+              </div>
+              {details.commands?.length > 0 && (
+                <section className="kiosk-command-history">
+                  <h3>Recent commands</h3>
+                  {details.commands.map((command) => (
+                    <div key={command.id}>
+                      <span>{command.command.replace(/_/g, " ")}</span>
+                      <Status
+                        tone={
+                          command.status === "COMPLETED"
+                            ? "green"
+                            : command.status === "UNSUPPORTED" ||
+                                command.status === "FAILED"
+                              ? "danger"
+                              : "gold"
+                        }
+                      >
+                        {command.status.toLowerCase()}
+                      </Status>
+                      <small>
+                        {command.result_text ||
+                          new Date(command.created_at).toLocaleString()}
+                      </small>
+                    </div>
+                  ))}
+                </section>
+              )}
+            </>
+          )}
+        </section>
+      )}
+      {pendingAction && (
+        <ConfirmModal
+          title={`${actionLabel[pendingAction]}?`}
+          message={
+            pendingAction === "reboot" || pendingAction === "shutdown"
+              ? "This command requires a kiosk device agent. Without one, the kiosk will report the command as unsupported."
+              : "The command will run on the selected kiosk as soon as it checks in."
+          }
+          confirmLabel={actionLabel[pendingAction]}
+          onConfirm={queueAction}
+          onClose={() => setPendingAction("")}
+        />
+      )}
+    </>
+  );
 }
 
 function GenericPage({ path }) {
@@ -4073,7 +5554,7 @@ function AdminRedirect({ to, message }) {
 }
 
 function AdminApp() {
-  const path = usePath();
+  const { path, revision } = usePath();
   const [token, setToken] = useState("");
   const [checking, setChecking] = useState(true);
   useEffect(() => {
@@ -4083,8 +5564,14 @@ function AdminApp() {
   }, []);
   useEffect(() => {
     if (!token) {
-      request("/auth/refresh", { method: "POST", headers: { "Content-Type": "application/json" } })
-        .then((session) => setToken(session.accessToken))
+      request("/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+        .then((session) => {
+          if (session?.accessToken) setToken(session.accessToken);
+          else setChecking(false);
+        })
         .catch(() => setChecking(false));
       return;
     }
@@ -4097,11 +5584,12 @@ function AdminApp() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
             });
-            setToken(session.accessToken);
-            return;
-          } catch {
-            setToken("");
-          }
+            if (session?.accessToken) {
+              setToken(session.accessToken);
+              return;
+            }
+          } catch {}
+          setToken("");
         }
         setChecking(false);
       });
@@ -4141,7 +5629,10 @@ function AdminApp() {
     ) : path === "/admin/settings" ? (
       <AdminRedirect to="/admin" message="Opening dashboard..." />
     ) : path === "/admin/credentials" ? (
-      <AdminRedirect to="/admin/students" message="Opening student records..." />
+      <AdminRedirect
+        to="/admin/students"
+        message="Opening student records..."
+      />
     ) : (
       <GenericPage path={pageMeta[path] ? path : "/admin/students"} />
     );
@@ -4155,21 +5646,27 @@ function AdminApp() {
         go("/admin");
       }}
     >
-      <div className="page-transition" key={path}>
+      <div className="page-transition" key={`${path}-${revision}`}>
         {content}
       </div>
     </AdminShell>
   );
 }
 
-function KioskHeader() {
+function KioskHeader({
+  mode = "Kiosk",
+  subtitle = "Student WiFi & System Credentials",
+}) {
   return (
     <header className="kiosk-site-header">
       <div className="kiosk-site-brand">
         <img src={ndmuLogo} alt="NDMU seal" />
-        <span><b>Notre Dame of Marbel University</b><small>Student WiFi &amp; System Credentials</small></span>
+        <span>
+          <b>Notre Dame of Marbel University</b>
+          <small>{subtitle}</small>
+        </span>
       </div>
-      <span className="kiosk-mode">Kiosk</span>
+      <span className="kiosk-mode">{mode}</span>
     </header>
   );
 }
@@ -4177,46 +5674,54 @@ function KioskHeader() {
 function KioskFooter() {
   return (
     <footer className="kiosk-site-footer">
-      <span>NDMU © {new Date().getFullYear()} | Developed by MIS Department</span>
+      <span>
+        NDMU © {new Date().getFullYear()} | Developed by MIS Department
+      </span>
     </footer>
   );
 }
 
 function KioskGuidelines({ guidelines, tip }) {
-  const pageSize = 4;
-  const pageCount = Math.max(1, Math.ceil(guidelines.length / pageSize));
-  const [page, setPage] = useState(0);
-
-  useEffect(() => {
-    setPage((current) => Math.min(current, pageCount - 1));
-  }, [pageCount]);
-
-  useEffect(() => {
-    if (pageCount < 2) return undefined;
-    const timer = setInterval(() => setPage((current) => (current + 1) % pageCount), 6000);
-    return () => clearInterval(timer);
-  }, [pageCount]);
-
-  const visibleGuidelines = guidelines.slice(page * pageSize, (page + 1) * pageSize);
-  const move = (offset) => setPage((current) => (current + offset + pageCount) % pageCount);
+  const shouldMarquee = guidelines.length > 4;
+  const marqueeGuidelines = shouldMarquee
+    ? [...guidelines, ...guidelines]
+    : guidelines;
 
   return (
     <section className="kiosk-card kiosk-guidelines">
       <h2>Credential &amp; Voucher Guidelines</h2>
-      <div className="guideline-carousel">
-        <div className="guideline-list guideline-slide" key={page} aria-live="polite">
-          {visibleGuidelines.map((item) => <article key={item.id}><i /><p><b>{item.title}</b>{item.message && ` ${item.message}`}</p></article>)}
-          {!visibleGuidelines.length && <p className="guideline-empty">No guidelines are currently posted.</p>}
+      <div
+        className={`guideline-carousel${shouldMarquee ? " is-marquee" : ""}`}
+      >
+        <div
+          className="guideline-list"
+          aria-live={shouldMarquee ? "off" : "polite"}
+        >
+          {marqueeGuidelines.map((item, index) => (
+            <article
+              key={`${item.id}-${index}`}
+              aria-hidden={shouldMarquee && index >= guidelines.length}
+            >
+              <i />
+              <p>
+                <b>{item.title}</b>
+                {item.message && ` ${item.message}`}
+              </p>
+            </article>
+          ))}
+          {!guidelines.length && (
+            <p className="guideline-empty">
+              No guidelines are currently posted.
+            </p>
+          )}
         </div>
-        {pageCount > 1 && (
-          <div className="guideline-carousel-controls" aria-label="Guideline pages">
-            <button type="button" onClick={() => move(-1)} aria-label="Previous guidelines"><AppIcon name="keyboard_arrow_up" size={21} /></button>
-            <span>{page + 1} / {pageCount}</span>
-            <button type="button" onClick={() => move(1)} aria-label="Next guidelines"><AppIcon name="keyboard_arrow_down" size={21} /></button>
-          </div>
-        )}
       </div>
-      {tip && <aside><b>{tip.title}</b><span>{tip.message}</span></aside>}
+      {tip && (
+        <aside>
+          <b>{tip.title}</b>
+          <span>{tip.message}</span>
+        </aside>
+      )}
     </section>
   );
 }
@@ -4247,34 +5752,47 @@ function Kiosk() {
     let active = true;
     const start = async () => {
       try {
-        await request("/kiosk/session", { method: "POST", headers: kioskHeaders });
+        await request("/kiosk/session", {
+          method: "POST",
+          headers: kioskHeaders,
+        });
         if (!active) return;
         setKioskReady(true);
-        const [loadedCourses, loadedReminders, loadedControls] = await Promise.all([
-          request("/kiosk/courses", { headers: kioskHeaders }),
-          request("/kiosk/reminders", { headers: kioskHeaders }),
-          request("/kiosk/module-controls", { headers: kioskHeaders }),
-        ]);
+        const [loadedCourses, loadedReminders, loadedControls] =
+          await Promise.all([
+            request("/kiosk/courses", { headers: kioskHeaders }),
+            request("/kiosk/reminders", { headers: kioskHeaders }),
+            request("/kiosk/module-controls", { headers: kioskHeaders }),
+          ]);
         if (!active) return;
         setCourses(loadedCourses);
         setReminders(loadedReminders);
         setModuleControls(loadedControls);
-      } catch (e) { if (active) setError(e.message); }
+      } catch (e) {
+        if (active) setError(e.message);
+      }
     };
     start();
-    const loadControls = () => kioskReady && request("/kiosk/module-controls", { headers: kioskHeaders })
-      .then(setModuleControls).catch(() => {});
+    const loadControls = () =>
+      kioskReady &&
+      request("/kiosk/module-controls", { headers: kioskHeaders })
+        .then(setModuleControls)
+        .catch(() => {});
     const controlTimer = setInterval(loadControls, 15000);
-    return () => { active = false; clearInterval(controlTimer); };
+    return () => {
+      active = false;
+      clearInterval(controlTimer);
+    };
   }, [kioskReady]);
   useEffect(() => {
     if (!kioskReady) return undefined;
     let active = true;
-    const completeCommand = (commandId, status, result) => request("/kiosk/commands/complete", {
-      method: "POST",
-      headers: kioskHeaders,
-      body: JSON.stringify({ commandId, status, result }),
-    });
+    const completeCommand = (commandId, status, result) =>
+      request("/kiosk/commands/complete", {
+        method: "POST",
+        headers: kioskHeaders,
+        body: JSON.stringify({ commandId, status, result }),
+      });
     const heartbeat = async () => {
       try {
         const { commands = [] } = await request("/kiosk/heartbeat", {
@@ -4284,13 +5802,18 @@ function Kiosk() {
             ...kioskIdentity,
             currentPage: location.pathname,
             uptimeSeconds: Math.floor((Date.now() - KIOSK_STARTED_AT) / 1000),
-            operatingSystem: navigator.userAgentData?.platform || navigator.platform || "",
+            operatingSystem:
+              navigator.userAgentData?.platform || navigator.platform || "",
           }),
         });
         for (const command of commands) {
           if (!active) return;
           if (["RELOAD", "RESTART_BROWSER"].includes(command.command)) {
-            await completeCommand(command.id, "COMPLETED", "The credentials dispenser was reloaded.");
+            await completeCommand(
+              command.id,
+              "COMPLETED",
+              "The credentials dispenser was reloaded.",
+            );
             location.reload();
             return;
           }
@@ -4304,13 +5827,51 @@ function Kiosk() {
     };
     heartbeat();
     const timer = setInterval(heartbeat, 15000);
-    return () => { active = false; clearInterval(timer); };
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [kioskReady]);
   useEffect(() => {
     if (!resetNotice) return;
     const timer = setTimeout(() => setResetNotice(""), 4500);
     return () => clearTimeout(timer);
   }, [resetNotice]);
+  useEffect(() => {
+    if (!result) return undefined;
+    let timer;
+    const closeSummary = () => {
+      setResult(null);
+      setForm({ studentId: "", lastName: "", birthDate: "", courseId: "" });
+      setPasswordsVisible(false);
+      setResetNotice("");
+      setResetRequestInfo(null);
+      setVoucherRequestOpen(false);
+      setVoucherRequestReason("");
+      setConfirmReveal(false);
+    };
+    const restartTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(closeSummary, 30_000);
+    };
+    const activityEvents = [
+      "pointerdown",
+      "pointermove",
+      "touchstart",
+      "keydown",
+      "wheel",
+    ];
+    activityEvents.forEach((event) =>
+      window.addEventListener(event, restartTimer),
+    );
+    restartTimer();
+    return () => {
+      clearTimeout(timer);
+      activityEvents.forEach((event) =>
+        window.removeEventListener(event, restartTimer),
+      );
+    };
+  }, [result]);
   const verify = async (e) => {
     e.preventDefault();
     setError("");
@@ -4331,15 +5892,63 @@ function Kiosk() {
     }
   };
   const requestIsPending = (credentialType, kind) =>
-    Boolean(result?.pendingRequests?.some(
+    Boolean(
+      result?.pendingRequests?.some(
+        (item) => item.type === credentialType && item.kind === kind,
+      ),
+    );
+  const pendingRequest = (credentialType, kind) =>
+    result?.pendingRequests?.find(
       (item) => item.type === credentialType && item.kind === kind,
-    ));
+    );
+  const formatRequestTime = (value) => {
+    if (!value) return "recently";
+    const raw = String(value);
+    const hasOffset = /(?:Z|[+-]\d{2}:\d{2})$/i.test(raw);
+    const date = new Date(hasOffset ? raw : `${raw.replace(" ", "T")}+08:00`);
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Manila",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(date);
+  };
+  const requestOutcome = (credentialType, kind) =>
+    result?.requestOutcomes?.find(
+      (item) => item.type === credentialType && item.kind === kind,
+    );
+  const requestOutcomeMessage = (outcome) => {
+    if (!outcome) return "";
+    const date = formatRequestTime(outcome.resolvedAt);
+    if (outcome.kind === "VOUCHER_REQUEST")
+      return outcome.status === "REJECTED"
+        ? `Voucher request was rejected on ${date}.`
+        : `Voucher request was approved on ${date}.`;
+    return outcome.kind === "ACCOUNT_CREATION"
+      ? `Account request was approved on ${date}.`
+      : `Password reset request was completed on ${date}.`;
+  };
   const markRequestPending = (credentialType, kind) =>
     setResult((current) => {
       const pendingRequests = current.pendingRequests || [];
-      return pendingRequests.some((item) => item.type === credentialType && item.kind === kind)
+      return pendingRequests.some(
+        (item) => item.type === credentialType && item.kind === kind,
+      )
         ? current
-        : { ...current, pendingRequests: [...pendingRequests, { type: credentialType, kind }] };
+        : {
+            ...current,
+            pendingRequests: [
+              ...pendingRequests,
+              {
+                type: credentialType,
+                kind,
+                requestedAt: new Date().toISOString(),
+              },
+            ],
+          };
     });
   const requestReset = async (credentialType) => {
     setRequestingReset(credentialType);
@@ -4420,7 +6029,9 @@ function Kiosk() {
         ...result,
         credentials: result.credentials.map((credential) => ({
           ...credential,
-          ...(response.credentials.find((item) => item.type === credential.type) || {}),
+          ...(response.credentials.find(
+            (item) => item.type === credential.type,
+          ) || {}),
         })),
         wifiVoucher: response.wifiVoucher,
       });
@@ -4435,28 +6046,58 @@ function Kiosk() {
     guidelines = reminders.filter((item) => item.placement === "GUIDELINE"),
     tip = reminders.find((item) => item.placement === "TIP"),
     accountMeta = {
-      EMAIL: { title: "Email", username: "Email", website: "Google Workspace / Gmail" },
-      KUMOSOFT: { title: "Kumosoft", username: "Kumosoft ID", website: "sms.ndmu.edu.ph" },
-      SCHOOLOGY: { title: "Schoology", username: "Username", website: "ndmu.schoology.com" },
-      SATP: { title: "SATP", username: "Username", website: "satp.ndmu.edu.ph" },
+      EMAIL: {
+        title: "Email",
+        username: "Email",
+        website: "Google Workspace / Gmail",
+      },
+      KUMOSOFT: {
+        title: "Kumosoft",
+        username: "Kumosoft ID",
+        website: "sms.ndmu.edu.ph",
+      },
+      SCHOOLOGY: {
+        title: "Schoology",
+        username: "Username",
+        website: "ndmu.schoology.com",
+      },
+      SATP: {
+        title: "SATP",
+        username: "Username",
+        website: "satp.ndmu.edu.ph",
+      },
     },
     visibleCredentials = [...(result?.credentials || [])].sort((a, b) => {
-      const stateRank = (item) => item.unavailable ? 2 : item.maintenance ? 1 : 0;
+      const stateRank = (item) =>
+        item.unavailable ? 2 : item.maintenance ? 1 : 0;
       const stateDifference = stateRank(a) - stateRank(b);
-      return stateDifference || ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(a.type) - ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(b.type);
+      return (
+        stateDifference ||
+        ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(a.type) -
+          ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(b.type)
+      );
     }),
-    availableCredentialCount = visibleCredentials.filter((item) => !item.unavailable && !item.maintenance).length,
+    availableCredentialCount = visibleCredentials.filter(
+      (item) => !item.unavailable && !item.maintenance,
+    ).length,
     kioskControl = moduleControls.find((item) => item.module_key === "KIOSK");
   if (kioskControl?.is_maintenance)
     return (
       <div className="kiosk-page">
         <KioskHeader />
         <main className="kiosk-maintenance">
-          <span className="maintenance-icon"><AppIcon name="settings" size={34} /></span>
+          <span className="maintenance-icon">
+            <AppIcon name="settings" size={34} />
+          </span>
           <p className="eyebrow">TEMPORARILY UNAVAILABLE</p>
           <h1>Dispenser under maintenance</h1>
-          <p>The student credentials dispenser is temporarily unavailable. Please try again later or proceed to the ICT/MIS Office.</p>
-          <button className="btn secondary" onClick={() => location.reload()}>Check again</button>
+          <p>
+            The student credentials dispenser is temporarily unavailable. Please
+            try again later.
+          </p>
+          <button className="btn secondary" onClick={() => location.reload()}>
+            Check again
+          </button>
         </main>
         <KioskFooter />
       </div>
@@ -4464,60 +6105,324 @@ function Kiosk() {
   if (result)
     return (
       <div className="kiosk-page">
-          <KioskHeader />
-          <main key="credentials-summary" className="kiosk kiosk-results kiosk-view kiosk-view-summary">
-            <header className="credentials-summary-heading">
-              <h1>Credentials Summary</h1>
-              <p>{availableCredentialCount} of {visibleCredentials.length} account{visibleCredentials.length === 1 ? "" : "s"} available · Passwords are hidden until you tap <b>Show All</b>.</p>
-            </header>
-            <section className="credential-summary-panel">
-              <div>
-                <h2>{result.student.fullName}</h2>
-                <p><b>Course:</b> {result.student.course}</p>
-                <p><b>Student ID:</b> {result.student.studentId}</p>
-                {result.voucherState !== "HIDDEN" && <p className="voucher-summary"><b>WiFi Voucher</b><code>{result.voucherState === "MAINTENANCE" ? "Under maintenance" : passwordsVisible ? (result.wifiVoucher || "Pending") : (result.hasWifiVoucher ? "••••••••" : "Pending")}</code>{result.voucherState === "AVAILABLE" && <button type="button" className={`voucher-request-button${requestIsPending("VOUCHER", "VOUCHER_REQUEST") ? " pending" : ""}`} disabled={requestIsPending("VOUCHER", "VOUCHER_REQUEST")} onClick={() => setVoucherRequestOpen(true)}>{requestIsPending("VOUCHER", "VOUCHER_REQUEST") ? "New voucher request pending" : "Request new voucher"}</button>}</p>}
-              </div>
-              <p><b>Tip:</b> Keep this screen private.</p>
-            </section>
-            <section className="credential-grid credential-summary-grid">
-            {visibleCredentials.map((c) => {
-              const meta = accountMeta[c.type] || { title: c.type, username: "Username", website: "" };
-              return <article className="credential credential-summary-card" key={c.type}>
-                <h2><span>{meta.title}</span><Status tone={c.unavailable || c.maintenance ? "gold" : "green"}>{c.unavailable ? "Not assigned" : c.maintenance ? "Maintenance" : "Available"}</Status></h2>
-                {c.maintenance ? <div className="credential-module-maintenance"><b>Temporarily unavailable</b><span>The MIS administrator has placed this account under maintenance.</span></div> : c.unavailable ? <div className="credential-module-unavailable"><b>Account required</b><span>No {meta.title} account is linked to this student.</span><button type="button" className={`btn secondary${requestIsPending(c.type, "ACCOUNT_CREATION") ? " pending" : ""}`} disabled={Boolean(requestingReset) || requestIsPending(c.type, "ACCOUNT_CREATION")} onClick={() => requestAccount(c.type)}>{requestIsPending(c.type, "ACCOUNT_CREATION") ? "Request pending" : requestingReset === c.type ? "Submitting..." : "Request account"}</button></div> : <div className="credential-card-body">
-                  <p><b>{meta.username}:</b> <span>{c.username}</span></p>
-                  <p className={`credential-password${passwordsVisible ? " visible" : ""}`}><b>Password:</b><code>{passwordsVisible ? c.password : "••••••••"}</code></p>
-                  {meta.website && <p className="credential-website"><b>Website:</b> {meta.website}</p>}
-                </div>}
-                {c.type !== "SATP" && !c.maintenance && !c.unavailable && <button type="button" className={`credential-reset-button${requestIsPending(c.type, "PASSWORD_RESET") ? " pending" : ""}`} disabled={Boolean(requestingReset) || requestIsPending(c.type, "PASSWORD_RESET")} onClick={() => setResetRequestInfo({ type: c.type, title: meta.title })}>
-                  {requestIsPending(c.type, "PASSWORD_RESET") ? "Reset request pending" : requestingReset === c.type ? "Submitting..." : "Request password reset"}
-                </button>}
-              </article>;
-            })}
-            </section>
-            <div className="credential-summary-actions">
-              {!passwordsVisible ? <button type="button" className="btn reveal-all-button" disabled={revealing} onClick={() => setConfirmReveal(true)}><AppIcon name="visibility" />{revealing ? "Showing..." : "Show All"}</button> : <button type="button" className="btn reveal-all-button" onClick={() => { setResult({ ...result, credentials: result.credentials.map(({ password: _password, ...credential }) => credential), wifiVoucher: null }); setPasswordsVisible(false); }}><AppIcon name="visibility_off" />Hide All</button>}
-              <button type="button" className="btn primary" onClick={() => { setResult(null); setPasswordsVisible(false); setResetNotice(""); }}><AppIcon name="check" />Done</button>
+        <KioskHeader />
+        <main
+          key="credentials-summary"
+          className="kiosk kiosk-results kiosk-view kiosk-view-summary"
+        >
+          <header className="credentials-summary-heading">
+            <h1>Credentials Summary</h1>
+            <p>
+              {availableCredentialCount} of {visibleCredentials.length} account
+              {visibleCredentials.length === 1 ? "" : "s"} available · Passwords
+              are hidden until you tap <b>Show All</b>.
+            </p>
+            <p className="credentials-summary-guidance">
+              Email, Schoology, and Kumosoft passwords shown here are default
+              passwords. If you change one and later forget it, request a
+              password reset.
+            </p>
+          </header>
+          <section className="credential-summary-panel">
+            <div>
+              <h2>{result.student.fullName}</h2>
+              <p>
+                <b>Course:</b> {result.student.course}
+              </p>
+              <p>
+                <b>Student ID:</b> {result.student.studentId}
+              </p>
+              {result.voucherState !== "HIDDEN" && (
+                <div>
+                  <p className="voucher-summary">
+                    <b>WiFi Voucher</b>
+                    <code>
+                      {result.voucherState === "MAINTENANCE"
+                        ? "Under maintenance"
+                        : passwordsVisible
+                          ? result.wifiVoucher || "Pending"
+                          : result.hasWifiVoucher
+                            ? "••••••••"
+                            : "Pending"}
+                    </code>
+                    {result.voucherState === "AVAILABLE" && (
+                      <button
+                        type="button"
+                        className={`voucher-request-button${requestIsPending("VOUCHER", "VOUCHER_REQUEST") ? " pending" : ""}`}
+                        disabled={requestIsPending(
+                          "VOUCHER",
+                          "VOUCHER_REQUEST",
+                        )}
+                        onClick={() => setVoucherRequestOpen(true)}
+                      >
+                        {requestIsPending("VOUCHER", "VOUCHER_REQUEST")
+                          ? "New voucher request pending"
+                          : "Request new voucher"}
+                      </button>
+                    )}
+                  </p>
+                  {requestOutcome("VOUCHER", "VOUCHER_REQUEST") && (
+                    <p
+                      className={`credential-request-outcome ${requestOutcome("VOUCHER", "VOUCHER_REQUEST").status.toLowerCase()}`}
+                    >
+                      {requestOutcomeMessage(
+                        requestOutcome("VOUCHER", "VOUCHER_REQUEST"),
+                      )}
+                    </p>
+                  )}
+                  {pendingRequest("VOUCHER", "VOUCHER_REQUEST") && (
+                    <p className="credential-request-outcome pending">
+                      Voucher request submitted on{" "}
+                      {formatRequestTime(
+                        pendingRequest("VOUCHER", "VOUCHER_REQUEST")
+                          .requestedAt,
+                      )}
+                      .
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
-          </main>
-          <KioskFooter />
-        {resetNotice && <Toast message={resetNotice} onClose={() => setResetNotice("")} />}
-        {resetRequestInfo && <PasswordResetInfoModal accountTitle={resetRequestInfo.title} submitting={requestingReset === resetRequestInfo.type} onSubmit={() => requestReset(resetRequestInfo.type)} onClose={() => setResetRequestInfo(null)} />}
-        {voucherRequestOpen && <VoucherRequestModal reason={voucherRequestReason} submitting={requestingVoucher} onReasonChange={setVoucherRequestReason} onSubmit={requestNewVoucher} onClose={() => { setVoucherRequestOpen(false); setVoucherRequestReason(""); }} />}
-        {confirmReveal && <ConfirmModal title="Show all passwords?" message="The passwords will be displayed on screen and this event will be recorded in Transactions. Make sure no one else can see the kiosk." confirmLabel="Show passwords" onConfirm={revealPasswords} onClose={() => setConfirmReveal(false)} />}
+            <p>
+              <b>Tip:</b> Keep this screen private. It clears after 30 seconds
+              of inactivity.
+            </p>
+          </section>
+          <section className="credential-grid credential-summary-grid">
+            {visibleCredentials.map((c) => {
+              const meta = accountMeta[c.type] || {
+                title: c.type,
+                username: "Username",
+                website: "",
+              };
+              const outcome = requestOutcome(
+                c.type,
+                c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
+              );
+              const pending = pendingRequest(
+                c.type,
+                c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
+              );
+              return (
+                <article
+                  className="credential credential-summary-card"
+                  key={c.type}
+                >
+                  <h2>
+                    <span>{meta.title}</span>
+                    <Status
+                      tone={c.unavailable || c.maintenance ? "gold" : "green"}
+                    >
+                      {c.unavailable
+                        ? "Not assigned"
+                        : c.maintenance
+                          ? "Maintenance"
+                          : "Available"}
+                    </Status>
+                  </h2>
+                  {c.maintenance ? (
+                    <div className="credential-module-maintenance">
+                      <b>Temporarily unavailable</b>
+                      <span>
+                        The MIS administrator has placed this account under
+                        maintenance.
+                      </span>
+                    </div>
+                  ) : c.unavailable ? (
+                    <div className="credential-module-unavailable">
+                      <b>Account required</b>
+                      <span>
+                        No {meta.title} account is linked to this student.
+                      </span>
+                      <button
+                        type="button"
+                        className={`btn secondary${requestIsPending(c.type, "ACCOUNT_CREATION") ? " pending" : ""}`}
+                        disabled={
+                          Boolean(requestingReset) ||
+                          requestIsPending(c.type, "ACCOUNT_CREATION")
+                        }
+                        onClick={() => requestAccount(c.type)}
+                      >
+                        {requestIsPending(c.type, "ACCOUNT_CREATION")
+                          ? "Request pending"
+                          : requestingReset === c.type
+                            ? "Submitting..."
+                            : "Request account"}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="credential-card-body">
+                      <p>
+                        <b>{meta.username}:</b> <span>{c.username}</span>
+                      </p>
+                      <p
+                        className={`credential-password${passwordsVisible ? " visible" : ""}`}
+                      >
+                        <b>Password:</b>
+                        <code>
+                          {passwordsVisible
+                            ? (c.password ?? "Not provided")
+                            : "••••••••"}
+                        </code>
+                      </p>
+                      {meta.website && (
+                        <p className="credential-website">
+                          <b>Website:</b> {meta.website}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {(c.type !== "SATP" && !c.maintenance && !c.unavailable) ||
+                  outcome ||
+                  pending ? (
+                    <div className="credential-request-row">
+                      {c.type !== "SATP" &&
+                        !c.maintenance &&
+                        !c.unavailable && (
+                          <button
+                            type="button"
+                            className={`credential-reset-button${requestIsPending(c.type, "PASSWORD_RESET") ? " pending" : ""}`}
+                            disabled={
+                              Boolean(requestingReset) ||
+                              requestIsPending(c.type, "PASSWORD_RESET")
+                            }
+                            onClick={() =>
+                              setResetRequestInfo({
+                                type: c.type,
+                                title: meta.title,
+                              })
+                            }
+                          >
+                            {requestIsPending(c.type, "PASSWORD_RESET")
+                              ? "Reset request pending"
+                              : requestingReset === c.type
+                                ? "Submitting..."
+                                : "Request password reset"}
+                          </button>
+                        )}
+                      {outcome && (
+                        <p
+                          className={`credential-request-outcome ${outcome.status.toLowerCase()}`}
+                        >
+                          {requestOutcomeMessage(outcome)}
+                        </p>
+                      )}
+                      {pending && (
+                        <p className="credential-request-outcome pending">
+                          Request submitted on{" "}
+                          {formatRequestTime(pending.requestedAt)}.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </section>
+          <div className="credential-summary-actions">
+            {!passwordsVisible ? (
+              <button
+                type="button"
+                className="btn reveal-all-button"
+                disabled={revealing}
+                onClick={() => setConfirmReveal(true)}
+              >
+                <AppIcon name="visibility" />
+                {revealing ? "Showing..." : "Show All"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn reveal-all-button"
+                onClick={() => {
+                  setResult({
+                    ...result,
+                    credentials: result.credentials.map(
+                      ({ password: _password, ...credential }) => credential,
+                    ),
+                    wifiVoucher: null,
+                  });
+                  setPasswordsVisible(false);
+                }}
+              >
+                <AppIcon name="visibility_off" />
+                Hide All
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => {
+                setResult(null);
+                setForm({
+                  studentId: "",
+                  lastName: "",
+                  birthDate: "",
+                  courseId: "",
+                });
+                setError("");
+                setPasswordsVisible(false);
+                setResetNotice("");
+              }}
+            >
+              <AppIcon name="check" />
+              Done
+            </button>
+          </div>
+        </main>
+        <KioskFooter />
+        {resetNotice && (
+          <Toast message={resetNotice} onClose={() => setResetNotice("")} />
+        )}
+        {resetRequestInfo && (
+          <PasswordResetInfoModal
+            accountTitle={resetRequestInfo.title}
+            submitting={requestingReset === resetRequestInfo.type}
+            onSubmit={() => requestReset(resetRequestInfo.type)}
+            onClose={() => setResetRequestInfo(null)}
+          />
+        )}
+        {voucherRequestOpen && (
+          <VoucherRequestModal
+            reason={voucherRequestReason}
+            submitting={requestingVoucher}
+            onReasonChange={setVoucherRequestReason}
+            onSubmit={requestNewVoucher}
+            onClose={() => {
+              setVoucherRequestOpen(false);
+              setVoucherRequestReason("");
+            }}
+          />
+        )}
+        {confirmReveal && (
+          <ConfirmModal
+            title="Show all passwords?"
+            message="The passwords will be displayed on screen and this event will be recorded in Transactions. Make sure no one else can see the kiosk."
+            confirmLabel="Show passwords"
+            onConfirm={revealPasswords}
+            onClose={() => setConfirmReveal(false)}
+          />
+        )}
       </div>
     );
   return (
     <div className="kiosk-page">
       <KioskHeader />
-      <main key="credentials-dispenser" className="kiosk kiosk-landing kiosk-view kiosk-view-dispenser">
+      <main
+        key="credentials-dispenser"
+        className="kiosk kiosk-landing kiosk-view kiosk-view-dispenser"
+      >
         <header className="kiosk-hero">
           <h1>Student Credentials Dispenser</h1>
           <p>Enter your details to view your WiFi and system credentials.</p>
         </header>
         {banner && (
           <section className="kiosk-reminder-banner">
-            <div><span>Quick reminder</span><b>{banner.title}</b><small>{banner.message}</small></div>
+            <div>
+              <span>Quick reminder</span>
+              <b>{banner.title}</b>
+              <small>{banner.message}</small>
+            </div>
             <em>Private kiosk · Do not share your credentials.</em>
           </section>
         )}
@@ -4525,16 +6430,50 @@ function Kiosk() {
           <section className="kiosk-card kiosk-form-card">
             <h2>Student information</h2>
             <form onSubmit={verify}>
-              <div className="accepted-id"><b>Accepted ID</b><span>You may enter either your School ID or Kumosoft ID.</span></div>
-              <KioskCourseSelect courses={courses} value={form.courseId} onChange={(courseId) => setForm({ ...form, courseId })} />
-              <Field label="School ID / Kumosoft ID" value={form.studentId} onChange={(v) => setForm({ ...form, studentId: v })} />
+              <div className="accepted-id">
+                <b>Accepted ID</b>
+                <span>You may enter either your School ID or Kumosoft ID.</span>
+              </div>
+              <KioskCourseSelect
+                courses={courses}
+                value={form.courseId}
+                onChange={(courseId) => setForm({ ...form, courseId })}
+              />
+              <Field
+                label="School ID / Kumosoft ID"
+                value={form.studentId}
+                onChange={(v) => setForm({ ...form, studentId: v })}
+              />
               <div className="kiosk-name-date">
-                <Field label="Last name" value={form.lastName} onChange={(v) => setForm({ ...form, lastName: v })} />
-                <Field label="Birthday" type="date" value={form.birthDate} onChange={(v) => setForm({ ...form, birthDate: v })} />
+                <Field
+                  label="Last name"
+                  value={form.lastName}
+                  onChange={(v) => setForm({ ...form, lastName: v })}
+                />
+                <Field
+                  label="Birthday"
+                  type="date"
+                  value={form.birthDate}
+                  onChange={(v) => setForm({ ...form, birthDate: v })}
+                />
               </div>
               <div className="kiosk-form-actions">
                 <button className="btn primary">Submit</button>
-                <button type="button" className="btn secondary" onClick={() => { setForm({ studentId: "", lastName: "", birthDate: "", courseId: "" }); setError(""); }}>Clear</button>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => {
+                    setForm({
+                      studentId: "",
+                      lastName: "",
+                      birthDate: "",
+                      courseId: "",
+                    });
+                    setError("");
+                  }}
+                >
+                  Clear
+                </button>
               </div>
             </form>
           </section>
@@ -4542,18 +6481,26 @@ function Kiosk() {
         </div>
       </main>
       <KioskFooter />
-      {error && <Toast message={error} tone="error" onClose={() => setError("")} />}
+      {error && (
+        <Toast message={error} tone="error" onClose={() => setError("")} />
+      )}
     </div>
   );
 }
 function ModuleControlsPage({ token }) {
   const [controls, setControls] = useState([]),
     [busy, setBusy] = useState(""),
+    [pendingChange, setPendingChange] = useState(null),
     [error, setError] = useState(""),
     [toast, setToast] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
-  const load = () => request("/admin/module-controls", { headers }).then(setControls).catch((err) => setError(err.message));
-  useEffect(() => { load(); }, []);
+  const load = () =>
+    request("/admin/module-controls", { headers })
+      .then(setControls)
+      .catch((err) => setError(err.message));
+  useEffect(() => {
+    load();
+  }, []);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 3500);
@@ -4563,11 +6510,14 @@ function ModuleControlsPage({ token }) {
     setBusy(`${item.module_key}-${action}`);
     setError("");
     try {
-      const response = await request(`/admin/module-controls/${item.module_key}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
+      const response = await request(
+        `/admin/module-controls/${item.module_key}`,
+        {
+          method: "PATCH",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        },
+      );
       setToast(response.message);
       await load();
     } catch (err) {
@@ -4576,21 +6526,123 @@ function ModuleControlsPage({ token }) {
       setBusy("");
     }
   };
-  const displayName = (key) => key === "VOUCHER" ? "WiFi Voucher" : key.charAt(0) + key.slice(1).toLowerCase();
+  const displayName = (key) =>
+    key === "VOUCHER"
+      ? "WiFi Voucher"
+      : key.charAt(0) + key.slice(1).toLowerCase();
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
-      <PageHeader title="Credential visibility controls" description="Choose which credentials students can see and place individual modules or the entire kiosk under maintenance." />
+      <PageHeader
+        title="Credential visibility controls"
+        description="Choose which credentials students can see and place individual modules or the entire kiosk under maintenance."
+      />
       <section className="panel module-control-panel">
-        <div className="course-intro">Disabling a credential removes it from the kiosk. Setting Kiosk maintenance replaces the entire dispenser with a maintenance screen.</div>
+        <div className="course-intro">
+          Disabling a credential removes it from the kiosk. Setting Kiosk
+          maintenance replaces the entire dispenser with a maintenance screen.
+        </div>
         {error && <p className="error">{error}</p>}
         <div className="module-control-table-wrap">
           <table className="module-control-table">
-            <thead><tr><th>Credential section</th><th>Visibility</th><th>Maintenance</th><th>Actions</th></tr></thead>
-            <tbody>{controls.map((item) => <tr key={item.module_key}><td><b>{displayName(item.module_key)}</b>{item.module_key === "KIOSK" && <small>Controls the complete student dispenser</small>}</td><td>{item.module_key === "KIOSK" ? <span className="muted-cell">Controlled by maintenance</span> : <Status tone={item.is_visible ? "green" : "gold"}>{item.is_visible ? "Enabled" : "Disabled"}</Status>}</td><td><Status tone={item.is_maintenance ? "gold" : "green"}>{item.is_maintenance ? "Maintenance" : "Normal"}</Status></td><td><div className="module-control-actions">{item.module_key !== "KIOSK" && <button className={`btn ${item.is_visible ? "danger" : "primary"}`} disabled={Boolean(busy)} onClick={() => update(item, { isVisible: !item.is_visible }, "visibility")}>{busy === `${item.module_key}-visibility` ? "Saving..." : item.is_visible ? "Disable" : "Enable"}</button>}<button className={`btn ${item.is_maintenance ? "secondary" : "maintenance"}`} disabled={Boolean(busy)} onClick={() => update(item, { isMaintenance: !item.is_maintenance }, "maintenance")}>{busy === `${item.module_key}-maintenance` ? "Saving..." : item.is_maintenance ? "Set normal" : "Set maintenance"}</button></div></td></tr>)}</tbody>
+            <thead>
+              <tr>
+                <th>Credential section</th>
+                <th>Visibility</th>
+                <th>Maintenance</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {controls.map((item) => (
+                <tr key={item.module_key}>
+                  <td>
+                    <b>{displayName(item.module_key)}</b>
+                    {item.module_key === "KIOSK" && (
+                      <small>Controls the complete student dispenser</small>
+                    )}
+                  </td>
+                  <td>
+                    {item.module_key === "KIOSK" ? (
+                      <span className="muted-cell">
+                        Controlled by maintenance
+                      </span>
+                    ) : (
+                      <Status tone={item.is_visible ? "green" : "gold"}>
+                        {item.is_visible ? "Enabled" : "Disabled"}
+                      </Status>
+                    )}
+                  </td>
+                  <td>
+                    <Status tone={item.is_maintenance ? "gold" : "green"}>
+                      {item.is_maintenance ? "Maintenance" : "Normal"}
+                    </Status>
+                  </td>
+                  <td>
+                    <div className="module-control-actions">
+                      {item.module_key !== "KIOSK" && (
+                        <button
+                          className={`btn ${item.is_visible ? "danger" : "primary"}`}
+                          disabled={Boolean(busy)}
+                          onClick={() =>
+                            setPendingChange({
+                              item,
+                              values: { isVisible: !item.is_visible },
+                              action: "visibility",
+                            })
+                          }
+                        >
+                          {busy === `${item.module_key}-visibility`
+                            ? "Saving..."
+                            : item.is_visible
+                              ? "Disable"
+                              : "Enable"}
+                        </button>
+                      )}
+                      <button
+                        className={`btn ${item.is_maintenance ? "secondary" : "maintenance"}`}
+                        disabled={Boolean(busy)}
+                        onClick={() =>
+                          setPendingChange({
+                            item,
+                            values: { isMaintenance: !item.is_maintenance },
+                            action: "maintenance",
+                          })
+                        }
+                      >
+                        {busy === `${item.module_key}-maintenance`
+                          ? "Saving..."
+                          : item.is_maintenance
+                            ? "Set normal"
+                            : "Set maintenance"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       </section>
+      {pendingChange && (
+        <ConfirmModal
+          title={`${pendingChange.action === "visibility" ? (pendingChange.values.isVisible ? "Enable" : "Disable") : pendingChange.values.isMaintenance ? "Enable maintenance" : "Set normal operation"} ${displayName(pendingChange.item.module_key)}?`}
+          message={
+            pendingChange.action === "visibility"
+              ? `${pendingChange.values.isVisible ? "Students will be able to see this credential again." : "This credential will be hidden from students at the kiosk."}`
+              : pendingChange.values.isMaintenance
+                ? "Students will see a maintenance notice for this module until you return it to normal operation."
+                : "This module will return to normal kiosk operation."
+          }
+          confirmLabel="Confirm change"
+          onClose={() => setPendingChange(null)}
+          onConfirm={() => {
+            const change = pendingChange;
+            setPendingChange(null);
+            update(change.item, change.values, change.action);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -4599,61 +6651,161 @@ function TransactionsPage({ token }) {
   const [transactions, setTransactions] = useState([]),
     [error, setError] = useState("");
   useEffect(() => {
-    request("/admin/transactions", { headers: { Authorization: `Bearer ${token}` } })
+    request("/admin/transactions", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then(setTransactions)
       .catch((err) => setError(err.message));
   }, []);
-  const sortedTransactions = [...transactions].sort((a, b) =>
-    new Date(b.created_at) - new Date(a.created_at) || Number(b.id) - Number(a.id));
+  const sortedTransactions = [...transactions].sort(
+    (a, b) =>
+      new Date(b.created_at) - new Date(a.created_at) ||
+      Number(b.id) - Number(a.id),
+  );
   const today = new Date().toDateString();
   return (
     <>
-      <PageHeader title="Transactions" description="Review when student passwords were revealed at a kiosk." />
+      <PageHeader
+        title="Transactions"
+        description="Review when student passwords were revealed at a kiosk."
+      />
       <section className="student-summary transaction-summary">
-        <article><span>Total reveals</span><strong>{transactions.length}</strong></article>
-        <article><span>Reveals today</span><strong>{transactions.filter((item) => new Date(item.created_at).toDateString() === today).length}</strong></article>
-        <article><span>Students served</span><strong>{new Set(transactions.map((item) => item.student_id).filter(Boolean)).size}</strong></article>
+        <article>
+          <span>Total reveals</span>
+          <strong>{transactions.length}</strong>
+        </article>
+        <article>
+          <span>Reveals today</span>
+          <strong>
+            {
+              transactions.filter(
+                (item) => new Date(item.created_at).toDateString() === today,
+              ).length
+            }
+          </strong>
+        </article>
+        <article>
+          <span>Students served</span>
+          <strong>
+            {
+              new Set(
+                transactions.map((item) => item.student_id).filter(Boolean),
+              ).size
+            }
+          </strong>
+        </article>
       </section>
       <section className="panel transactions-panel">
-        <div className="course-intro">A password reveal is recorded only after the student confirms Show all passwords.</div>
+        <div className="course-intro">
+          A password reveal is recorded only after the student confirms Show all
+          passwords.
+        </div>
         {error && <p className="error">{error}</p>}
-        {transactions.length ? <div className="reset-request-table-wrap"><table className="reset-request-table transactions-table"><thead><tr><th>Student</th><th>Kiosk</th><th>Result</th><th>Date and time</th></tr></thead><tbody>{sortedTransactions.map((item) => <tr key={item.id}><td>{item.student_id ? <span className="student-cell"><b>{[item.first_name, item.middle_name, item.last_name].filter(Boolean).join(" ")}</b><small>{item.student_id}</small></span> : <span className="muted-cell">Unknown student</span>}</td><td>{item.kiosk_code || "—"}</td><td><Status tone="green">Revealed</Status></td><td>{new Date(item.created_at).toLocaleString()}</td></tr>)}</tbody></table></div> : <Empty title="No password reveals yet" detail="A record will appear after a student confirms Show All on the kiosk." />}
+        {transactions.length ? (
+          <div className="reset-request-table-wrap">
+            <table className="reset-request-table transactions-table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Kiosk</th>
+                  <th>Result</th>
+                  <th>Date and time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTransactions.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      {item.student_id ? (
+                        <span className="student-cell">
+                          <b>
+                            {[item.first_name, item.middle_name, item.last_name]
+                              .filter(Boolean)
+                              .join(" ")}
+                          </b>
+                          <small>{item.student_id}</small>
+                        </span>
+                      ) : (
+                        <span className="muted-cell">Unknown student</span>
+                      )}
+                    </td>
+                    <td>{item.kiosk_code || "—"}</td>
+                    <td>
+                      <Status tone="green">Revealed</Status>
+                    </td>
+                    <td>{new Date(item.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Empty
+            title="No password reveals yet"
+            detail="A record will appear after a student confirms Show All on the kiosk."
+          />
+        )}
       </section>
     </>
   );
 }
 
 function RemindersPage({ token }) {
-  const emptyForm = { placement: "GUIDELINE", title: "", message: "", sortOrder: 10, isActive: true };
+  const emptyForm = {
+    placement: "GUIDELINE",
+    title: "",
+    message: "",
+    sortOrder: 10,
+    isActive: true,
+  };
   const [reminders, setReminders] = useState([]),
     [editor, setEditor] = useState(null),
+    [confirm, setConfirm] = useState(false),
     [form, setForm] = useState(emptyForm),
     [error, setError] = useState(""),
     [toast, setToast] = useState(""),
     [saving, setSaving] = useState(false);
   const headers = { Authorization: `Bearer ${token}` };
-  const load = () => request("/admin/reminders", { headers }).then(setReminders).catch((err) => setError(err.message));
-  useEffect(() => { load(); }, []);
+  const load = () =>
+    request("/admin/reminders", { headers })
+      .then(setReminders)
+      .catch((err) => setError(err.message));
+  useEffect(() => {
+    load();
+  }, []);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4000);
     return () => clearTimeout(timer);
   }, [toast]);
   const openEditor = (item = null) => {
-    setForm(item ? { placement: item.placement, title: item.title, message: item.message || "", sortOrder: item.sort_order, isActive: Boolean(item.is_active) } : { ...emptyForm, sortOrder: (reminders.at(-1)?.sort_order || 0) + 10 });
+    setConfirm(false);
+    setForm(
+      item
+        ? {
+            placement: item.placement,
+            title: item.title,
+            message: item.message || "",
+            sortOrder: item.sort_order,
+            isActive: Boolean(item.is_active),
+          }
+        : { ...emptyForm, sortOrder: (reminders.at(-1)?.sort_order || 0) + 10 },
+    );
     setError("");
     setEditor(item || {});
   };
-  const save = async (event) => {
-    event.preventDefault();
+  const save = async () => {
     setSaving(true);
     setError("");
     try {
-      const response = await request(editor.id ? `/admin/reminders/${editor.id}` : "/admin/reminders", {
-        method: editor.id ? "PATCH" : "POST",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, sortOrder: Number(form.sortOrder) }),
-      });
+      const response = await request(
+        editor.id ? `/admin/reminders/${editor.id}` : "/admin/reminders",
+        {
+          method: editor.id ? "PATCH" : "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ ...form, sortOrder: Number(form.sortOrder) }),
+        },
+      );
       setEditor(null);
       setToast(response.message);
       load();
@@ -4666,18 +6818,184 @@ function RemindersPage({ token }) {
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
-      <PageHeader title="Kiosk reminders" description="Manage the reminders and guidance displayed on the student kiosk." actions={<Button onClick={() => openEditor()}>Add reminder</Button>} />
+      <PageHeader
+        title="Kiosk reminders"
+        description="Manage the reminders and guidance displayed on the student kiosk."
+        actions={<Button onClick={() => openEditor()}>Add reminder</Button>}
+      />
       <section className="student-summary reset-request-summary">
-        <article><span>Total reminders</span><strong>{reminders.length}</strong></article>
-        <article><span>Visible on kiosk</span><strong>{reminders.filter((item) => item.is_active).length}</strong></article>
-        <article><span>Hidden reminders</span><strong>{reminders.filter((item) => !item.is_active).length}</strong></article>
+        <article>
+          <span>Total reminders</span>
+          <strong>{reminders.length}</strong>
+        </article>
+        <article>
+          <span>Visible on kiosk</span>
+          <strong>{reminders.filter((item) => item.is_active).length}</strong>
+        </article>
+        <article>
+          <span>Hidden reminders</span>
+          <strong>{reminders.filter((item) => !item.is_active).length}</strong>
+        </article>
       </section>
       <section className="panel reminder-admin-panel">
-        <div className="course-intro">Lower order numbers appear first. Banner and tip placements use the first active reminder in their group.</div>
+        <div className="course-intro">
+          Lower order numbers appear first. Banner and tip placements use the
+          first active reminder in their group.
+        </div>
         {error && !editor && <p className="error">{error}</p>}
-        {reminders.length ? <div className="reset-request-table-wrap"><table className="reset-request-table reminder-admin-table"><thead><tr><th>Reminder</th><th>Placement</th><th>Order</th><th>Status</th><th>Action</th></tr></thead><tbody>{reminders.map((item) => <tr key={item.id}><td><span className="student-cell"><b>{item.title}</b><small>{item.message || "No supporting text"}</small></span></td><td>{item.placement.charAt(0) + item.placement.slice(1).toLowerCase()}</td><td>{item.sort_order}</td><td><Status tone={item.is_active ? "green" : "gold"}>{item.is_active ? "Visible" : "Hidden"}</Status></td><td><Button variant="secondary" onClick={() => openEditor(item)}>Edit</Button></td></tr>)}</tbody></table></div> : <Empty title="No kiosk reminders" detail="Add a reminder to display guidance on the kiosk." action={<Button onClick={() => openEditor()}>Add reminder</Button>} />}
+        {reminders.length ? (
+          <div className="reset-request-table-wrap">
+            <table className="reset-request-table reminder-admin-table">
+              <thead>
+                <tr>
+                  <th>Reminder</th>
+                  <th>Placement</th>
+                  <th>Order</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reminders.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <span className="student-cell">
+                        <b>{item.title}</b>
+                        <small>{item.message || "No supporting text"}</small>
+                      </span>
+                    </td>
+                    <td>
+                      {item.placement.charAt(0) +
+                        item.placement.slice(1).toLowerCase()}
+                    </td>
+                    <td>{item.sort_order}</td>
+                    <td>
+                      <Status tone={item.is_active ? "green" : "gold"}>
+                        {item.is_active ? "Visible" : "Hidden"}
+                      </Status>
+                    </td>
+                    <td>
+                      <Button
+                        variant="secondary"
+                        onClick={() => openEditor(item)}
+                      >
+                        Edit
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Empty
+            title="No kiosk reminders"
+            detail="Add a reminder to display guidance on the kiosk."
+            action={<Button onClick={() => openEditor()}>Add reminder</Button>}
+          />
+        )}
       </section>
-      {editor && <div className="modal-backdrop" onMouseDown={() => setEditor(null)}><section className="course-modal reminder-editor-modal" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">KIOSK CONTENT</p><h2>{editor.id ? "Edit reminder" : "Add reminder"}</h2><p>Control where and how this reminder appears.</p></div><button className="modal-close" onClick={() => setEditor(null)} aria-label="Close">&times;</button></header><form onSubmit={save}><label className="field"><span>Placement</span><select value={form.placement} onChange={(event) => setForm({ ...form, placement: event.target.value })}><option value="BANNER">Quick reminder banner</option><option value="GUIDELINE">Guidelines list</option><option value="TIP">Tip box</option></select></label><Field label="Title" value={form.title} onChange={(value) => setForm({ ...form, title: value })} /><label className="field"><span>Supporting text (optional)</span><textarea rows="3" maxLength="500" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} /></label><Field label="Display order" type="number" value={form.sortOrder} onChange={(value) => setForm({ ...form, sortOrder: value })} /><label className="status-toggle"><span><b>Visible on kiosk</b><small>Hidden reminders remain saved for later use.</small></span><input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} /><i /></label>{error && <p className="error">{error}</p>}<footer><Button variant="secondary" onClick={() => setEditor(null)}>Cancel</Button><button className="btn primary" disabled={saving}>{saving ? "Saving..." : "Save reminder"}</button></footer></form></section></div>}
+      {editor && (
+        <div className="modal-backdrop" onMouseDown={() => setEditor(null)}>
+          <section
+            className="course-modal reminder-editor-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <p className="eyebrow">KIOSK CONTENT</p>
+                <h2>{editor.id ? "Edit reminder" : "Add reminder"}</h2>
+                <p>Control where and how this reminder appears.</p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setEditor(null)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </header>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                setConfirm(true);
+              }}
+            >
+              <label className="field">
+                <span>Placement</span>
+                <select
+                  value={form.placement}
+                  onChange={(event) =>
+                    setForm({ ...form, placement: event.target.value })
+                  }
+                >
+                  <option value="BANNER">Quick reminder banner</option>
+                  <option value="GUIDELINE">Guidelines list</option>
+                  <option value="TIP">Tip box</option>
+                </select>
+              </label>
+              <Field
+                label="Title"
+                value={form.title}
+                onChange={(value) => setForm({ ...form, title: value })}
+              />
+              <label className="field">
+                <span>Supporting text (optional)</span>
+                <textarea
+                  rows="3"
+                  maxLength="500"
+                  value={form.message}
+                  onChange={(event) =>
+                    setForm({ ...form, message: event.target.value })
+                  }
+                />
+              </label>
+              <Field
+                label="Display order"
+                type="number"
+                value={form.sortOrder}
+                onChange={(value) => setForm({ ...form, sortOrder: value })}
+              />
+              <label className="status-toggle">
+                <span>
+                  <b>Visible on kiosk</b>
+                  <small>Hidden reminders remain saved for later use.</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  onChange={(event) =>
+                    setForm({ ...form, isActive: event.target.checked })
+                  }
+                />
+                <i />
+              </label>
+              {error && <p className="error">{error}</p>}
+              <footer>
+                <Button variant="secondary" onClick={() => setEditor(null)}>
+                  Cancel
+                </Button>
+                <button className="btn primary" disabled={saving}>
+                  {saving ? "Saving..." : "Save reminder"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+      {confirm && editor && (
+        <ConfirmModal
+          title={editor.id ? "Save reminder changes?" : "Add this reminder?"}
+          message={
+            editor.id
+              ? `Update the ${form.placement.toLowerCase()} reminder “${form.title}”?`
+              : `Add the ${form.placement.toLowerCase()} reminder “${form.title}” to the kiosk?`
+          }
+          confirmLabel={editor.id ? "Save changes" : "Add reminder"}
+          onClose={() => setConfirm(false)}
+          onConfirm={save}
+        />
+      )}
     </>
   );
 }
@@ -4690,7 +7008,10 @@ function PasswordResetRequestsPage({ token }) {
     [saving, setSaving] = useState(false),
     [queueFilter, setQueueFilter] = useState("PENDING"),
     [page, setPage] = useState(1),
-    [accountRequestForm, setAccountRequestForm] = useState({ emailAddress: "", password: "" });
+    [accountRequestForm, setAccountRequestForm] = useState({
+      emailAddress: "",
+      password: "",
+    });
   const headers = { Authorization: `Bearer ${token}` };
   const load = () =>
     request("/admin/password-reset-requests", { headers })
@@ -4713,7 +7034,11 @@ function PasswordResetRequestsPage({ token }) {
         {
           method: "PATCH",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(selected.request_kind === "ACCOUNT_CREATION" ? accountRequestForm : {}),
+          body: JSON.stringify(
+            selected.request_kind === "ACCOUNT_CREATION"
+              ? accountRequestForm
+              : {},
+          ),
         },
       );
       setSelected(null);
@@ -4746,17 +7071,22 @@ function PasswordResetRequestsPage({ token }) {
   };
   const pending = requests.filter((item) => item.status === "PENDING").length;
   const orderedRequests = [...requests].sort((a, b) => {
-    const statusOrder = Number(b.status === "PENDING") - Number(a.status === "PENDING");
+    const statusOrder =
+      Number(b.status === "PENDING") - Number(a.status === "PENDING");
     return statusOrder || new Date(b.requested_at) - new Date(a.requested_at);
   });
-  const filteredRequests = queueFilter === "ALL"
-    ? orderedRequests
-    : queueFilter === "RESOLVED"
-      ? orderedRequests.filter((item) => item.status !== "PENDING")
-      : orderedRequests.filter((item) => item.status === queueFilter);
+  const filteredRequests =
+    queueFilter === "ALL"
+      ? orderedRequests
+      : queueFilter === "RESOLVED"
+        ? orderedRequests.filter((item) => item.status !== "PENDING")
+        : orderedRequests.filter((item) => item.status === queueFilter);
   const pageSize = 10;
   const pageCount = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
-  const visibleRequests = filteredRequests.slice((page - 1) * pageSize, page * pageSize);
+  const visibleRequests = filteredRequests.slice(
+    (page - 1) * pageSize,
+    page * pageSize,
+  );
   useEffect(() => {
     setPage((current) => Math.min(current, pageCount));
   }, [pageCount]);
@@ -4769,81 +7099,402 @@ function PasswordResetRequestsPage({ token }) {
     setAccountRequestForm({ emailAddress: "", password: "" });
     setSelected(item);
   };
-  const accountRequestReady = selected?.request_kind !== "ACCOUNT_CREATION" || (
-    Boolean(accountRequestForm.password) &&
-    (selected.credential_type !== "EMAIL" || Boolean(accountRequestForm.emailAddress.trim()))
-  );
+  const accountRequestReady =
+    selected?.request_kind !== "ACCOUNT_CREATION" ||
+    (Boolean(accountRequestForm.password) &&
+      (selected.credential_type !== "EMAIL" ||
+        Boolean(accountRequestForm.emailAddress.trim())));
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
       <PageHeader
         title="Credential requests"
         description="Process password resets, missing-account requests, and administrator-approved voucher replacements."
-        actions={<Button variant="secondary" onClick={load}>Refresh</Button>}
+        actions={
+          <Button variant="secondary" onClick={load}>
+            Refresh
+          </Button>
+        }
       />
       <section className="student-summary reset-request-summary">
-        <article><span>Pending requests</span><strong>{pending}</strong></article>
-        <article><span>Password resets</span><strong>{requests.filter((item) => item.status === "PENDING" && item.request_kind === "PASSWORD_RESET").length}</strong></article>
-        <article><span>Account requests</span><strong>{requests.filter((item) => item.status === "PENDING" && item.request_kind === "ACCOUNT_CREATION").length}</strong></article>
-        <article><span>Voucher requests</span><strong>{requests.filter((item) => item.status === "PENDING" && item.request_kind === "VOUCHER_REQUEST").length}</strong></article>
+        <article>
+          <span>Pending requests</span>
+          <strong>{pending}</strong>
+        </article>
+        <article>
+          <span>Password resets</span>
+          <strong>
+            {
+              requests.filter(
+                (item) =>
+                  item.status === "PENDING" &&
+                  item.request_kind === "PASSWORD_RESET",
+              ).length
+            }
+          </strong>
+        </article>
+        <article>
+          <span>Account requests</span>
+          <strong>
+            {
+              requests.filter(
+                (item) =>
+                  item.status === "PENDING" &&
+                  item.request_kind === "ACCOUNT_CREATION",
+              ).length
+            }
+          </strong>
+        </article>
+        <article>
+          <span>Voucher requests</span>
+          <strong>
+            {
+              requests.filter(
+                (item) =>
+                  item.status === "PENDING" &&
+                  item.request_kind === "VOUCHER_REQUEST",
+              ).length
+            }
+          </strong>
+        </article>
       </section>
       <section className="panel reset-request-panel">
         <div className="course-intro">
-          Password resets use the stored default password. Account requests require creating the missing account. Voucher requests replace the current code only after administrator approval.
+          Password resets use the stored default password. Account requests
+          require creating the missing account. Voucher requests replace the
+          current code only after administrator approval.
         </div>
         {error && <p className="error">{error}</p>}
         <div className="request-queue-toolbar">
-          <div className="request-filter-tabs" aria-label="Filter credential requests">
-            <button type="button" className={queueFilter === "PENDING" ? "active" : ""} onClick={() => changeFilter("PENDING")}>Pending <span>{pending}</span></button>
-            <button type="button" className={queueFilter === "RESOLVED" ? "active" : ""} onClick={() => changeFilter("RESOLVED")}>Resolved <span>{requests.length - pending}</span></button>
-            <button type="button" className={queueFilter === "ALL" ? "active" : ""} onClick={() => changeFilter("ALL")}>All <span>{requests.length}</span></button>
+          <div
+            className="request-filter-tabs"
+            aria-label="Filter credential requests"
+          >
+            <button
+              type="button"
+              className={queueFilter === "PENDING" ? "active" : ""}
+              onClick={() => changeFilter("PENDING")}
+            >
+              Pending <span>{pending}</span>
+            </button>
+            <button
+              type="button"
+              className={queueFilter === "RESOLVED" ? "active" : ""}
+              onClick={() => changeFilter("RESOLVED")}
+            >
+              Resolved <span>{requests.length - pending}</span>
+            </button>
+            <button
+              type="button"
+              className={queueFilter === "ALL" ? "active" : ""}
+              onClick={() => changeFilter("ALL")}
+            >
+              All <span>{requests.length}</span>
+            </button>
           </div>
           <small>Pending first · Newest first</small>
         </div>
         {filteredRequests.length ? (
           <div className="reset-request-table-wrap">
             <table className="reset-request-table">
-              <thead><tr><th>Student</th><th>Account</th><th>Requested</th><th>Status</th><th>Action</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Account</th>
+                  <th>Requested</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
               <tbody>
                 {visibleRequests.map((item) => (
-                  <tr key={item.id} className={item.status === "PENDING" ? "request-row-pending" : ""}>
-                    <td><span className="student-cell"><b>{[item.first_name, item.middle_name, item.last_name].filter(Boolean).join(" ")}</b><small>{item.school_id} · {item.course_code}</small></span></td>
-                    <td><b>{item.credential_type === "VOUCHER" ? "WiFi Voucher" : item.credential_type}</b><small className="reset-account-username">{item.request_kind === "ACCOUNT_CREATION" ? "Account creation" : item.request_kind === "VOUCHER_REQUEST" ? "Replacement request" : item.account_username || "Password reset"}</small></td>
-                    <td><span className="request-date"><b>{new Date(item.requested_at).toLocaleDateString()}</b><small>{new Date(item.requested_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small></span></td>
-                    <td><Status tone={item.status === "PENDING" ? "gold" : item.status === "REJECTED" ? "danger" : "green"}>{item.status === "PENDING" ? "Pending" : item.status === "REJECTED" ? "Rejected" : "Completed"}</Status></td>
-                    <td>{item.status === "PENDING" ? <Button variant="secondary" onClick={() => reviewRequest(item)}>Review request</Button> : <span className="muted-cell">{item.resolved_by_name || "Completed"}</span>}</td>
+                  <tr
+                    key={item.id}
+                    className={
+                      item.status === "PENDING" ? "request-row-pending" : ""
+                    }
+                  >
+                    <td>
+                      <span className="student-cell">
+                        <b>
+                          {[item.first_name, item.middle_name, item.last_name]
+                            .filter(Boolean)
+                            .join(" ")}
+                        </b>
+                        <small>
+                          {item.school_id} · {item.course_code}
+                        </small>
+                      </span>
+                    </td>
+                    <td>
+                      <b>
+                        {item.credential_type === "VOUCHER"
+                          ? "WiFi Voucher"
+                          : item.credential_type}
+                      </b>
+                      <small className="reset-account-username">
+                        {item.request_kind === "ACCOUNT_CREATION"
+                          ? "Account creation"
+                          : item.request_kind === "VOUCHER_REQUEST"
+                            ? "Replacement request"
+                            : item.account_username || "Password reset"}
+                      </small>
+                    </td>
+                    <td>
+                      <span className="request-date">
+                        <b>
+                          {new Date(item.requested_at).toLocaleDateString()}
+                        </b>
+                        <small>
+                          {new Date(item.requested_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </small>
+                      </span>
+                    </td>
+                    <td>
+                      <span className="request-status-cell">
+                        <Status
+                          tone={
+                            item.status === "PENDING"
+                              ? "gold"
+                              : item.status === "REJECTED"
+                                ? "danger"
+                                : "green"
+                          }
+                        >
+                          {item.status === "PENDING"
+                            ? "Pending"
+                            : item.status === "REJECTED"
+                              ? "Rejected"
+                              : "Completed"}
+                        </Status>
+                        {item.status !== "PENDING" && item.resolved_at && (
+                          <small>
+                            {new Date(item.resolved_at).toLocaleDateString()}{" "}
+                            {new Date(item.resolved_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </small>
+                        )}
+                      </span>
+                    </td>
+                    <td>
+                      {item.status === "PENDING" ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => reviewRequest(item)}
+                        >
+                          Review request
+                        </Button>
+                      ) : (
+                        <span className="muted-cell">
+                          {item.resolved_by_name || "Completed"}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             <div className="request-pagination">
-              <span>Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filteredRequests.length)} of {filteredRequests.length}</span>
+              <span>
+                Showing {(page - 1) * pageSize + 1}–
+                {Math.min(page * pageSize, filteredRequests.length)} of{" "}
+                {filteredRequests.length}
+              </span>
               <div>
-                <button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)} aria-label="Previous page"><AppIcon name="chevron_left" size={20} /></button>
-                <b>Page {page} of {pageCount}</b>
-                <button type="button" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)} aria-label="Next page"><AppIcon name="chevron_right" size={20} /></button>
+                <button
+                  type="button"
+                  disabled={page === 1}
+                  onClick={() => setPage((current) => current - 1)}
+                  aria-label="Previous page"
+                >
+                  <AppIcon name="chevron_left" size={20} />
+                </button>
+                <b>
+                  Page {page} of {pageCount}
+                </b>
+                <button
+                  type="button"
+                  disabled={page === pageCount}
+                  onClick={() => setPage((current) => current + 1)}
+                  aria-label="Next page"
+                >
+                  <AppIcon name="chevron_right" size={20} />
+                </button>
               </div>
             </div>
           </div>
         ) : (
-          <Empty title={`No ${queueFilter === "ALL" ? "credential" : queueFilter.toLowerCase()} requests`} detail={queueFilter === "PENDING" ? "There are no requests waiting for administrator action." : "No requests match this queue filter."} />
+          <Empty
+            title={`No ${queueFilter === "ALL" ? "credential" : queueFilter.toLowerCase()} requests`}
+            detail={
+              queueFilter === "PENDING"
+                ? "There are no requests waiting for administrator action."
+                : "No requests match this queue filter."
+            }
+          />
         )}
       </section>
       {selected && (
         <div className="modal-backdrop" onMouseDown={() => setSelected(null)}>
-          <section className="course-modal reset-request-modal" onMouseDown={(event) => event.stopPropagation()}>
+          <section
+            className="course-modal reset-request-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <header>
-              <div><p className="eyebrow">{selected.request_kind === "ACCOUNT_CREATION" ? "ACCOUNT REQUEST" : selected.request_kind === "VOUCHER_REQUEST" ? "VOUCHER REQUEST" : "PASSWORD RESET"}</p><h2>{selected.request_kind === "VOUCHER_REQUEST" ? "New WiFi voucher" : `${selected.credential_type} account`}</h2><p>{selected.first_name} {selected.last_name} · {selected.school_id}</p></div>
-              <button className="modal-close" onClick={() => setSelected(null)} aria-label="Close">&times;</button>
+              <div>
+                <p className="eyebrow">
+                  {selected.request_kind === "ACCOUNT_CREATION"
+                    ? "ACCOUNT REQUEST"
+                    : selected.request_kind === "VOUCHER_REQUEST"
+                      ? "VOUCHER REQUEST"
+                      : "PASSWORD RESET"}
+                </p>
+                <h2>
+                  {selected.request_kind === "VOUCHER_REQUEST"
+                    ? "New WiFi voucher"
+                    : `${selected.credential_type} account`}
+                </h2>
+                <p>
+                  {selected.first_name} {selected.last_name} ·{" "}
+                  {selected.school_id}
+                </p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setSelected(null)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
             </header>
             <div className="reset-request-details">
-              {selected.request_kind === "ACCOUNT_CREATION" ? <><p>Add the new account credentials here. The account will be linked to this student when you complete the request.</p>{selected.credential_type === "EMAIL" && <label className="field"><span>Institutional email address</span><input type="email" required value={accountRequestForm.emailAddress} onChange={(event) => setAccountRequestForm({ ...accountRequestForm, emailAddress: event.target.value })} placeholder="student@ndmu.edu.ph" /></label>}<label className="field"><span>Account password</span><input type="text" required value={accountRequestForm.password} onChange={(event) => setAccountRequestForm({ ...accountRequestForm, password: event.target.value })} placeholder="Enter the account password" /></label>{selected.credential_type !== "EMAIL" && <small className="account-request-username-note">Username: {selected.school_id}</small>}</> : selected.request_kind === "VOUCHER_REQUEST" ? <><label><span>Current voucher</span><code>{selected.account_username || "Unavailable"}</code></label><label><span>Student's reason</span><p className="voucher-request-admin-reason">{selected.request_reason}</p></label><p>Approving releases the current voucher and assigns the next available active voucher. This action cannot be undone from this dialog.</p></> : <><label><span>Username</span><code>{selected.account_username || "Unavailable"}</code></label><label><span>Default password</span><code>{selected.default_password || "Unavailable"}</code></label><Button variant="secondary" onClick={() => navigator.clipboard.writeText(selected.default_password || "").then(() => setToast("Default password copied."))}>Copy default password</Button><p>Use this password when resetting the account in {selected.credential_type}. Complete the request only after the source system accepts the reset.</p></>}
+              {selected.request_kind === "ACCOUNT_CREATION" ? (
+                <>
+                  <p>
+                    Add the new account credentials here. The account will be
+                    linked to this student when you complete the request.
+                  </p>
+                  {selected.credential_type === "EMAIL" && (
+                    <label className="field">
+                      <span>Institutional email address</span>
+                      <input
+                        type="email"
+                        required
+                        value={accountRequestForm.emailAddress}
+                        onChange={(event) =>
+                          setAccountRequestForm({
+                            ...accountRequestForm,
+                            emailAddress: event.target.value,
+                          })
+                        }
+                        placeholder="student@ndmu.edu.ph"
+                      />
+                    </label>
+                  )}
+                  <label className="field">
+                    <span>Account password</span>
+                    <input
+                      type="text"
+                      required
+                      value={accountRequestForm.password}
+                      onChange={(event) =>
+                        setAccountRequestForm({
+                          ...accountRequestForm,
+                          password: event.target.value,
+                        })
+                      }
+                      placeholder="Enter the account password"
+                    />
+                  </label>
+                  {selected.credential_type !== "EMAIL" && (
+                    <small className="account-request-username-note">
+                      Username: {selected.school_id}
+                    </small>
+                  )}
+                </>
+              ) : selected.request_kind === "VOUCHER_REQUEST" ? (
+                <>
+                  <label>
+                    <span>Current voucher</span>
+                    <code>{selected.account_username || "Unavailable"}</code>
+                  </label>
+                  <label>
+                    <span>Student's reason</span>
+                    <p className="voucher-request-admin-reason">
+                      {selected.request_reason}
+                    </p>
+                  </label>
+                  <p>
+                    Approving releases the current voucher and assigns the next
+                    available active voucher. This action cannot be undone from
+                    this dialog.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <label>
+                    <span>Username</span>
+                    <code>{selected.account_username || "Unavailable"}</code>
+                  </label>
+                  <label>
+                    <span>Default password</span>
+                    <code>{selected.default_password || "Unavailable"}</code>
+                  </label>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      navigator.clipboard
+                        .writeText(selected.default_password || "")
+                        .then(() => setToast("Default password copied."))
+                    }
+                  >
+                    Copy default password
+                  </Button>
+                  <p>
+                    Use this password when resetting the account in{" "}
+                    {selected.credential_type}. Complete the request only after
+                    the source system accepts the reset.
+                  </p>
+                </>
+              )}
               {error && <p className="error">{error}</p>}
             </div>
             <footer className="reset-request-footer">
-              <Button variant="secondary" onClick={() => setSelected(null)}>Cancel</Button>
-              {selected.request_kind === "VOUCHER_REQUEST" && <button className="btn danger" disabled={saving} onClick={rejectVoucher}>{saving ? "Saving..." : "Reject request"}</button>}
-              <button className="btn primary" disabled={saving || !accountRequestReady || (selected.request_kind === "PASSWORD_RESET" && !selected.default_password)} onClick={complete}>{saving ? "Completing..." : selected.request_kind === "ACCOUNT_CREATION" ? "Create account and complete" : selected.request_kind === "VOUCHER_REQUEST" ? "Approve and assign voucher" : "Mark reset completed"}</button>
+              <Button variant="secondary" onClick={() => setSelected(null)}>
+                Cancel
+              </Button>
+              {selected.request_kind === "VOUCHER_REQUEST" && (
+                <button
+                  className="btn danger"
+                  disabled={saving}
+                  onClick={rejectVoucher}
+                >
+                  {saving ? "Saving..." : "Reject request"}
+                </button>
+              )}
+              <button
+                className="btn primary"
+                disabled={
+                  saving ||
+                  !accountRequestReady ||
+                  (selected.request_kind === "PASSWORD_RESET" &&
+                    !selected.default_password)
+                }
+                onClick={complete}
+              >
+                {saving
+                  ? "Completing..."
+                  : selected.request_kind === "ACCOUNT_CREATION"
+                    ? "Create account and complete"
+                    : selected.request_kind === "VOUCHER_REQUEST"
+                      ? "Approve and assign voucher"
+                      : "Mark reset completed"}
+              </button>
             </footer>
           </section>
         </div>
@@ -4856,29 +7507,81 @@ function AdminUsersPage({ token }) {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [editor, setEditor] = useState(null);
-  const [form, setForm] = useState({ firstName: "", middleName: "", lastName: "", username: "", password: "", roleId: "", isActive: true });
+  const [confirm, setConfirm] = useState(false);
+  const [form, setForm] = useState({
+    firstName: "",
+    middleName: "",
+    lastName: "",
+    username: "",
+    password: "",
+    roleId: "",
+    isActive: true,
+  });
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
   const headers = { Authorization: `Bearer ${token}` };
-  const load = () => Promise.all([request("/admin/admin-users", { headers }), request("/admin/admin-roles", { headers })]).then(([userRows, roleRows]) => { setUsers(userRows); setRoles(roleRows); }).catch((err) => setError(err.message));
-  useEffect(() => { load(); }, []);
-  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 4500); return () => clearTimeout(timer); }, [toast]);
+  const load = () =>
+    Promise.all([
+      request("/admin/admin-users", { headers }),
+      request("/admin/admin-roles", { headers }),
+    ])
+      .then(([userRows, roleRows]) => {
+        setUsers(userRows);
+        setRoles(roleRows);
+      })
+      .catch((err) => setError(err.message));
+  useEffect(() => {
+    load();
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
   const openEditor = (user = null) => {
-    const defaultRole = roles.find((role) => role.name === "Super Admin") || roles[0];
+    setConfirm(false);
+    const defaultRole =
+      roles.find((role) => role.name === "Super Admin") || roles[0];
     const parts = user ? user.full_name.trim().split(/\s+/) : [];
     const firstName = parts.shift() || "";
     const lastName = parts.length ? parts.pop() : "";
-    setForm(user ? { firstName, middleName: parts.join(" "), lastName, username: user.username, password: "", roleId: String(user.role_id), isActive: Boolean(user.is_active) } : { firstName: "", middleName: "", lastName: "", username: "", password: "", roleId: defaultRole ? String(defaultRole.id) : "", isActive: true });
+    setForm(
+      user
+        ? {
+            firstName,
+            middleName: parts.join(" "),
+            lastName,
+            username: user.username,
+            password: "",
+            roleId: String(user.role_id),
+            isActive: Boolean(user.is_active),
+          }
+        : {
+            firstName: "",
+            middleName: "",
+            lastName: "",
+            username: "",
+            password: "",
+            roleId: defaultRole ? String(defaultRole.id) : "",
+            isActive: true,
+          },
+    );
     setError("");
     setEditor(user || {});
   };
-  const save = async (event) => {
-    event.preventDefault();
+  const save = async () => {
     setSaving(true);
     setError("");
     try {
-      const result = await request(editor.id ? `/admin/admin-users/${editor.id}` : "/admin/admin-users", { method: editor.id ? "PATCH" : "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ ...form, roleId: Number(form.roleId) }) });
+      const result = await request(
+        editor.id ? `/admin/admin-users/${editor.id}` : "/admin/admin-users",
+        {
+          method: editor.id ? "PATCH" : "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ ...form, roleId: Number(form.roleId) }),
+        },
+      );
       setEditor(null);
       setToast(result.message);
       load();
@@ -4888,92 +7591,291 @@ function AdminUsersPage({ token }) {
       setSaving(false);
     }
   };
-  return <>
-    {toast && <Toast message={toast} onClose={() => setToast("")} />}
-    <PageHeader title="Admin users" description="Create and maintain administrator accounts and access roles." actions={<Button onClick={() => openEditor()}>Add administrator</Button>} />
-    <section className="student-summary admin-user-summary"><article><span>Total administrators</span><strong>{users.length}</strong></article><article><span>Active accounts</span><strong>{users.filter((user) => user.is_active).length}</strong></article><article><span>Access roles</span><strong>{roles.length}</strong></article></section>
-    <section className="panel student-panel admin-users-data-table"><div className="course-intro">Only active administrators can sign in. Keep at least one Super Admin account active.</div>{error && !editor && <p className="error">{error}</p>}{users.length ? <DataTable data={users} columns={[{ data: null }, { data: "username" }, { data: "role_name" }, { data: "is_active" }, { data: "last_login" }, null]} slots={{ 0: (_data, row) => <span className="student-cell"><b>{row.full_name}</b><small>Added {new Date(row.created_at).toLocaleDateString()}</small></span>, 1: (data) => <span className="admin-email">{data}</span>, 2: (data) => <Status tone={data === "Super Admin" ? "green" : "gold"}>{data}</Status>, 3: (data) => <Status tone={data ? "green" : "gold"}>{data ? "Active" : "Inactive"}</Status>, 4: (data) => data ? new Date(data).toLocaleString() : <span className="muted-cell">Never</span>, 5: (_data, row) => <Button variant="secondary" onClick={() => openEditor(row)}>Edit</Button> }} options={{ pageLength: 10, lengthMenu: [10, 25, 50], order: [[0, "asc"]], language: { search: "Search administrators:", emptyTable: "No administrators found." } }}><thead><tr><th>Administrator</th><th>Email</th><th>Role</th><th>Status</th><th>Last login</th><th>Action</th></tr></thead></DataTable> : <Empty title="No administrators found" detail="Add an administrator account to begin." action={<Button onClick={() => openEditor()}>Add administrator</Button>} />}</section>
-    {editor && (
-      <div className="modal-backdrop" onMouseDown={() => setEditor(null)}>
-        <section className="course-modal admin-user-modal" onMouseDown={(event) => event.stopPropagation()}>
-          <header>
-            <div>
-              <p className="eyebrow">ACCESS CONTROL</p>
-              <h2>{editor.id ? "Edit administrator" : "Add administrator"}</h2>
-              <p>{editor.id ? "Update account details, access, or password." : "Create a secure administrator account."}</p>
-            </div>
-            <button className="modal-close" onClick={() => setEditor(null)} aria-label="Close">&times;</button>
-          </header>
-          <form onSubmit={save}>
-            <div className="admin-name-fields">
-              <Field label="Last name" value={form.lastName} onChange={(value) => setForm({ ...form, lastName: value })} />
-              <Field label="First name" value={form.firstName} onChange={(value) => setForm({ ...form, firstName: value })} />
-              <Field label="Middle name (optional)" value={form.middleName} onChange={(value) => setForm({ ...form, middleName: value })} />
-            </div>
-            <Field label="Email address" type="email" value={form.username} onChange={(value) => setForm({ ...form, username: value })} />
-            <label className="field">
-              <span>Access role</span>
-              <select required value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>
-                <option value="">Select a role</option>
-                {roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
-              </select>
-            </label>
-            <label className="field">
-              <span>{editor.id ? "New password (optional)" : "Password"}</span>
-              <input type="password" required={!editor.id} minLength={editor.id && !form.password ? undefined : 12} autoComplete="new-password" placeholder={editor.id ? "Leave blank to keep current password" : "Minimum 12 characters"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
-            </label>
-            <label className="status-toggle">
-              <span><b>Active account</b><small>Inactive administrators cannot sign in.</small></span>
-              <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
-              <i />
-            </label>
-            {error && <p className="error">{error}</p>}
-            <footer>
-              <Button variant="secondary" onClick={() => setEditor(null)}>Cancel</Button>
-              <button className="btn primary" disabled={saving}>{saving ? "Saving..." : "Save administrator"}</button>
-            </footer>
-          </form>
-        </section>
-      </div>
-    )}
-  </>;
+  return (
+    <>
+      {toast && <Toast message={toast} onClose={() => setToast("")} />}
+      <PageHeader
+        title="Admin users"
+        description="Create and maintain administrator accounts and access roles."
+        actions={
+          <Button onClick={() => openEditor()}>Add administrator</Button>
+        }
+      />
+      <section className="student-summary admin-user-summary">
+        <article>
+          <span>Total administrators</span>
+          <strong>{users.length}</strong>
+        </article>
+        <article>
+          <span>Active accounts</span>
+          <strong>{users.filter((user) => user.is_active).length}</strong>
+        </article>
+        <article>
+          <span>Access roles</span>
+          <strong>{roles.length}</strong>
+        </article>
+      </section>
+      <section className="panel student-panel admin-users-data-table">
+        <div className="course-intro">
+          Only active administrators can sign in. Keep at least one Super Admin
+          account active.
+        </div>
+        {error && !editor && <p className="error">{error}</p>}
+        {users.length ? (
+          <DataTable
+            data={users}
+            columns={[
+              { data: null },
+              { data: "username" },
+              { data: "role_name" },
+              { data: "is_active" },
+              { data: "last_login" },
+              null,
+            ]}
+            slots={{
+              0: (_data, row) => (
+                <span className="student-cell">
+                  <b>{row.full_name}</b>
+                  <small>
+                    Added {new Date(row.created_at).toLocaleDateString()}
+                  </small>
+                </span>
+              ),
+              1: (data) => <span className="admin-email">{data}</span>,
+              2: (data) => (
+                <Status tone={data === "Super Admin" ? "green" : "gold"}>
+                  {data}
+                </Status>
+              ),
+              3: (data) => (
+                <Status tone={data ? "green" : "gold"}>
+                  {data ? "Active" : "Inactive"}
+                </Status>
+              ),
+              4: (data) =>
+                data ? (
+                  new Date(data).toLocaleString()
+                ) : (
+                  <span className="muted-cell">Never</span>
+                ),
+              5: (_data, row) => (
+                <Button variant="secondary" onClick={() => openEditor(row)}>
+                  Edit
+                </Button>
+              ),
+            }}
+            options={{
+              pageLength: 10,
+              lengthMenu: [10, 25, 50],
+              order: [[0, "asc"]],
+              language: {
+                search: "Search administrators:",
+                emptyTable: "No administrators found.",
+              },
+            }}
+          >
+            <thead>
+              <tr>
+                <th>Administrator</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Last login</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+          </DataTable>
+        ) : (
+          <Empty
+            title="No administrators found"
+            detail="Add an administrator account to begin."
+            action={
+              <Button onClick={() => openEditor()}>Add administrator</Button>
+            }
+          />
+        )}
+      </section>
+      {editor && (
+        <div className="modal-backdrop" onMouseDown={() => setEditor(null)}>
+          <section
+            className="course-modal admin-user-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <p className="eyebrow">ACCESS CONTROL</p>
+                <h2>
+                  {editor.id ? "Edit administrator" : "Add administrator"}
+                </h2>
+                <p>
+                  {editor.id
+                    ? "Update account details, access, or password."
+                    : "Create a secure administrator account."}
+                </p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setEditor(null)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </header>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                setConfirm(true);
+              }}
+            >
+              <div className="admin-name-fields">
+                <Field
+                  label="Last name"
+                  value={form.lastName}
+                  onChange={(value) => setForm({ ...form, lastName: value })}
+                />
+                <Field
+                  label="First name"
+                  value={form.firstName}
+                  onChange={(value) => setForm({ ...form, firstName: value })}
+                />
+                <Field
+                  label="Middle name (optional)"
+                  value={form.middleName}
+                  onChange={(value) => setForm({ ...form, middleName: value })}
+                />
+              </div>
+              <Field
+                label="Email address"
+                type="email"
+                value={form.username}
+                onChange={(value) => setForm({ ...form, username: value })}
+              />
+              <label className="field">
+                <span>Access role</span>
+                <select
+                  required
+                  value={form.roleId}
+                  onChange={(event) =>
+                    setForm({ ...form, roleId: event.target.value })
+                  }
+                >
+                  <option value="">Select a role</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>
+                  {editor.id ? "New password (optional)" : "Password"}
+                </span>
+                <input
+                  type="password"
+                  required={!editor.id}
+                  minLength={editor.id && !form.password ? undefined : 12}
+                  autoComplete="new-password"
+                  placeholder={
+                    editor.id
+                      ? "Leave blank to keep current password"
+                      : "Minimum 12 characters"
+                  }
+                  value={form.password}
+                  onChange={(event) =>
+                    setForm({ ...form, password: event.target.value })
+                  }
+                />
+              </label>
+              <label className="status-toggle">
+                <span>
+                  <b>Active account</b>
+                  <small>Inactive administrators cannot sign in.</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  onChange={(event) =>
+                    setForm({ ...form, isActive: event.target.checked })
+                  }
+                />
+                <i />
+              </label>
+              {error && <p className="error">{error}</p>}
+              <footer>
+                <Button variant="secondary" onClick={() => setEditor(null)}>
+                  Cancel
+                </Button>
+                <button className="btn primary" disabled={saving}>
+                  {saving ? "Saving..." : "Save administrator"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+      {confirm && editor && (
+        <ConfirmModal
+          title={
+            editor.id ? "Save administrator changes?" : "Add administrator?"
+          }
+          message={
+            editor.id
+              ? `Update access details for ${form.firstName} ${form.lastName}?`
+              : `Create an administrator account for ${form.firstName} ${form.lastName}?`
+          }
+          confirmLabel={editor.id ? "Save changes" : "Add administrator"}
+          onClose={() => setConfirm(false)}
+          onConfirm={save}
+        />
+      )}
+    </>
+  );
 }
 
 function VoucherRowActions({ vouchers, onSelect }) {
   useEffect(() => {
     const attachActions = () => {
-      document.querySelectorAll(".vouchers-data-table tbody tr").forEach((row) => {
-        const code = row.cells[0]?.textContent.trim();
-        const voucher = vouchers.find((item) => item.voucher_code === code);
-        const cell = row.cells[row.cells.length - 1];
-        if (!voucher || !cell) return;
-        const statusCell = row.cells[2];
-        if (!voucher.is_active && statusCell?.dataset.voucherStatus !== "inactive") {
-          statusCell.replaceChildren();
-          statusCell.dataset.voucherStatus = "inactive";
-          const badge = document.createElement("span");
-          badge.className = "status voucher-status-inactive";
-          badge.textContent = "Inactive";
-          statusCell.append(badge);
-        }
-        if (voucher.is_active && statusCell?.dataset.voucherStatus === "inactive") {
-          statusCell.replaceChildren();
-          statusCell.dataset.voucherStatus = "active";
-          const badge = document.createElement("span");
-          badge.className = `status ${voucher.is_assigned ? "gold" : "green"}`;
-          badge.textContent = voucher.is_assigned ? "Assigned" : "Available";
-          statusCell.append(badge);
-        }
-        if (cell.dataset.voucherAction === String(voucher.id)) return;
-        cell.replaceChildren();
-        cell.dataset.voucherAction = String(voucher.id);
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "btn secondary voucher-row-action";
-        button.textContent = voucher.is_active ? "Deactivate" : "Activate";
-        button.addEventListener("click", () => onSelect(voucher));
-        cell.append(button);
-      });
+      document
+        .querySelectorAll(".vouchers-data-table tbody tr")
+        .forEach((row) => {
+          const code = row.cells[0]?.textContent.trim();
+          const voucher = vouchers.find((item) => item.voucher_code === code);
+          const cell = row.cells[row.cells.length - 1];
+          if (!voucher || !cell) return;
+          const statusCell = row.cells[2];
+          if (
+            !voucher.is_active &&
+            statusCell?.dataset.voucherStatus !== "inactive"
+          ) {
+            statusCell.replaceChildren();
+            statusCell.dataset.voucherStatus = "inactive";
+            const badge = document.createElement("span");
+            badge.className = "status voucher-status-inactive";
+            badge.textContent = "Inactive";
+            statusCell.append(badge);
+          }
+          if (
+            voucher.is_active &&
+            statusCell?.dataset.voucherStatus === "inactive"
+          ) {
+            statusCell.replaceChildren();
+            statusCell.dataset.voucherStatus = "active";
+            const badge = document.createElement("span");
+            badge.className = `status ${voucher.is_assigned ? "gold" : "green"}`;
+            badge.textContent = voucher.is_assigned ? "Assigned" : "Available";
+            statusCell.append(badge);
+          }
+          if (cell.dataset.voucherAction === String(voucher.id)) return;
+          cell.replaceChildren();
+          cell.dataset.voucherAction = String(voucher.id);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "btn secondary voucher-row-action";
+          button.textContent = voucher.is_active ? "Deactivate" : "Activate";
+          button.addEventListener("click", () => onSelect(voucher));
+          cell.append(button);
+        });
     };
     const timer = setTimeout(attachActions, 0);
     const table = document.querySelector(".vouchers-data-table");
@@ -4988,122 +7890,585 @@ function VoucherRowActions({ vouchers, onSelect }) {
 }
 
 function ReleaseVouchersPage({ token }) {
-  const [quantity, setQuantity] = useState("1"), [preview, setPreview] = useState([]), [released, setReleased] = useState([]), [confirm, setConfirm] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [toast, setToast] = useState("");
+  const [quantity, setQuantity] = useState("1"),
+    [preview, setPreview] = useState([]),
+    [released, setReleased] = useState([]),
+    [confirm, setConfirm] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [toast, setToast] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
   const codes = released.map((voucher) => voucher.voucher_code).join("\n");
-  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 4500); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
   const prepare = async (event) => {
     event.preventDefault();
-    setBusy(true); setError(""); setReleased([]);
+    setBusy(true);
+    setError("");
+    setReleased([]);
     try {
-      const result = await request(`/admin/voucher-records/release/preview?quantity=${encodeURIComponent(quantity)}`, { headers });
+      const result = await request(
+        `/admin/voucher-records/release/preview?quantity=${encodeURIComponent(quantity)}`,
+        { headers },
+      );
       setPreview(result.vouchers || []);
-      if (result.message && result.vouchers?.length !== Number(quantity)) setToast(result.message);
-      if (!result.vouchers?.length) setError("There are no available vouchers to release.");
-    } catch (err) { setPreview([]); setError(err.message); }
-    finally { setBusy(false); }
+      if (result.message && result.vouchers?.length !== Number(quantity))
+        setToast(result.message);
+      if (!result.vouchers?.length)
+        setError("There are no available vouchers to release.");
+    } catch (err) {
+      setPreview([]);
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
   const release = async () => {
-    setConfirm(false); setBusy(true); setError("");
+    setConfirm(false);
+    setBusy(true);
+    setError("");
     try {
-      const result = await request("/admin/voucher-records/release", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ voucherIds: preview.map((voucher) => voucher.id) }) });
-      setReleased(result.vouchers || []); setPreview([]); setToast(result.message);
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+      const result = await request("/admin/voucher-records/release", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          voucherIds: preview.map((voucher) => voucher.id),
+        }),
+      });
+      setReleased(result.vouchers || []);
+      setPreview([]);
+      setToast(result.message);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
   const copyCodes = async () => {
-    try { await navigator.clipboard.writeText(codes); setToast("Released voucher codes copied."); }
-    catch { setError("Unable to copy automatically. Select and copy the codes below."); }
+    try {
+      await navigator.clipboard.writeText(codes);
+      setToast("Released voucher codes copied.");
+    } catch {
+      setError(
+        "Unable to copy automatically. Select and copy the codes below.",
+      );
+    }
   };
   const downloadCodes = () => {
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([codes + "\n"], { type: "text/plain;charset=utf-8" }));
+    link.href = URL.createObjectURL(
+      new Blob([codes + "\n"], { type: "text/plain;charset=utf-8" }),
+    );
     link.download = `released-wifi-vouchers-${new Date().toISOString().slice(0, 10)}.txt`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 0);
   };
-  return <>
-    {toast && <Toast message={toast} onClose={() => setToast("")} />}
-    <PageHeader title="Release vouchers" description="Set aside available WiFi vouchers for external release. Released codes cannot return to automatic student assignment." />
-    {error && <p className="error release-page-error">{error}</p>}
-    <section className="release-vouchers-grid">
-      <article className="panel release-generator"><div className="release-panel-heading"><AppIcon name="confirmation_number" size={24} /><div><p className="eyebrow">STEP 1</p><h2>Prepare vouchers</h2></div></div><p>Choose how many available voucher codes you need to release.</p><form onSubmit={prepare}><label className="field"><span>Number of vouchers</span><input type="number" min="1" max="1000" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><button className="btn primary wide" disabled={busy}>{busy ? "Preparing..." : "Get vouchers"}</button></form></article>
-      <article className="panel release-preview"><div className="release-panel-heading"><AppIcon name="fact_check" size={24} /><div><p className="eyebrow">STEP 2</p><h2>Review and release</h2></div></div>{preview.length ? <><p>{preview.length} voucher{preview.length === 1 ? " is" : "s are"} ready for permanent release.</p><div className="release-code-list">{preview.map((voucher, index) => <code key={voucher.id}><small>{String(index + 1).padStart(2, "0")}</small>{voucher.voucher_code}</code>)}</div><footer><Button variant="secondary" onClick={() => setPreview([])}>Clear</Button><button className="btn primary" disabled={busy} onClick={() => setConfirm(true)}><AppIcon name="assignment_turned_in" /> Release {preview.length} voucher{preview.length === 1 ? "" : "s"}</button></footer></> : <div className="release-empty"><AppIcon name="inventory_2" size={30} /><b>No vouchers prepared</b><span>Generate a list of available codes to review them here.</span></div>}</article>
-    </section>
-    {released.length > 0 && <section className="panel released-output"><div><p className="eyebrow">RELEASE COMPLETE</p><h2>{released.length} voucher{released.length === 1 ? "" : "s"} released</h2><p>Keep this list secure. These codes are permanently excluded from student assignment.</p></div><div className="released-output-actions"><Button variant="secondary" onClick={copyCodes}><AppIcon name="content_copy" /> Copy codes</Button><Button onClick={downloadCodes}><AppIcon name="download" /> Download .txt</Button></div><textarea readOnly aria-label="Released voucher codes" value={codes} onFocus={(event) => event.target.select()} /></section>}
-    {confirm && <ConfirmModal title="Release selected vouchers?" message={`${preview.length} voucher code${preview.length === 1 ? "" : "s"} will be permanently removed from available stock and cannot be assigned to students.`} confirmLabel="Release vouchers" onConfirm={release} onClose={() => setConfirm(false)} />}
-  </>;
+  return (
+    <>
+      {toast && <Toast message={toast} onClose={() => setToast("")} />}
+      <PageHeader
+        title="Release vouchers"
+        description="Set aside available WiFi vouchers for external release. Released codes cannot return to automatic student assignment."
+      />
+      {error && <p className="error release-page-error">{error}</p>}
+      <section className="release-vouchers-grid">
+        <article className="panel release-generator">
+          <div className="release-panel-heading">
+            <AppIcon name="confirmation_number" size={24} />
+            <div>
+              <p className="eyebrow">STEP 1</p>
+              <h2>Prepare vouchers</h2>
+            </div>
+          </div>
+          <p>Choose how many available voucher codes you need to release.</p>
+          <form onSubmit={prepare}>
+            <label className="field">
+              <span>Number of vouchers</span>
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value)}
+              />
+            </label>
+            <button className="btn primary wide" disabled={busy}>
+              {busy ? "Preparing..." : "Get vouchers"}
+            </button>
+          </form>
+        </article>
+        <article className="panel release-preview">
+          <div className="release-panel-heading">
+            <AppIcon name="fact_check" size={24} />
+            <div>
+              <p className="eyebrow">STEP 2</p>
+              <h2>Review and release</h2>
+            </div>
+          </div>
+          {preview.length ? (
+            <>
+              <p>
+                {preview.length} voucher{preview.length === 1 ? " is" : "s are"}{" "}
+                ready for permanent release.
+              </p>
+              <div className="release-code-list">
+                {preview.map((voucher, index) => (
+                  <code key={voucher.id}>
+                    <small>{String(index + 1).padStart(2, "0")}</small>
+                    {voucher.voucher_code}
+                  </code>
+                ))}
+              </div>
+              <footer>
+                <Button variant="secondary" onClick={() => setPreview([])}>
+                  Clear
+                </Button>
+                <button
+                  className="btn primary"
+                  disabled={busy}
+                  onClick={() => setConfirm(true)}
+                >
+                  <AppIcon name="assignment_turned_in" /> Release{" "}
+                  {preview.length} voucher{preview.length === 1 ? "" : "s"}
+                </button>
+              </footer>
+            </>
+          ) : (
+            <div className="release-empty">
+              <span className="release-empty-icon" aria-hidden="true">
+                <AppIcon name="inventory_2" size={26} />
+              </span>
+              <div>
+                <b>Ready to review vouchers</b>
+                <span>
+                  Choose a quantity, then select <em>Get vouchers</em> to
+                  prepare the release list.
+                </span>
+              </div>
+            </div>
+          )}
+        </article>
+      </section>
+      {released.length > 0 && (
+        <section className="panel released-output">
+          <div>
+            <p className="eyebrow">RELEASE COMPLETE</p>
+            <h2>
+              {released.length} voucher{released.length === 1 ? "" : "s"}{" "}
+              released
+            </h2>
+            <p>
+              Keep this list secure. These codes are permanently excluded from
+              student assignment.
+            </p>
+          </div>
+          <div className="released-output-actions">
+            <Button variant="secondary" onClick={copyCodes}>
+              <AppIcon name="content_copy" /> Copy codes
+            </Button>
+            <Button onClick={downloadCodes}>
+              <AppIcon name="download" /> Download .txt
+            </Button>
+          </div>
+          <div
+            className="released-code-list"
+            aria-label="Released voucher codes"
+          >
+            {released.map((voucher, index) => (
+              <code key={voucher.id}>
+                <small>{String(index + 1).padStart(2, "0")}</small>
+                {voucher.voucher_code}
+              </code>
+            ))}
+          </div>
+        </section>
+      )}
+      {confirm && (
+        <ConfirmModal
+          title="Release selected vouchers?"
+          message={`${preview.length} voucher code${preview.length === 1 ? "" : "s"} will be permanently removed from available stock and cannot be assigned to students.`}
+          confirmLabel="Release vouchers"
+          onConfirm={release}
+          onClose={() => setConfirm(false)}
+        />
+      )}
+    </>
+  );
 }
 
 function VouchersPage({ token }) {
-  const [vouchers, setVouchers] = useState([]), [importing, setImporting] = useState(false), [file, setFile] = useState(null), [preview, setPreview] = useState(null), [releaseTarget, setReleaseTarget] = useState(null), [statusTarget, setStatusTarget] = useState(null), [statusSelection, setStatusSelection] = useState(null), [error, setError] = useState(""), [toast, setToast] = useState("");
+  const [vouchers, setVouchers] = useState([]),
+    [importing, setImporting] = useState(false),
+    [releaseTarget, setReleaseTarget] = useState(null),
+    [clearSemesterOpen, setClearSemesterOpen] = useState(false),
+    [statusTarget, setStatusTarget] = useState(null),
+    [statusSelection, setStatusSelection] = useState(null),
+    [error, setError] = useState(""),
+    [toast, setToast] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
-  const setAdding = setImporting;
-  const load = () => request("/admin/voucher-records", { headers }).then(setVouchers).catch((err) => setError(err.message));
-  useEffect(() => { load(); }, []);
-  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 4500); return () => clearTimeout(timer); }, [toast]);
-  const validateImport = async () => { if (!file) return setError("Choose an XLSX file first."); setError(""); try { const data = new FormData(); data.append("file", file); setPreview(await request("/admin/voucher-records/import/validate", { method: "POST", headers, body: data })); } catch (err) { setError(err.message); } };
-  const importFile = async () => { if (!file) return; try { const data = new FormData(); data.append("file", file); const result = await request("/admin/voucher-records/import", { method: "POST", headers, body: data }); setImporting(false); setPreview(null); setFile(null); setToast(`${result.added} voucher${result.added === 1 ? "" : "s"} imported.`); load(); } catch (err) { setError(err.message); } };
-  const release = async () => { const voucher = releaseTarget; setReleaseTarget(null); try { const result = await request(`/admin/voucher-records/${voucher.id}/release`, { method: "POST", headers }); setToast(result.message); load(); } catch (err) { setError(err.message); } };
-  const updateStatus = async () => { const voucher = statusTarget; setStatusTarget(null); setStatusSelection(null); try { const result = await request(`/admin/voucher-records/${voucher.id}/status`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ isActive: !voucher.is_active }) }); setToast(result.message); load(); } catch (err) { setError(err.message); } };
-  const closeImport = () => { setImporting(false); setFile(null); setPreview(null); setError(""); };
-  const downloadTemplate = async () => {
+  const load = () =>
+    request("/admin/voucher-records", { headers })
+      .then(setVouchers)
+      .catch((err) => setError(err.message));
+  useEffect(() => {
+    load();
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  const release = async () => {
+    const voucher = releaseTarget;
+    setReleaseTarget(null);
     try {
-      const response = await adminFetch("/admin/voucher-records/import/template", { headers });
-      if (!response.ok) throw new Error("Unable to download the voucher template.");
-      const url = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "wifi-voucher-import-template.xlsx";
-      link.click();
-      URL.revokeObjectURL(url);
+      const result = await request(
+        `/admin/voucher-records/${voucher.id}/release`,
+        { method: "POST", headers },
+      );
+      setToast(result.message);
+      load();
     } catch (err) {
       setError(err.message);
     }
   };
-  const assigned = vouchers.filter((voucher) => voucher.is_active && voucher.is_assigned).length, available = vouchers.filter((voucher) => voucher.is_active && !voucher.is_assigned && !voucher.is_released).length;
-  return <>
-    {toast && <Toast message={toast} onClose={() => setToast("")} />}
-    <PageHeader title="WiFi vouchers" description="Maintain voucher stock and see which student currently holds each voucher." actions={<Button onClick={() => setImporting(true)}>Import XLSX</Button>} />
-    <section className="student-summary voucher-summary"><article><span>Total vouchers</span><strong>{vouchers.length}</strong></article><article><span>Available stock</span><strong>{available}</strong></article><article><span>Assigned vouchers</span><strong>{assigned}</strong></article></section>
-    <VoucherRowActions vouchers={vouchers} onSelect={setStatusTarget} />
-    {vouchers.length > 0 && <section className="panel voucher-status-control"><div><h2>Voucher status</h2><p>Deactivate a voucher to prevent future use. Assigned vouchers are released from the student automatically.</p></div><label><span>Voucher</span><select value={statusSelection?.id || ""} onChange={(event) => setStatusSelection(vouchers.find((voucher) => voucher.id === Number(event.target.value)) || null)}><option value="">Select a voucher</option>{vouchers.map((voucher) => <option key={voucher.id} value={voucher.id}>{voucher.voucher_code} — {voucher.is_active ? "Active" : "Inactive"}{voucher.is_assigned ? ", assigned" : ""}</option>)}</select></label><Button variant="secondary" onClick={() => statusSelection && setStatusTarget(statusSelection)}>{statusSelection?.is_active ? "Deactivate" : "Activate"}</Button></section>}
-    <section className="panel student-panel vouchers-data-table"><div className="course-intro">Available vouchers are assigned automatically when an administrator generates one for a student or when a student completes kiosk verification.</div>{error && <p className="error">{error}</p>}{vouchers.length ? <DataTable data={vouchers} columns={[{ data: "voucher_code" }, { data: null }, { data: "is_assigned" }, { data: "assigned_at" }, null]} slots={{ 0: (data) => <code className="voucher-code">{data}</code>, 1: (_data, row) => row.student_id ? <span className="student-cell"><b>{[row.first_name, row.middle_name, row.last_name].filter(Boolean).join(" ")}</b><small>{row.student_id}</small></span> : <span className="muted-cell">Not assigned</span>, 2: (data) => <Status tone={data ? "gold" : "green"}>{data ? "Assigned" : "Available"}</Status>, 3: (data) => data ? new Date(data).toLocaleString() : <span className="muted-cell">—</span>, 4: (_data, row) => row.is_assigned ? <Button variant="secondary" onClick={() => setReleaseTarget(row)}>Release</Button> : <span className="muted-cell">Ready</span> }} options={{ pageLength: 10, lengthMenu: [10, 25, 50, 100], order: [[0, "asc"]], language: { search: "Search vouchers:", emptyTable: "No vouchers found." } }}><thead><tr><th>Voucher code</th><th>Assigned student</th><th>Status</th><th>Assigned at</th><th>Action</th></tr></thead></DataTable> : <Empty title="No vouchers in stock" detail="Add voucher codes before students retrieve credentials." action={<Button onClick={() => setAdding(true)}>Add vouchers</Button>} />}</section>
-    {importing && <div className="modal-backdrop" onMouseDown={closeImport}><section className="course-modal bulk-import-modal voucher-modal" onMouseDown={(event) => event.stopPropagation()}><header><div><p className="eyebrow">BULK ACTION</p><h2>Import WiFi vouchers</h2></div><button className="modal-close" onClick={closeImport} aria-label="Close">&times;</button></header>{preview ? <div className="validation-result voucher-validation-result"><p className="eyebrow">VALIDATION RESULT</p><h3>Review before importing</h3><div className="validation-summary"><span><b>{preview.new}</b> new</span><span><b>{preview.duplicates}</b> duplicates</span><span className={preview.errors.length ? "has-errors" : ""}><b>{preview.errors.length}</b> errors</span></div>{preview.errors.slice(0, 5).map((item) => <small className="validation-error" key={item.row}>Row {item.row}: {item.message}</small>)}{error && <p className="error">{error}</p>}<footer><Button variant="secondary" onClick={() => { setPreview(null); setError(""); }}>Choose another file</Button><button disabled={!preview.new || preview.errors.length} onClick={importFile} className="btn primary">Import {preview.new} vouchers</button></footer></div> : <form onSubmit={(event) => { event.preventDefault(); validateImport(); }}><label className="bulk-file-picker"><input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setFile(event.target.files?.[0] || null); setPreview(null); setError(""); }} /><span className="upload-icon">&#8679;</span><b>{file ? file.name : "Choose an Excel file"}</b><small>{file ? "Ready to validate" : "Use the downloadable template for the required columns"}</small></label><p className="template-link">Need the format? <button type="button" onClick={downloadTemplate}>Download template</button></p>{error && <p className="error voucher-import-error">{error}</p>}<footer><Button variant="secondary" onClick={closeImport}>Cancel</Button><button disabled={!file} className="btn primary">Validate file</button></footer></form>}</section></div>}
-    {releaseTarget && <ConfirmModal title="Release voucher" message={`Release ${releaseTarget.voucher_code}? It will be removed from the assigned student and permanently excluded from automatic stock.`} confirmLabel="Release voucher" onConfirm={release} onClose={() => setReleaseTarget(null)} />}
-    {statusTarget && <ConfirmModal title={`${statusTarget.is_active ? "Deactivate" : "Activate"} voucher`} message={statusTarget.is_active ? `Deactivate ${statusTarget.voucher_code}? Any current assignment will be released and cleared from the student's voucher record.` : `Activate ${statusTarget.voucher_code}? It will be available for future assignment.`} confirmLabel={statusTarget.is_active ? "Deactivate voucher" : "Activate voucher"} onConfirm={updateStatus} onClose={() => setStatusTarget(null)} />}
-  </>;
+  const clearSemester = async () => {
+    setClearSemesterOpen(false);
+    setError("");
+    try {
+      const result = await request("/admin/voucher-records/clear-semester", {
+        method: "POST",
+        headers,
+      });
+      setToast(result.message);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const updateStatus = async () => {
+    const voucher = statusTarget;
+    setStatusTarget(null);
+    setStatusSelection(null);
+    try {
+      const result = await request(
+        `/admin/voucher-records/${voucher.id}/status`,
+        {
+          method: "PATCH",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ isActive: !voucher.is_active }),
+        },
+      );
+      setToast(result.message);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const assigned = vouchers.filter(
+      (voucher) => voucher.is_active && voucher.is_assigned,
+    ).length,
+    available = vouchers.filter(
+      (voucher) =>
+        voucher.is_active && !voucher.is_assigned && !voucher.is_released,
+    ).length;
+  return (
+    <>
+      {toast && <Toast message={toast} onClose={() => setToast("")} />}
+      <PageHeader
+        title="WiFi vouchers"
+        description="Maintain voucher stock and see which student currently holds each voucher."
+        actions={
+          <>
+            <Button variant="danger" onClick={() => setClearSemesterOpen(true)}>
+              Clear semester vouchers
+            </Button>
+            <Button onClick={() => setImporting(true)}>Import XLSX</Button>
+          </>
+        }
+      />
+      <section className="student-summary voucher-summary">
+        <article>
+          <span>Total vouchers</span>
+          <strong>{vouchers.length}</strong>
+        </article>
+        <article>
+          <span>Available stock</span>
+          <strong>{available}</strong>
+        </article>
+        <article>
+          <span>Assigned vouchers</span>
+          <strong>{assigned}</strong>
+        </article>
+      </section>
+      <VoucherRowActions vouchers={vouchers} onSelect={setStatusTarget} />
+      {vouchers.length > 0 && (
+        <section className="panel voucher-status-control">
+          <div>
+            <h2>Voucher status</h2>
+            <p>
+              Deactivate a voucher to prevent future use. Assigned vouchers are
+              released from the student automatically.
+            </p>
+          </div>
+          <label>
+            <span>Voucher</span>
+            <select
+              value={statusSelection?.id || ""}
+              onChange={(event) =>
+                setStatusSelection(
+                  vouchers.find(
+                    (voucher) => voucher.id === Number(event.target.value),
+                  ) || null,
+                )
+              }
+            >
+              <option value="">Select a voucher</option>
+              {vouchers.map((voucher) => (
+                <option key={voucher.id} value={voucher.id}>
+                  {voucher.voucher_code} —{" "}
+                  {voucher.is_active ? "Active" : "Inactive"}
+                  {voucher.is_assigned ? ", assigned" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            variant="secondary"
+            onClick={() => statusSelection && setStatusTarget(statusSelection)}
+          >
+            {statusSelection?.is_active ? "Deactivate" : "Activate"}
+          </Button>
+        </section>
+      )}
+      <section className="panel student-panel vouchers-data-table">
+        <div className="course-intro">
+          Available vouchers are assigned automatically when an administrator
+          generates one for a student or when a student completes kiosk
+          verification.
+        </div>
+        {error && <p className="error">{error}</p>}
+        {vouchers.length ? (
+          <DataTable
+            data={vouchers}
+            columns={[
+              { data: "voucher_code" },
+              { data: null },
+              { data: "is_assigned" },
+              { data: "assigned_at" },
+              null,
+            ]}
+            slots={{
+              0: (data) => <code className="voucher-code">{data}</code>,
+              1: (_data, row) =>
+                row.student_id ? (
+                  <span className="student-cell">
+                    <b>
+                      {[row.first_name, row.middle_name, row.last_name]
+                        .filter(Boolean)
+                        .join(" ")}
+                    </b>
+                    <small>{row.student_id}</small>
+                  </span>
+                ) : (
+                  <span className="muted-cell">Not assigned</span>
+                ),
+              2: (data, row) => (
+                <Status
+                  tone={!row.is_active ? "danger" : data ? "gold" : "green"}
+                >
+                  {!row.is_active
+                    ? "Inactive"
+                    : data
+                      ? "Assigned"
+                      : "Available"}
+                </Status>
+              ),
+              3: (data) =>
+                data ? (
+                  new Date(data).toLocaleString()
+                ) : (
+                  <span className="muted-cell">—</span>
+                ),
+              4: (_data, row) =>
+                row.is_assigned ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setReleaseTarget(row)}
+                  >
+                    Release
+                  </Button>
+                ) : (
+                  <span className="muted-cell">Ready</span>
+                ),
+            }}
+            options={{
+              pageLength: 10,
+              lengthMenu: [10, 25, 50, 100],
+              order: [[0, "asc"]],
+              language: {
+                search: "Search vouchers:",
+                emptyTable: "No vouchers found.",
+              },
+            }}
+          >
+            <thead>
+              <tr>
+                <th>Voucher code</th>
+                <th>Assigned student</th>
+                <th>Status</th>
+                <th>Assigned at</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+          </DataTable>
+        ) : (
+          <Empty
+            title="No vouchers in stock"
+            detail="Add voucher codes before students retrieve credentials."
+            action={
+              <Button onClick={() => setImporting(true)}>Import XLSX</Button>
+            }
+          />
+        )}
+      </section>
+      {importing && (
+        <ImportHubModal
+          type={voucherImportType}
+          token={token}
+          onClose={() => setImporting(false)}
+          onComplete={(message) => {
+            setToast(message);
+            load();
+          }}
+        />
+      )}
+      {releaseTarget && (
+        <ConfirmModal
+          title="Release voucher"
+          message={`Release ${releaseTarget.voucher_code}? It will be removed from the assigned student and permanently excluded from automatic stock.`}
+          confirmLabel="Release voucher"
+          onConfirm={release}
+          onClose={() => setReleaseTarget(null)}
+        />
+      )}
+      {clearSemesterOpen && (
+        <ConfirmModal
+          title="Clear semester vouchers"
+          message={`Permanently delete all ${vouchers.length} voucher${vouchers.length === 1 ? "" : "s"}, including inactive and released records? Assigned students will lose their voucher links. This cannot be undone; import the new semester's voucher list afterward.`}
+          confirmLabel="Delete semester vouchers"
+          onConfirm={clearSemester}
+          onClose={() => setClearSemesterOpen(false)}
+        />
+      )}
+      {statusTarget && (
+        <ConfirmModal
+          title={`${statusTarget.is_active ? "Deactivate" : "Activate"} voucher`}
+          message={
+            statusTarget.is_active
+              ? `Deactivate ${statusTarget.voucher_code}? Any current assignment will be released and cleared from the student's voucher record.`
+              : `Activate ${statusTarget.voucher_code}? It will be available for future assignment.`
+          }
+          confirmLabel={
+            statusTarget.is_active ? "Deactivate voucher" : "Activate voucher"
+          }
+          onConfirm={updateStatus}
+          onClose={() => setStatusTarget(null)}
+        />
+      )}
+    </>
+  );
 }
 function App() {
-  const path = usePath();
+  const { path, revision } = usePath();
   if (path.startsWith("/setup"))
-    return <div className="page-transition" key={path}><SetupPage /></div>;
+    return (
+      <div className="page-transition" key={`${path}-${revision}`}>
+        <SetupPage />
+      </div>
+    );
   if (path.startsWith("/admin")) return <AdminApp />;
-  return <div className="page-transition" key={path}><Kiosk /></div>;
+  return (
+    <div className="page-transition" key={`${path}-${revision}`}>
+      <Kiosk />
+    </div>
+  );
 }
 function StudentsPage({ token }) {
   const [students, setStudents] = useState([]),
+    [studentTotal, setStudentTotal] = useState(0),
+    [activeStudentTotal, setActiveStudentTotal] = useState(0),
     [selected, setSelected] = useState(null),
     [editing, setEditing] = useState(null),
+    [returnToView, setReturnToView] = useState(false),
     [adding, setAdding] = useState(false),
-    [error, setError] = useState("");
-  const load = () =>
-    request("/admin/students?page=1&limit=1000&status=all", {
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(true),
+    [page, setPage] = useState(1),
+    [pages, setPages] = useState(1),
+    [limit, setLimit] = useState(25),
+    [search, setSearch] = useState(""),
+    [status, setStatus] = useState("all"),
+    [sort, setSort] = useState("name"),
+    [direction, setDirection] = useState("asc"),
+    [refresh, setRefresh] = useState(0);
+  const load = () => {
+    setLoading(true);
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      status,
+      search,
+      sort,
+      direction,
+    });
+    request(`/admin/students?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((data) => setStudents(data.rows))
-      .catch((e) => setError(e.message));
+      .then((data) => {
+        setStudents(data.rows);
+        setStudentTotal(data.total);
+        setActiveStudentTotal(data.activeTotal);
+        setPages(data.pages);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  };
   useEffect(() => {
     load();
-  }, []);
+  }, [page, limit, search, status, sort, direction, refresh]);
+  const changeSort = (column) => {
+    if (sort === column)
+      setDirection((current) => (current === "asc" ? "desc" : "asc"));
+    else {
+      setSort(column);
+      setDirection("asc");
+    }
+    setPage(1);
+  };
+  const changePage = (next) => setPage(Math.max(1, Math.min(pages, next)));
   const open = (id, edit = false) =>
     request(`/admin/students/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((record) => (edit ? setEditing(record) : setSelected(record)))
+      .then((record) => {
+        if (edit) {
+          setReturnToView(false);
+          setEditing(record);
+        } else setSelected(record);
+      })
       .catch((e) => setError(e.message));
   return (
     <>
+      {loading && !students.length && (
+        <LoadingModal
+          title="Loading students"
+          message="Preparing the student records table."
+        />
+      )}
       <PageHeader
         title="Students"
         description="Select a student to view or update their profile and linked credentials."
@@ -5112,11 +8477,11 @@ function StudentsPage({ token }) {
       <section className="student-summary">
         <article>
           <span>Total students</span>
-          <strong>{students.length}</strong>
+          <strong>{studentTotal}</strong>
         </article>
         <article>
           <span>Active students</span>
-          <strong>{students.filter((s) => s.is_active).length}</strong>
+          <strong>{activeStudentTotal}</strong>
         </article>
         <article>
           <span>Account types</span>
@@ -5125,63 +8490,156 @@ function StudentsPage({ token }) {
       </section>
       <section className="panel student-panel students-data-table">
         {error && <p className="error">{error}</p>}
-        <DataTable
-          data={students}
-          columns={[
-            { data: null },
-            { data: "student_id" },
-            { data: null },
-            { data: "is_active" },
-            null,
-          ]}
-          slots={{
-            0: (_d, row) => (
-              <span className="student-cell">
-                <b>
-                  {[row.first_name, row.middle_name, row.last_name]
-                    .filter(Boolean)
-                    .join(" ")}
-                </b>
-                <small>{row.kumosoft_id || "No Kumosoft ID"}</small>
-              </span>
-            ),
-            2: (_d, row) => (
-              <span className="student-cell">
-                <b>{row.course_code}</b>
-                <small>{row.course_name}</small>
-              </span>
-            ),
-            3: (data) => (
-              <Status tone={data ? "green" : "gold"}>
-                {data ? "Active" : "Inactive"}
-              </Status>
-            ),
-            4: (_d, row) => (
-              <span className="row-actions">
-                <Button variant="secondary" onClick={() => open(row.id)}>
-                  View
-                </Button>
-                <Button onClick={() => open(row.id, true)}>Edit</Button>
-              </span>
-            ),
-          }}
-          options={{
-            pageLength: 10,
-            lengthMenu: [10, 25, 50, 100],
-            order: [[1, "asc"]],
-            language: { search: "Search students:" },
-          }}
-        >
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>School ID</th>
-              <th>Course</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-        </DataTable>
+        <div className="student-list-toolbar">
+          <div className="student-list-title">
+            <b>Student records</b>
+            <small>
+              {loading
+                ? "Updating results…"
+                : "Search, filter, or select a student."}
+            </small>
+          </div>
+          <div className="student-list-controls">
+            <label className="student-search">
+              <AppIcon name="search" size={19} />
+              <input
+                type="search"
+                placeholder="Search name or ID"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                setPage(1);
+              }}
+              aria-label="Student status"
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div className="student-list-wrap">
+          <table className="student-list-table">
+            <thead>
+              <tr>
+                <th>
+                  <button onClick={() => changeSort("name")}>Student</button>
+                </th>
+                <th>
+                  <button onClick={() => changeSort("course")}>Course</button>
+                </th>
+                <th>
+                  <button onClick={() => changeSort("status")}>Status</button>
+                </th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((student) => (
+                <tr key={student.id}>
+                  <td>
+                    <span className="student-cell">
+                      <b>
+                        {[
+                          student.first_name,
+                          student.middle_name,
+                          student.last_name,
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      </b>
+                      <small>
+                        School ID: {student.student_id}
+                        {student.kumosoft_id &&
+                        student.kumosoft_id !== student.student_id
+                          ? ` · Kumosoft ID: ${student.kumosoft_id}`
+                          : ""}
+                      </small>
+                    </span>
+                  </td>
+                  <td>
+                    <b>{student.course_code}</b>
+                    <small>{student.course_name}</small>
+                  </td>
+                  <td>
+                    <Status tone={student.is_active ? "green" : "gold"}>
+                      {student.is_active ? "Active" : "Inactive"}
+                    </Status>
+                  </td>
+                  <td>
+                    <span className="row-actions">
+                      <Button
+                        variant="secondary"
+                        onClick={() => open(student.id)}
+                      >
+                        View
+                      </Button>
+                      <Button onClick={() => open(student.id, true)}>
+                        Edit
+                      </Button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <footer className="student-list-pagination">
+          <span>
+            Showing {students.length ? (page - 1) * limit + 1 : 0}–
+            {Math.min(page * limit, studentTotal)} of {studentTotal} students
+          </span>
+          <div>
+            <select
+              value={limit}
+              onChange={(event) => {
+                setLimit(Number(event.target.value));
+                setPage(1);
+              }}
+              aria-label="Students per page"
+            >
+              <option value="25">25 / page</option>
+              <option value="50">50 / page</option>
+              <option value="100">100 / page</option>
+            </select>
+            <button onClick={() => changePage(1)} disabled={page === 1}>
+              «
+            </button>
+            <button onClick={() => changePage(page - 1)} disabled={page === 1}>
+              ‹
+            </button>
+            <label>
+              Page{" "}
+              <input
+                type="number"
+                min="1"
+                max={pages}
+                value={page}
+                onChange={(event) =>
+                  changePage(Number(event.target.value) || 1)
+                }
+              />{" "}
+              of {pages}
+            </label>
+            <button
+              onClick={() => changePage(page + 1)}
+              disabled={page === pages}
+            >
+              ›
+            </button>
+            <button onClick={() => changePage(pages)} disabled={page === pages}>
+              »
+            </button>
+          </div>
+        </footer>
       </section>
       {adding && (
         <StudentFormModal
@@ -5189,7 +8647,7 @@ function StudentsPage({ token }) {
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);
-            load();
+            setRefresh((current) => current + 1);
           }}
         />
       )}
@@ -5197,6 +8655,7 @@ function StudentsPage({ token }) {
         record={selected}
         onClose={() => setSelected(null)}
         onEdit={() => {
+          setReturnToView(true);
           setEditing(selected);
           setSelected(null);
         }}
@@ -5205,10 +8664,17 @@ function StudentsPage({ token }) {
         <StudentEditModal
           record={editing}
           token={token}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
+          onClose={() => {
             setEditing(null);
-            load();
+            setReturnToView(false);
+          }}
+          onSaved={() => {
+            const studentId = editing.student.id;
+            const reopenProfile = returnToView;
+            setEditing(null);
+            setReturnToView(false);
+            setRefresh((current) => current + 1);
+            if (reopenProfile) open(studentId);
           }}
         />
       )}
@@ -5225,6 +8691,7 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
     [confirm, setConfirm] = useState(false);
   const [form, setForm] = useState({
     studentId: student.student_id,
+    kumosoftId: student.kumosoft_id || "",
     firstName: student.first_name,
     middleName: student.middle_name || "",
     lastName: student.last_name,
@@ -5318,6 +8785,11 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
                   onChange={(v) => update("studentId", v)}
                 />
                 <Field
+                  label="Kumosoft ID (optional)"
+                  value={form.kumosoftId}
+                  onChange={(v) => update("kumosoftId", v)}
+                />
+                <Field
                   label="Last name"
                   value={form.lastName}
                   onChange={(v) => update("lastName", v)}
@@ -5338,28 +8810,18 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
                   value={form.birthDate}
                   onChange={(v) => update("birthDate", v)}
                 />
-                <label className="field">
-                  <span>Course</span>
-                  <select
-                    required
-                    value={form.courseId}
-                    onChange={(e) => update("courseId", e.target.value)}
-                  >
-                    <option value="">Select course</option>
-                    {courses.map((course) => (
-                      <option value={course.id} key={course.id}>
-                        {course.code} - {course.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <CourseSearchSelect
+                  courses={courses}
+                  value={form.courseId}
+                  onChange={(value) => update("courseId", value)}
+                />
               </div>
             </div>
             <div className="form-section">
               <h3>Account credentials</h3>
               <p className="form-note">
-                SATP, Schoology, and Kumosoft usernames always use the School
-                ID.
+                SATP and Schoology use the School ID. Kumosoft uses the Kumosoft
+                ID when provided.
               </p>
               <div className="form-grid">
                 <Field
@@ -5480,7 +8942,10 @@ class AppErrorBoundary extends Component {
             <button
               className="btn primary wide"
               onClick={() => {
-                fetch(`${API}/auth/logout`, { method: "POST", credentials: "same-origin" }).catch(() => {});
+                fetch(`${API}/auth/logout`, {
+                  method: "POST",
+                  credentials: "same-origin",
+                }).catch(() => {});
                 location.assign("/admin");
               }}
             >

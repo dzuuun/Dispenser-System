@@ -1,4 +1,15 @@
-import "dotenv/config";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+
+// npm workspace commands run the API with `server/` as the working directory,
+// while deployment configuration lives at the repository root.
+dotenv.config({
+  path: path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../.env",
+  ),
+});
 
 const required = [
   "DB_HOST",
@@ -10,15 +21,22 @@ const required = [
   "CREDENTIAL_ENCRYPTION_KEY",
 ];
 export function config() {
-  const missing = required.filter((key) => !process.env[key]);
   const production = process.env.NODE_ENV === "production";
-  const unsafe = required.filter((key) =>
-    /^(change_me|replace_with_|development-|0{64}$)/i.test(process.env[key] || ""),
+  const productionRequired = [...required, "INITIAL_SETUP_SECRET"];
+  const missing = (production ? productionRequired : required).filter(
+    (key) => !process.env[key],
+  );
+  const unsafe = (production ? productionRequired : required).filter((key) =>
+    /^(change_me|replace_with_|development-|0{64}$)/i.test(
+      process.env[key] || "",
+    ),
   );
   if (missing.length && production)
     throw new Error(`Missing environment variables: ${missing.join(", ")}`);
   if (unsafe.length && production)
-    throw new Error(`Unsafe production environment values: ${unsafe.join(", ")}`);
+    throw new Error(
+      `Unsafe production environment values: ${unsafe.join(", ")}`,
+    );
   return {
     port: Number(process.env.PORT || 3000),
     db: {
@@ -36,5 +54,18 @@ export function config() {
     corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
     kioskCode: process.env.KIOSK_CODE || "KIOSK-MIS-01",
     kioskSecret: process.env.KIOSK_SECRET || "development-kiosk-secret",
+    initialSetupSecret: process.env.INITIAL_SETUP_SECRET || "",
+    mssql: {
+      server: process.env.MSSQL_SERVER || "",
+      port: Number(process.env.MSSQL_PORT || 1433),
+      database: process.env.MSSQL_DATABASE || "",
+      user: process.env.MSSQL_USER || "",
+      password: process.env.MSSQL_PASSWORD || "",
+      view:
+        process.env.MSSQL_STUDENT_VIEW || "dbo.vw_CredentialsDispenserStudents",
+      encrypt: process.env.MSSQL_ENCRYPT !== "false",
+      trustServerCertificate:
+        process.env.MSSQL_TRUST_SERVER_CERTIFICATE === "true",
+    },
   };
 }
