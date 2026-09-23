@@ -52,7 +52,9 @@ the compiled client and API beneath `/dispenser` from one application port.
 
 Open [http://localhost:3000/dispenser/](http://localhost:3000/dispenser/) for
 the kiosk and [http://localhost:3000/dispenser/admin](http://localhost:3000/dispenser/admin)
-for the administrator portal. The health endpoint is
+for the administrator portal. From another device on the same network, replace
+`localhost` with this computer's LAN IP address, for example
+`http://192.168.1.50:3000/dispenser/`. The health endpoint is
 [http://localhost:3000/dispenser/api/health](http://localhost:3000/dispenser/api/health).
 
 For local API development with automatic server restart, run:
@@ -69,6 +71,7 @@ Copy `.env.example` instead of committing a real `.env` file.
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NODE_ENV`                                                                     | Use `development` locally and `production` when deployed.                                                                                                                 |
 | `PORT`                                                                         | Express application port; defaults to `3000`.                                                                                                                             |
+| `LISTEN_HOST`                                                                  | Network interface to listen on; defaults to `0.0.0.0` for LAN access. Set to `127.0.0.1` for reverse-proxy-only deployments.                                             |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`                      | MySQL connection settings.                                                                                                                                                |
 | `JWT_ACCESS_SECRET`                                                            | Long random secret for administrator access tokens.                                                                                                                       |
 | `JWT_REFRESH_SECRET`                                                           | Different long random secret for refresh sessions.                                                                                                                        |

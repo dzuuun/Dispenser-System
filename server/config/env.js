@@ -39,6 +39,9 @@ export function config() {
     );
   return {
     port: Number(process.env.PORT || 3000),
+    // Bind to every network interface by default so kiosks and administrators
+    // on the LAN can use http://<server-ip>:<port>/dispenser/.
+    listenHost: process.env.LISTEN_HOST || "0.0.0.0",
     db: {
       host: process.env.DB_HOST || "127.0.0.1",
       port: Number(process.env.DB_PORT || 3306),

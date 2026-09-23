@@ -36,12 +36,14 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const clientBuild = path.resolve(directory, "../client/dist");
 app.get("/", (_req, res) => res.redirect(BASE_PATH));
 app.use(BASE_PATH, express.static(clientBuild, { index: false, maxAge: "1h" }));
-app.get(`${BASE_PATH}/*`, (req, res, next) =>
+// Express 5 requires a named wildcard parameter; `{*splat}` also covers the
+// base path itself.
+app.get(`${BASE_PATH}/{*splat}`, (req, res, next) =>
   req.path.startsWith(`${BASE_PATH}/api/`)
     ? next()
     : res.sendFile(path.join(clientBuild, "index.html")),
 );
 app.use(errorHandler);
-app.listen(cfg.port, "127.0.0.1", () =>
-  console.log(`Credentials API listening on ${cfg.port}`),
+app.listen(cfg.port, cfg.listenHost, () =>
+  console.log(`Credentials API listening on http://${cfg.listenHost}:${cfg.port}`),
 );
