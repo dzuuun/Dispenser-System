@@ -578,9 +578,12 @@ const navGroups = [
   ["Administration", "/admin/users", "Admin users", "admin_panel_settings"],
 ];
 function AdminShell({ children, path, onLogout, token }) {
-  const [collapsed, setCollapsed] = useState(true);
+  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [sidebarPreview, setSidebarPreview] = useState(false);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const pendingCountRequestInFlight = useRef(false);
+  const dismissingSidebarClick = useRef(false);
+  const sidebarOpen = sidebarPinned || sidebarPreview;
   useEffect(() => {
     let active = true;
     const loadPendingCount = async () => {
@@ -617,18 +620,71 @@ function AdminShell({ children, path, onLogout, token }) {
       );
     };
   }, [token]);
+  const closeSidebarFromMain = (event) => {
+    if (event.type === "click" && dismissingSidebarClick.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      dismissingSidebarClick.current = false;
+      return;
+    }
+    if (!sidebarOpen) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.type === "pointerdown") dismissingSidebarClick.current = true;
+    setSidebarPinned(false);
+    setSidebarPreview(false);
+  };
+  const navigate = (to) => {
+    setSidebarPinned(false);
+    setSidebarPreview(false);
+    go(to);
+  };
   return (
-    <div className={`portal ${collapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="sidebar">
+    <div className={`portal ${sidebarOpen ? "sidebar-open" : ""}`}>
+      <header className="topbar">
         <button
           type="button"
-          className="brand"
+          className="collapse-button"
+          aria-expanded={sidebarOpen}
+          aria-controls="admin-navigation"
+          aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+          onClick={() => {
+            setSidebarPinned(!sidebarOpen);
+            setSidebarPreview(false);
+          }}
+        >
+          <span className="menu-icon" aria-hidden="true"><i /><i /><i /></span>
+          <span className="sr-only">{sidebarOpen ? "Close navigation" : "Open navigation"}</span>
+        </button>
+        <button
+          type="button"
+          className="topbar-brand"
           title="Dashboard"
-          onClick={() => go("/admin")}
+          onClick={() => navigate("/admin")}
         >
           <Brand compact light />
         </button>
-        <nav>
+      </header>
+      <aside
+        className="sidebar"
+        aria-label="Administrator navigation"
+        onPointerEnter={(event) => {
+          if (
+            event.pointerType !== "touch" &&
+            window.matchMedia("(min-width: 901px)").matches
+          ) setSidebarPreview(true);
+        }}
+        onPointerLeave={() => setSidebarPreview(false)}
+        onFocusCapture={() => {
+          if (window.matchMedia("(min-width: 901px)").matches)
+            setSidebarPreview(true);
+        }}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget))
+            setSidebarPreview(false);
+        }}
+      >
+        <nav id="admin-navigation">
           <p className="nav-section">OPERATIONS</p>
           {navGroups.map(([group, to, label, icon], index) => (
             <React.Fragment key={to}>
@@ -649,7 +705,7 @@ function AdminShell({ children, path, onLogout, token }) {
                     ? "nav-link active"
                     : "nav-link"
                 }
-                onClick={() => go(to)}
+                onClick={() => navigate(to)}
               >
                 <span className="nav-icon">
                   <AppIcon name={icon} size={20} />
@@ -668,6 +724,13 @@ function AdminShell({ children, path, onLogout, token }) {
           ))}
         </nav>
         <div className="sidebar-bottom">
+          <span
+            className="admin-chip-compact"
+            title="MIS Administrator — Super Admin"
+            aria-label="MIS Administrator, Super Admin"
+          >
+            <AppIcon name="admin_panel_settings" size={21} />
+          </span>
           <div className="admin-chip">
             <b>MIS Administrator</b>
             <small>Super Admin</small>
@@ -676,7 +739,7 @@ function AdminShell({ children, path, onLogout, token }) {
             type="button"
             className="nav-link"
             title="Student kiosk"
-            onClick={() => go("/")}
+            onClick={() => navigate("/")}
           >
             <span className="nav-icon">
               <AppIcon name="desktop_windows" size={20} />
@@ -697,21 +760,13 @@ function AdminShell({ children, path, onLogout, token }) {
         </div>
       </aside>
       <section className="portal-content">
-        <header className="topbar">
-          <button
-            type="button"
-            className="collapse-button"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={() => setCollapsed(!collapsed)}
-          >
-            <AppIcon name={collapsed ? "menu" : "close"} size={23} />
-          </button>
-          <Brand compact light />
-          <span className="topbar-label">
-            NDMU <b>Credentials Dispenser</b>
-          </span>
-        </header>
-        <main className="portal-main">{children}</main>
+        <main
+          className="portal-main"
+          onPointerDownCapture={closeSidebarFromMain}
+          onClickCapture={closeSidebarFromMain}
+        >
+          {children}
+        </main>
       </section>
     </div>
   );
