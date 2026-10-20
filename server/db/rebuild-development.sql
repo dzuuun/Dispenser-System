@@ -50,6 +50,17 @@ CREATE TABLE courses (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+CREATE TABLE academic_periods (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  school_year VARCHAR(20) NOT NULL,
+  semester VARCHAR(30) NOT NULL,
+  is_current BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY academic_period (school_year, semester),
+  INDEX current_period (is_current, is_active)
+);
+
 CREATE TABLE wifi_vouchers (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   voucher_code VARCHAR(255) NOT NULL UNIQUE,
@@ -58,10 +69,12 @@ CREATE TABLE wifi_vouchers (
   is_released BOOLEAN NOT NULL DEFAULT FALSE,
   assigned_at DATETIME NULL,
   released_at DATETIME NULL,
+  academic_period_id BIGINT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX available_voucher (is_active, is_assigned, is_released),
   INDEX released_voucher (is_released, released_at)
+  ,CONSTRAINT fk_vouchers_academic_period FOREIGN KEY (academic_period_id) REFERENCES academic_periods(id)
 );
 
 CREATE TABLE students (
@@ -74,13 +87,16 @@ CREATE TABLE students (
   birth_date DATE NOT NULL,
   course_id BIGINT UNSIGNED NOT NULL,
   voucher_id BIGINT UNSIGNED NULL UNIQUE,
+  academic_period_id BIGINT UNSIGNED NULL,
   year_level TINYINT UNSIGNED NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_students_course FOREIGN KEY (course_id) REFERENCES courses(id),
   CONSTRAINT fk_students_voucher FOREIGN KEY (voucher_id) REFERENCES wifi_vouchers(id),
+  CONSTRAINT fk_students_academic_period FOREIGN KEY (academic_period_id) REFERENCES academic_periods(id),
   INDEX student_verification (student_id, last_name, birth_date, course_id, is_active),
+  INDEX student_academic_period (academic_period_id, is_active),
   INDEX student_course_status (course_id, is_active, last_name, first_name),
   INDEX student_list_sort (is_active, last_name, first_name, id),
   INDEX student_name_search (last_name, first_name)
@@ -203,6 +219,7 @@ CREATE TABLE kiosk_commands (
 CREATE TABLE credential_transactions (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   student_id BIGINT UNSIGNED NULL,
+  academic_period_id BIGINT UNSIGNED NULL,
   kiosk_code VARCHAR(80) NULL,
   transaction_type ENUM('VERIFY', 'VIEW_CREDENTIALS', 'RELEASE_VOUCHER', 'ASSIGN_VOUCHER') NOT NULL,
   success BOOLEAN NOT NULL,
@@ -210,6 +227,8 @@ CREATE TABLE credential_transactions (
   user_agent VARCHAR(255) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_transactions_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL,
+  CONSTRAINT fk_transactions_academic_period FOREIGN KEY (academic_period_id) REFERENCES academic_periods(id),
+  INDEX transaction_academic_period (academic_period_id, created_at),
   INDEX transaction_recent (created_at),
   INDEX transaction_student (student_id, created_at),
   INDEX transaction_kiosk (kiosk_code, created_at)

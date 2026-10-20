@@ -111,9 +111,14 @@ function usePath() {
   }, []);
   return route;
 }
-function Button({ children, onClick, variant = "primary" }) {
+function Button({ children, onClick, variant = "primary", disabled = false }) {
   return (
-    <button type="button" className={`btn ${variant}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`btn ${variant}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {children}
     </button>
   );
@@ -576,11 +581,13 @@ const navGroups = [
   ["Reminders", "/admin/reminders", "Kiosk reminders", "notifications"],
   ["Controls", "/admin/module-controls", "Credential controls", "tune"],
   ["Administration", "/admin/users", "Admin users", "admin_panel_settings"],
+  ["Periods", "/admin/academic-periods", "Academic periods", "calendar_month"],
 ];
 function AdminShell({ children, path, onLogout, token }) {
   const [sidebarPinned, setSidebarPinned] = useState(false);
   const [sidebarPreview, setSidebarPreview] = useState(false);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [activePeriod, setActivePeriod] = useState(null);
   const pendingCountRequestInFlight = useRef(false);
   const dismissingSidebarClick = useRef(false);
   const sidebarOpen = sidebarPinned || sidebarPreview;
@@ -620,6 +627,26 @@ function AdminShell({ children, path, onLogout, token }) {
       );
     };
   }, [token]);
+  useEffect(() => {
+    let active = true;
+    const loadPeriod = () =>
+      request("/admin/academic-periods", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((periods) => {
+          if (active)
+            setActivePeriod(periods.find((period) => period.isCurrent) || null);
+        })
+        .catch(() => {
+          if (active) setActivePeriod(null);
+        });
+    loadPeriod();
+    window.addEventListener("academic-period-updated", loadPeriod);
+    return () => {
+      active = false;
+      window.removeEventListener("academic-period-updated", loadPeriod);
+    };
+  }, [token]);
   const closeSidebarFromMain = (event) => {
     if (event.type === "click" && dismissingSidebarClick.current) {
       event.preventDefault();
@@ -653,8 +680,14 @@ function AdminShell({ children, path, onLogout, token }) {
             setSidebarPreview(false);
           }}
         >
-          <span className="menu-icon" aria-hidden="true"><i /><i /><i /></span>
-          <span className="sr-only">{sidebarOpen ? "Close navigation" : "Open navigation"}</span>
+          <span className="menu-icon" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="sr-only">
+            {sidebarOpen ? "Close navigation" : "Open navigation"}
+          </span>
         </button>
         <button
           type="button"
@@ -664,6 +697,17 @@ function AdminShell({ children, path, onLogout, token }) {
         >
           <Brand compact light />
         </button>
+        <div className="topbar-academic-period" aria-live="polite">
+          <AppIcon name="calendar_month" size={20} />
+          <span>
+            <small>ACTIVE ACADEMIC PERIOD</small>
+            <b>
+              {activePeriod
+                ? `${activePeriod.schoolYear} · ${activePeriod.semester}`
+                : "No active period"}
+            </b>
+          </span>
+        </div>
       </header>
       <aside
         className="sidebar"
@@ -672,7 +716,8 @@ function AdminShell({ children, path, onLogout, token }) {
           if (
             event.pointerType !== "touch" &&
             window.matchMedia("(min-width: 901px)").matches
-          ) setSidebarPreview(true);
+          )
+            setSidebarPreview(true);
         }}
         onPointerLeave={() => setSidebarPreview(false)}
         onFocusCapture={() => {
@@ -4789,21 +4834,24 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
 }
 
 function MssqlStudentImportModal({ token, onClose, onComplete }) {
-  const currentYear = new Date().getFullYear();
-  const [schoolYear, setSchoolYear] = useState(
-      `${currentYear}-${currentYear + 1}`,
-    ),
-    [semester, setSemester] = useState("1"),
+  const [activePeriod, setActivePeriod] = useState(null),
     [preview, setPreview] = useState(null),
     [busy, setBusy] = useState(false),
     [confirmDeactivation, setConfirmDeactivation] = useState(false),
     [error, setError] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
+  useEffect(() => {
+    request("/admin/academic-periods", { headers })
+      .then((periods) =>
+        setActivePeriod(periods.find((period) => period.isCurrent) || null),
+      )
+      .catch((err) => setError(err.message));
+  }, []);
   const loadPreview = async (category = "", offset = 0) => {
     setBusy(true);
     setError("");
     try {
-      const params = new URLSearchParams({ schoolYear, semester, offset });
+      const params = new URLSearchParams({ offset });
       if (category) params.set("category", category);
       const data = await request(
         `/admin/imports/mssql-students/preview?${params}`,
@@ -4840,8 +4888,6 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
-          schoolYear,
-          semester: Number(semester),
           confirmDeactivation,
         }),
       });
@@ -4883,152 +4929,145 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
           >
             <p className="form-note">
               Pulls student records from the configured SQL Server view. The
-              selected school year and semester are used to filter the source.
+              current academic period is used automatically to filter the
+              source.
             </p>
-            <div className="form-grid">
-              <label className="field">
-                <span>School year</span>
-                <input
-                  required
-                  pattern="[0-9]{4}-[0-9]{4}"
-                  placeholder="2026-2027"
-                  value={schoolYear}
-                  onChange={(event) => setSchoolYear(event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Semester</span>
-                <select
-                  value={semester}
-                  onChange={(event) => setSemester(event.target.value)}
-                >
-                  <option value="1">First semester</option>
-                  <option value="2">Second semester</option>
-                  <option value="3">Summer</option>
-                </select>
-              </label>
+            <div className="active-import-period">
+              <AppIcon name="calendar_month" size={22} />
+              <span>
+                <small>ACTIVE ACADEMIC PERIOD</small>
+                <b>
+                  {activePeriod
+                    ? `${activePeriod.schoolYear} · ${activePeriod.semester}`
+                    : "Loading active period..."}
+                </b>
+              </span>
             </div>
             {error && <p className="error">{error}</p>}
             <footer>
               <Button variant="secondary" onClick={onClose}>
                 Cancel
               </Button>
-              <button className="btn primary" disabled={busy}>
+              <button className="btn primary" disabled={busy || !activePeriod}>
                 {busy ? "Loading..." : "Preview students"}
               </button>
             </footer>
           </form>
         ) : (
           <div className="validation-result mssql-validation-result">
-            <p className="eyebrow">
-              {preview.period.schoolYear} · Semester {preview.period.semester}
-            </p>
-            <h3>Review semester student import</h3>
-            <div className="validation-summary">
-              <span>
-                <b>{preview.total}</b> source rows
-              </span>
-              <span>
-                <b>{preview.new}</b> new
-              </span>
-              <span>
-                <b>{preview.update}</b> updates
-              </span>
-              <span className={preview.invalid ? "has-errors" : ""}>
-                <b>{preview.invalid}</b> invalid
-              </span>
-            </div>
-            <p className="mssql-validation-copy">
-              Review all detected rows before updating enrollment records. Each
-              list initially shows up to 250 rows; loading more rows is optional
-              and does not affect the import.
-            </p>
-            <div className="mssql-validation-groups">
-              {[
-                [
-                  "Created students",
-                  "created",
-                  "new",
-                  preview.new,
-                  "No students will be created.",
-                ],
-                [
-                  "Updated students",
-                  "updated",
-                  "update",
-                  preview.update,
-                  "No students will be updated.",
-                ],
-                [
-                  "Errors",
-                  "errors",
-                  "error",
-                  preview.invalid,
-                  "No errors found.",
-                ],
-              ].map(([title, tone, kind, count, empty]) => {
-                const group = preview.groups[kind];
-                const rows = group.records;
-                return (
-                  <section
-                    className={`mssql-validation-group ${tone}`}
-                    key={kind}
-                  >
-                    <header>
-                      <span>{title}</span>
-                      <b>{count}</b>
-                    </header>
-                    {rows.length ? (
-                      <div className="mssql-validation-rows">
-                        {rows.map((row) => (
-                          <article key={`${row.kind}-${row.row}`}>
-                            <small>Row {row.row}</small>
-                            <span>
-                              {row.schoolId
-                                ? `${row.schoolId} — ${row.name} (${row.courseCode})`
-                                : row.message}
-                            </span>
-                            {row.schoolId && <em>{row.message}</em>}
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <p>{empty}</p>
-                    )}
-                    {group.hasMore && (
-                      <footer>
-                        <Button
-                          variant="secondary"
-                          onClick={() => loadPreview(kind, group.nextOffset)}
-                        >
-                          {busy ? "Loading..." : "Load next 250"}
-                        </Button>
-                      </footer>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
-            <p className="mssql-sync-warning">
-              <b>{preview.deactivate}</b> currently active student
-              {preview.deactivate === 1 ? " is" : "s are"} not in this
-              semester&apos;s source list and will be deactivated.
-            </p>
-            {preview.deactivate > 0 && (
-              <label className="mssql-deactivation-confirmation">
-                <input
-                  type="checkbox"
-                  checked={confirmDeactivation}
-                  onChange={(event) =>
-                    setConfirmDeactivation(event.target.checked)
-                  }
-                />
+            <div className="mssql-validation-body">
+              <p className="eyebrow">
+                {preview.period.schoolYear} ·{" "}
+                {preview.period.term || `Semester ${preview.period.semester}`}
+              </p>
+              <h3>Review semester student import</h3>
+              <div className="validation-summary">
                 <span>
-                  I reviewed the source and approve deactivating these students.
+                  <b>{preview.total}</b> source rows
                 </span>
-              </label>
-            )}
-            {error && <p className="error">{error}</p>}
+                <span>
+                  <b>{preview.new}</b> new
+                </span>
+                <span>
+                  <b>{preview.update}</b> updates
+                </span>
+                <span className={preview.invalid ? "has-errors" : ""}>
+                  <b>{preview.invalid}</b> invalid
+                </span>
+              </div>
+              <p className="mssql-validation-copy">
+                Review all detected rows before updating enrollment records.
+                Each list initially shows up to 250 rows; loading more rows is
+                optional and does not affect the import.
+              </p>
+              <div className="mssql-validation-groups">
+                {[
+                  [
+                    "Created students",
+                    "created",
+                    "new",
+                    preview.new,
+                    "No students will be created.",
+                  ],
+                  [
+                    "Updated students",
+                    "updated",
+                    "update",
+                    preview.update,
+                    "No students will be updated.",
+                  ],
+                  [
+                    "Errors",
+                    "errors",
+                    "error",
+                    preview.invalid,
+                    "No errors found.",
+                  ],
+                ].map(([title, tone, kind, count, empty]) => {
+                  const group = preview.groups[kind];
+                  const rows = group.records;
+                  return (
+                    <section
+                      className={`mssql-validation-group ${tone}`}
+                      key={kind}
+                    >
+                      <header>
+                        <span>{title}</span>
+                        <b>{count}</b>
+                      </header>
+                      {rows.length ? (
+                        <div className="mssql-validation-rows">
+                          {rows.map((row) => (
+                            <article key={`${row.kind}-${row.row}`}>
+                              <small>Row {row.row}</small>
+                              <span>
+                                {row.schoolId
+                                  ? `${row.schoolId} — ${row.name} (${row.courseCode})`
+                                  : row.message}
+                              </span>
+                              {row.schoolId && <em>{row.message}</em>}
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p>{empty}</p>
+                      )}
+                      {group.hasMore && (
+                        <footer>
+                          <Button
+                            variant="secondary"
+                            onClick={() => loadPreview(kind, group.nextOffset)}
+                          >
+                            {busy ? "Loading..." : "Load next 250"}
+                          </Button>
+                        </footer>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+              <p className="mssql-sync-warning">
+                <b>{preview.deactivate}</b> currently active student
+                {preview.deactivate === 1 ? " is" : "s are"} not in this
+                semester&apos;s source list and will be deactivated.
+              </p>
+              {preview.deactivate > 0 && (
+                <label className="mssql-deactivation-confirmation">
+                  <input
+                    type="checkbox"
+                    checked={confirmDeactivation}
+                    onChange={(event) =>
+                      setConfirmDeactivation(event.target.checked)
+                    }
+                  />
+                  <span>
+                    I reviewed the source and approve deactivating these
+                    students.
+                  </span>
+                </label>
+              )}
+              {error && <p className="error">{error}</p>}
+            </div>
             <footer>
               <Button
                 variant="secondary"
@@ -5601,6 +5640,257 @@ function GenericPage({ path }) {
   );
 }
 
+function AcademicPeriodsPage({ token }) {
+  const [periods, setPeriods] = useState([]);
+  const [schoolYear, setSchoolYear] = useState("");
+  const [semester, setSemester] = useState("First semester");
+  const [editor, setEditor] = useState(null);
+  const [current, setCurrent] = useState(false);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  const load = () =>
+    request("/admin/academic-periods", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((rows) => {
+        setPeriods(rows);
+        return rows;
+      })
+      .catch((err) => setError(err.message));
+  useEffect(() => {
+    load();
+  }, []);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  const openCreate = () => {
+    setSchoolYear("");
+    setSemester("First semester");
+    setCurrent(false);
+    setError("");
+    setEditor("create");
+  };
+  const openEdit = (period) => {
+    setSchoolYear(period.schoolYear);
+    setSemester(period.semester);
+    setCurrent(period.isCurrent);
+    setError("");
+    setEditor(period);
+  };
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (editor === "create") {
+        const created = await request("/admin/academic-periods", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ schoolYear, semester }),
+        });
+        if (current)
+          await request(`/admin/academic-periods/${created.id}/activate`, {
+            method: "PATCH",
+            headers,
+          });
+      } else {
+        await request(`/admin/academic-periods/${editor.id}`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ schoolYear, semester, isCurrent: current }),
+        });
+      }
+      await load();
+      setEditor(null);
+      window.dispatchEvent(new Event("academic-period-updated"));
+      setToast({
+        message: current
+          ? `${schoolYear} · ${semester} is now the active academic period.`
+          : `Academic period ${editor === "create" ? "created" : "updated"} successfully.`,
+        tone: "success",
+      });
+    } catch (err) {
+      setToast({
+        message: err.message || "Unable to save the academic period.",
+        tone: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <PageHeader
+        title="Academic periods"
+        description="Set the school year and term used for the current dispenser records and activity."
+      />
+      {error && <p className="error">{error}</p>}
+      {toast && (
+        <Toast
+          message={toast.message}
+          tone={toast.tone}
+          onClose={() => setToast(null)}
+        />
+      )}
+      <section className="panel academic-period-directory">
+        <header className="academic-period-directory-header">
+          <div>
+            <p className="eyebrow">RECORD DIRECTORY</p>
+            <h2>Academic periods</h2>
+          </div>
+          <Button onClick={openCreate}>
+            <AppIcon name="add" /> Add period
+          </Button>
+        </header>
+        <div className="academic-period-table-tools">
+          <span>Configured academic periods</span>
+          <small>
+            {periods.filter((period) => period.isCurrent).length
+              ? "Choose Edit to change the active period."
+              : "Choose Edit and mark a period current."}
+          </small>
+        </div>
+        <div className="student-list-wrap">
+          <table className="student-list-table academic-period-table">
+            <thead>
+              <tr>
+                <th>School year</th>
+                <th>Term</th>
+                <th>Students</th>
+                <th>Vouchers</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map((period) => (
+                <tr key={period.id}>
+                  <td>
+                    <b>{period.schoolYear}</b>
+                  </td>
+                  <td>{period.semester}</td>
+                  <td>{period.studentCount}</td>
+                  <td>{period.voucherCount}</td>
+                  <td>
+                    <Status tone={period.isCurrent ? "green" : "danger"}>
+                      {period.isCurrent ? "Current" : "Historical"}
+                    </Status>
+                  </td>
+                  <td>
+                    <button
+                      className="academic-period-edit"
+                      onClick={() => openEdit(period)}
+                      aria-label={`Edit ${period.schoolYear} ${period.semester}`}
+                    >
+                      <AppIcon name="edit" size={18} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!periods.length && (
+          <Empty
+            title="No academic period yet"
+            detail="Add the first period, then mark it current."
+          />
+        )}
+      </section>
+      {editor && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={() => !busy && setEditor(null)}
+        >
+          <section
+            className="student-modal academic-period-modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <p className="eyebrow">ACADEMIC PERIOD</p>
+                <h2>{editor === "create" ? "Add period" : "Edit period"}</h2>
+                <p>
+                  Set the school year, term, and whether this is the current
+                  period.
+                </p>
+              </div>
+              <button
+                className="modal-close"
+                onClick={() => setEditor(null)}
+                disabled={busy}
+              >
+                &times;
+              </button>
+            </header>
+            <form className="student-form" onSubmit={save}>
+              <div className="form-grid">
+                <Field
+                  label="School year"
+                  placeholder="2026-2027"
+                  value={schoolYear}
+                  onChange={setSchoolYear}
+                />
+                <label className="field">
+                  <span>Term</span>
+                  <select
+                    value={semester}
+                    onChange={(event) => setSemester(event.target.value)}
+                  >
+                    <option>First semester</option>
+                    <option>Second semester</option>
+                    <option>Summer</option>
+                    <option>First term</option>
+                    <option>Second term</option>
+                    <option>Third term</option>
+                  </select>
+                </label>
+              </div>
+              <label className="status-toggle">
+                <span>
+                  <b>Set as current period</b>
+                  <small>
+                    {editor !== "create" && editor.isCurrent
+                      ? "This is the active period. Edit another period to replace it."
+                      : "Making this current automatically moves the previous active period to historical."}
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={current}
+                  disabled={editor !== "create" && editor.isCurrent}
+                  onChange={(event) => setCurrent(event.target.checked)}
+                />
+                <i />
+              </label>
+              {error && <p className="error">{error}</p>}
+              <footer className="modal-form-footer">
+                <Button
+                  variant="secondary"
+                  onClick={() => setEditor(null)}
+                  disabled={busy}
+                >
+                  Cancel
+                </Button>
+                <button className="btn primary" disabled={busy}>
+                  {busy ? "Saving..." : "Save period"}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
 function AdminRedirect({ to, message }) {
   useEffect(() => {
     go(to);
@@ -5688,6 +5978,8 @@ function AdminApp() {
         to="/admin/students"
         message="Opening student records..."
       />
+    ) : path === "/admin/academic-periods" ? (
+      <AcademicPeriodsPage token={token} />
     ) : (
       <GenericPage path={pageMeta[path] ? path : "/admin/students"} />
     );

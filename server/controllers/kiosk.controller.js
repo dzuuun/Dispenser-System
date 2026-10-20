@@ -5,6 +5,7 @@ import { pool } from "../config/db.js";
 import { config } from "../config/env.js";
 import { decryptPassword } from "../services/encryption.service.js";
 import { transaction } from "../services/audit.service.js";
+import { currentAcademicPeriod } from "../services/academic-period.service.js";
 const verification = z.object({
   studentId: z.string().trim().min(1).max(40),
   lastName: z.string().trim().min(1).max(100),
@@ -95,13 +96,19 @@ export async function verify(req, res) {
       .json({ message: messages[field] || "Please complete all fields." });
   }
   const v = parsed.data;
+  const period = await currentAcademicPeriod();
+  if (!period)
+    return res.status(503).json({
+      message:
+        "The kiosk is unavailable until an academic period is activated.",
+    });
   const [rows] = await pool.execute(
     `SELECT id, student_id, first_name, middle_name, last_name, year_level,
             course_id, is_active, DATE_FORMAT(birth_date, '%Y-%m-%d') birth_date
        FROM students
-      WHERE student_id=? OR kumosoft_id=?
+      WHERE academic_period_id=? AND (student_id=? OR kumosoft_id=?)
       LIMIT 1`,
-    [v.studentId, v.studentId],
+    [period.id, v.studentId, v.studentId],
   );
   const student = rows[0];
   let failureMessage = "";
@@ -152,10 +159,25 @@ export async function credentials(req, res) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    const period = await currentAcademicPeriod(conn);
+    if (!period) {
+      await conn.rollback();
+      return res.status(503).json({
+        message:
+          "The kiosk is unavailable until an academic period is activated.",
+      });
+    }
     const [[student]] = await conn.execute(
-      "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=?",
-      [session.sub],
+      "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1",
+      [session.sub, period.id],
     );
+    if (!student) {
+      await conn.rollback();
+      return res.status(403).json({
+        message:
+          "Your enrollment is not active for the current academic period. Please verify again.",
+      });
+    }
     const [creds] = await conn.execute(
       "SELECT 'SATP' credential_type, username FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
       [session.sub, session.sub, session.sub, session.sub],
@@ -193,7 +215,8 @@ export async function credentials(req, res) {
     let voucher = existing?.voucher_code;
     if (voucherControl.visible && !voucherControl.maintenance && !voucher) {
       const [[available]] = await conn.query(
-        "SELECT id, voucher_code FROM wifi_vouchers WHERE is_active=1 AND is_assigned=0 AND is_released=0 LIMIT 1 FOR UPDATE",
+        "SELECT id, voucher_code FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 LIMIT 1 FOR UPDATE",
+        [session.sub],
       );
       if (available) {
         await conn.execute("UPDATE students SET voucher_id=? WHERE id=?", [
@@ -270,6 +293,12 @@ export async function revealCredentials(req, res) {
       .status(401)
       .json({ message: "Session expired. Please verify again." });
   try {
+    const period = await currentAcademicPeriod();
+    if (!period)
+      return res.status(503).json({
+        message:
+          "The kiosk is unavailable until an academic period is activated.",
+      });
     const controls = await moduleControls();
     const kioskControl = controls.get("KIOSK");
     if (kioskControl?.maintenance)
@@ -277,13 +306,16 @@ export async function revealCredentials(req, res) {
         message: "The credentials dispenser is currently under maintenance.",
       });
     const [[student]] = await pool.execute(
-      "SELECT student_id FROM students WHERE id=? AND is_active=1",
-      [session.sub],
+      "SELECT student_id FROM students WHERE id=? AND academic_period_id=? AND is_active=1",
+      [session.sub, period.id],
     );
     if (!student)
       return res
-        .status(404)
-        .json({ message: "Student record is not available." });
+        .status(403)
+        .json({
+          message:
+            "Your enrollment is not active for the current academic period. Please verify again.",
+        });
     const [rows] = await pool.execute(
       "SELECT 'SATP' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username, encrypted_password, password_iv, password_auth_tag FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
       [session.sub, session.sub, session.sub, session.sub],

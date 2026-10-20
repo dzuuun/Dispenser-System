@@ -6,10 +6,27 @@ export async function transaction({
   success,
   ip,
   userAgent,
+  academicPeriodId = null,
 }) {
+  let periodId = academicPeriodId;
+  if (!periodId && studentId) {
+    const [[student]] = await pool.execute(
+      "SELECT academic_period_id FROM students WHERE id=?",
+      [studentId],
+    );
+    periodId = student?.academic_period_id || null;
+  }
   await pool.execute(
-    "INSERT INTO credential_transactions (student_id, kiosk_code, transaction_type, success, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)",
-    [studentId, kioskCode, type, success, ip, userAgent?.slice(0, 255) || null],
+    "INSERT INTO credential_transactions (student_id, academic_period_id, kiosk_code, transaction_type, success, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [
+      studentId,
+      periodId,
+      kioskCode,
+      type,
+      success,
+      ip,
+      userAgent?.slice(0, 255) || null,
+    ],
   );
 }
 

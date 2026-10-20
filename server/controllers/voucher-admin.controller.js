@@ -4,6 +4,10 @@ import {
   workbookBase64,
   workbookBuffer,
 } from "../services/workbook.service.js";
+import {
+  currentAcademicPeriod,
+  requireCurrentAcademicPeriod,
+} from "../services/academic-period.service.js";
 
 const safeExportValue = (value) => {
   const text = String(value ?? "");
@@ -24,12 +28,15 @@ const buildErrorReport = async (source, errors) => {
 };
 
 export async function listVouchers(_req, res) {
-  const [rows] = await pool.query(
+  const period = await currentAcademicPeriod();
+  const [rows] = await pool.execute(
     `SELECT w.id, w.voucher_code, w.is_active, w.is_assigned, w.is_released, w.assigned_at, w.released_at, w.created_at,
       s.id student_record_id, s.student_id, s.first_name, s.middle_name, s.last_name
      FROM wifi_vouchers w
      LEFT JOIN students s ON s.voucher_id = w.id
+     WHERE w.academic_period_id=?
      ORDER BY w.created_at DESC, w.id DESC`,
+    [period?.id || 0],
   );
   res.json(rows);
 }
@@ -127,12 +134,14 @@ export async function importVouchers(req, res) {
         review.errors,
       ),
     });
-  if (review.valid.length)
+  if (review.valid.length) {
+    const period = await requireCurrentAcademicPeriod();
     await pool.query(
-      "INSERT INTO wifi_vouchers (voucher_code) VALUES " +
-        review.valid.map(() => "(?)").join(", "),
-      review.valid,
+      "INSERT INTO wifi_vouchers (voucher_code, academic_period_id) VALUES " +
+        review.valid.map(() => "(?, ?)").join(", "),
+      review.valid.flatMap((code) => [code, period.id]),
     );
+  }
   res
     .status(201)
     .json({ added: review.valid.length, duplicates: review.duplicates.length });
@@ -145,15 +154,16 @@ export async function releaseVoucher(req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const period = await requireCurrentAcademicPeriod(connection);
     const [[voucher]] = await connection.execute(
-      "SELECT id FROM wifi_vouchers WHERE id=? FOR UPDATE",
-      [id],
+      "SELECT id FROM wifi_vouchers WHERE id=? AND academic_period_id=? FOR UPDATE",
+      [id, period.id],
     );
     if (!voucher)
       return res.status(404).json({ message: "Voucher not found." });
     await connection.execute(
-      "UPDATE students SET voucher_id=NULL WHERE voucher_id=?",
-      [id],
+      "UPDATE students SET voucher_id=NULL WHERE voucher_id=? AND academic_period_id=?",
+      [id, period.id],
     );
     await connection.execute(
       "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
@@ -173,6 +183,7 @@ export async function releaseVoucher(req, res) {
 }
 
 export async function previewVoucherRelease(req, res) {
+  const period = await requireCurrentAcademicPeriod();
   const quantity = Number(req.query.quantity);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000)
     return res
@@ -181,10 +192,10 @@ export async function previewVoucherRelease(req, res) {
   const [vouchers] = await pool.query(
     `SELECT id, voucher_code
        FROM wifi_vouchers
-      WHERE is_active=1 AND is_assigned=0 AND is_released=0
+      WHERE academic_period_id=? AND is_active=1 AND is_assigned=0 AND is_released=0
       ORDER BY id
       LIMIT ?`,
-    [quantity],
+    [period.id, quantity],
   );
   res.json({
     vouchers,
@@ -212,12 +223,13 @@ export async function releaseVoucherBatch(req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const period = await requireCurrentAcademicPeriod(connection);
     const [vouchers] = await connection.query(
       `SELECT id, voucher_code FROM wifi_vouchers
         WHERE id IN (${ids.map(() => "?").join(",")})
-          AND is_active=1 AND is_assigned=0 AND is_released=0
+          AND academic_period_id=? AND is_active=1 AND is_assigned=0 AND is_released=0
         ORDER BY id FOR UPDATE`,
-      ids,
+      [...ids, period.id],
     );
     if (vouchers.length !== ids.length) {
       await connection.rollback();
@@ -251,8 +263,10 @@ export async function clearSemesterVouchers(_req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const period = await requireCurrentAcademicPeriod(connection);
     const [[{ voucherCount }]] = await connection.query(
-      "SELECT COUNT(*) AS voucherCount FROM wifi_vouchers FOR UPDATE",
+      "SELECT COUNT(*) AS voucherCount FROM wifi_vouchers WHERE academic_period_id=? FOR UPDATE",
+      [period.id],
     );
     if (!voucherCount) {
       await connection.rollback();
@@ -262,7 +276,8 @@ export async function clearSemesterVouchers(_req, res) {
       });
     }
     const [students] = await connection.query(
-      "UPDATE students SET voucher_id=NULL WHERE voucher_id IS NOT NULL",
+      "UPDATE students SET voucher_id=NULL WHERE academic_period_id=? AND voucher_id IS NOT NULL",
+      [period.id],
     );
     const [[historyTable]] = await connection.query(
       `SELECT COUNT(*) AS existsFlag
@@ -273,10 +288,14 @@ export async function clearSemesterVouchers(_req, res) {
       await connection.query(
         `DELETE h FROM voucher_assignment_history h
          JOIN wifi_vouchers w ON w.id=h.voucher_id
-         WHERE w.id IS NOT NULL`,
+         WHERE w.academic_period_id=?`,
+        [period.id],
       );
     }
-    await connection.query("DELETE FROM wifi_vouchers");
+    await connection.execute(
+      "DELETE FROM wifi_vouchers WHERE academic_period_id=?",
+      [period.id],
+    );
     await connection.commit();
     res.json({
       cleared: Number(voucherCount),
@@ -299,9 +318,10 @@ export async function setVoucherStatus(req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const period = await requireCurrentAcademicPeriod(connection);
     const [[voucher]] = await connection.execute(
-      "SELECT is_assigned FROM wifi_vouchers WHERE id=? FOR UPDATE",
-      [id],
+      "SELECT is_assigned FROM wifi_vouchers WHERE id=? AND academic_period_id=? FOR UPDATE",
+      [id, period.id],
     );
     if (!voucher) {
       await connection.rollback();
@@ -309,8 +329,8 @@ export async function setVoucherStatus(req, res) {
     }
     if (!isActive) {
       await connection.execute(
-        "UPDATE students SET voucher_id=NULL WHERE voucher_id=?",
-        [id],
+        "UPDATE students SET voucher_id=NULL WHERE voucher_id=? AND academic_period_id=?",
+        [id, period.id],
       );
       await connection.execute(
         "UPDATE wifi_vouchers SET is_active=0, is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",

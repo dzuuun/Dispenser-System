@@ -5,6 +5,7 @@ import {
   workbookBuffer,
 } from "../services/workbook.service.js";
 import { pool } from "../config/db.js";
+import { requireCurrentAcademicPeriod } from "../services/academic-period.service.js";
 import {
   decryptPassword,
   encryptPassword,
@@ -539,6 +540,7 @@ async function review(type, file, executor = pool) {
 }
 
 export async function upsertStudentRows(items, connection) {
+  const period = await requireCurrentAcademicPeriod(connection);
   for (
     let start = 0;
     start < items.length;
@@ -555,13 +557,14 @@ export async function upsertStudentRows(items, connection) {
         item.lastName,
         item.birthDate,
         item.courseId,
+        period.id,
       );
-      return "(?, ?, ?, ?, ?, ?, ?, 1)";
+      return "(?, ?, ?, ?, ?, ?, ?, ?, 1)";
     });
     await connection.query(
-      `INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, is_active)
+      `INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, academic_period_id, is_active)
        VALUES ${placeholders.join(", ")}
-       ON DUPLICATE KEY UPDATE kumosoft_id=COALESCE(VALUES(kumosoft_id), kumosoft_id), first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), birth_date=VALUES(birth_date), course_id=VALUES(course_id), is_active=1`,
+       ON DUPLICATE KEY UPDATE kumosoft_id=COALESCE(VALUES(kumosoft_id), kumosoft_id), first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), birth_date=VALUES(birth_date), course_id=VALUES(course_id), academic_period_id=VALUES(academic_period_id), is_active=1`,
       values,
     );
   }

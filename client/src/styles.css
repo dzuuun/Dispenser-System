@@ -1254,13 +1254,232 @@ button {
   height: 46px;
 }
 
-.topbar .topbar-brand .ndmu-brand span { display: grid; }
-.topbar .topbar-brand .ndmu-brand b { color: #fff; font-size: 0.9rem; }
+.topbar .topbar-brand .ndmu-brand span {
+  display: grid;
+}
+.topbar .topbar-brand .ndmu-brand b {
+  color: #fff;
+  font-size: 0.9rem;
+}
 .topbar .topbar-brand .ndmu-brand small {
   color: #b8d7c8;
   font-size: 0.64rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.topbar-academic-period {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  color: #f3c760;
+  text-align: right;
+}
+.topbar-academic-period > span {
+  display: grid;
+  gap: 2px;
+}
+.topbar-academic-period small {
+  color: #b8d7c8;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.topbar-academic-period b {
+  color: #fff;
+  font-size: 0.78rem;
+}
+
+.academic-period-active-panel {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.academic-period-directory {
+  padding: 0;
+  overflow: hidden;
+}
+.academic-period-directory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 28px 30px;
+  border-bottom: 1px solid #dce8e1;
+}
+.academic-period-directory-header h2 {
+  margin: 5px 0 0;
+}
+.academic-period-table-tools {
+  display: grid;
+  gap: 3px;
+  padding: 18px 30px;
+  color: #174a39;
+  font-weight: 650;
+}
+.academic-period-table-tools small {
+  color: #638094;
+  font-weight: 400;
+}
+.academic-period-table {
+  min-width: 760px;
+}
+.academic-period-table th {
+  text-transform: uppercase;
+  font-size: 0.67rem;
+  letter-spacing: 0.08em;
+}
+.academic-period-edit {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin: 0 auto;
+  border: 1px solid #ccdbd3;
+  border-radius: 9px;
+  background: #fff;
+  color: #087b57;
+}
+.academic-period-edit:hover {
+  background: #edf8f2;
+  border-color: #087b57;
+}
+.academic-period-modal {
+  max-width: 680px;
+}
+
+.active-import-period {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid #cce1d6;
+  border-radius: 10px;
+  background: #f2faf5;
+  color: #087b57;
+}
+.active-import-period span {
+  display: grid;
+  gap: 3px;
+}
+.active-import-period small {
+  color: #628191;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.active-import-period b {
+  color: #164b39;
+}
+
+/* Keep SQL Server validation scrolling inside the modal body. The dialog
+   heading and the import actions stay visible instead of sharing the body
+   scrollbar. */
+.course-modal.bulk-import-modal > .mssql-validation-result {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.modal-backdrop > .mssql-student-import-modal.is-validation {
+  height: min(720px, calc(100dvh - 40px)) !important;
+}
+.mssql-validation-result > .mssql-validation-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mssql-validation-body > .eyebrow,
+.mssql-validation-body > h3,
+.mssql-validation-body > .validation-summary {
+  display: none;
+}
+.mssql-validation-body > .mssql-validation-copy {
+  margin: 0;
+  padding: 18px 26px;
+  border-bottom: 1px solid #dce6e0;
+  color: #6e8497;
+  background: #fff;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.mssql-validation-body > .mssql-validation-groups {
+  display: grid;
+  gap: 12px;
+  padding: 18px 24px;
+  border: 0;
+}
+.mssql-validation-body > .mssql-sync-warning {
+  margin: 0 24px 18px;
+  padding: 10px 12px;
+  border-color: #e8cf9d;
+  border-radius: 9px;
+  font-size: 0.75rem;
+}
+.course-modal.bulk-import-modal > .mssql-validation-result > footer {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0 !important;
+}
+
+@media (max-width: 560px) {
+  .academic-period-directory-header {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 22px 20px;
+  }
+  .academic-period-directory-header .btn {
+    width: 100%;
+  }
+  .academic-period-table-tools {
+    padding: 16px 20px;
+  }
+}
+.academic-period-active-panel h2 {
+  margin: 4px 0 6px;
+}
+.academic-period-active-panel p:not(.eyebrow) {
+  margin: 0;
+  color: #52708e;
+}
+.academic-period-active-controls {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  min-width: min(100%, 480px);
+}
+.academic-period-active-controls .field {
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  .academic-period-active-panel,
+  .academic-period-active-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .academic-period-active-controls .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar-academic-period {
+    gap: 6px;
+  }
+  .topbar-academic-period small {
+    display: none;
+  }
+  .topbar-academic-period b {
+    font-size: 0.66rem;
+  }
 }
 
 .topbar-brand {
@@ -1318,7 +1537,9 @@ button {
   border-radius: 999px;
   background: currentColor;
   transform-origin: center;
-  transition: transform 180ms ease, opacity 130ms ease;
+  transition:
+    transform 180ms ease,
+    opacity 130ms ease;
 }
 
 .sidebar-open .menu-icon i:first-child {
@@ -1362,7 +1583,9 @@ button {
   overflow: hidden;
   border-right: 1px solid #246e56;
   box-shadow: 8px 0 20px transparent;
-  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms ease;
+  transition:
+    width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms ease;
 }
 
 .sidebar-open .sidebar {
@@ -1485,7 +1708,9 @@ button {
     min-width: 0;
     transform: translateX(-100%);
     pointer-events: none;
-    transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms ease;
+    transition:
+      transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 200ms ease;
   }
 
   .sidebar-open .sidebar {
@@ -7589,7 +7814,9 @@ body,
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
-  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms ease;
+  transition:
+    width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms ease;
 }
 
 .sidebar-open .sidebar {
@@ -7607,8 +7834,12 @@ body,
   scrollbar-color: #538d76 transparent;
 }
 
-.sidebar nav::-webkit-scrollbar { width: 7px; }
-.sidebar nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar nav::-webkit-scrollbar {
+  width: 7px;
+}
+.sidebar nav::-webkit-scrollbar-track {
+  background: transparent;
+}
 .sidebar nav::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
@@ -7616,13 +7847,19 @@ body,
   background-clip: padding-box;
 }
 .sidebar nav:hover,
-.sidebar nav:focus-within { scrollbar-color: #91c8af transparent; }
+.sidebar nav:focus-within {
+  scrollbar-color: #91c8af transparent;
+}
 .sidebar nav:hover::-webkit-scrollbar-thumb,
-.sidebar nav:focus-within::-webkit-scrollbar-thumb { background-color: #91c8af; }
+.sidebar nav:focus-within::-webkit-scrollbar-thumb {
+  background-color: #91c8af;
+}
 
 .sidebar .nav-section,
 .sidebar .nav-label,
-.sidebar .admin-chip { display: none; }
+.sidebar .admin-chip {
+  display: none;
+}
 
 .admin-chip-compact {
   display: grid;
@@ -7649,19 +7886,37 @@ body,
   border-left: 0;
 }
 
-.sidebar .sidebar-bottom { padding: 10px 11px 14px; }
+.sidebar .sidebar-bottom {
+  padding: 10px 11px 14px;
+}
 
-.sidebar .sidebar-bottom { display: grid; }
+.sidebar .sidebar-bottom {
+  display: grid;
+}
 
 .sidebar-open .sidebar .nav-section,
 .sidebar-open .sidebar .nav-label,
-.sidebar-open .sidebar .admin-chip { display: grid; }
-.sidebar-open .sidebar .admin-chip-compact { display: none; }
+.sidebar-open .sidebar .admin-chip {
+  display: grid;
+}
+.sidebar-open .sidebar .admin-chip-compact {
+  display: none;
+}
 .sidebar-open .sidebar .nav-section,
-.sidebar-open .sidebar .nav-label { display: block; }
-.sidebar-open .sidebar .nav-link { justify-content: flex-start; padding: 11px 13px; }
-.sidebar-open .sidebar .nav-link.active { border-bottom: 0; border-left: 3px solid #f0b331; }
-.sidebar-open .sidebar .sidebar-bottom { padding: 14px 12px 16px; }
+.sidebar-open .sidebar .nav-label {
+  display: block;
+}
+.sidebar-open .sidebar .nav-link {
+  justify-content: flex-start;
+  padding: 11px 13px;
+}
+.sidebar-open .sidebar .nav-link.active {
+  border-bottom: 0;
+  border-left: 3px solid #f0b331;
+}
+.sidebar-open .sidebar .sidebar-bottom {
+  padding: 14px 12px 16px;
+}
 
 .portal-content {
   grid-column: 2;
@@ -7670,18 +7925,24 @@ body,
 }
 
 @media (max-width: 900px) {
-  :root { --admin-header-height: 72px; }
+  :root {
+    --admin-header-height: 72px;
+  }
   .portal {
     grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: var(--admin-header-height) minmax(0, 1fr);
   }
-  .topbar { padding: 0 14px; }
+  .topbar {
+    padding: 0 14px;
+  }
   .sidebar {
     width: min(300px, calc(100vw - 48px));
     min-width: 0;
     transform: translateX(-100%);
     pointer-events: none;
-    transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms ease;
+    transition:
+      transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 200ms ease;
   }
   .sidebar-open .sidebar {
     width: min(300px, calc(100vw - 48px));
@@ -7689,8 +7950,13 @@ body,
     transform: translateX(0);
     pointer-events: auto;
   }
-  .sidebar .nav-link { white-space: normal; }
-  .portal-content { grid-column: 1; grid-row: 2; }
+  .sidebar .nav-link {
+    white-space: normal;
+  }
+  .portal-content {
+    grid-column: 1;
+    grid-row: 2;
+  }
 }
 
 @media (max-width: 860px) {
@@ -7763,8 +8029,13 @@ body,
   height: 46px;
 }
 
-.topbar .topbar-brand .ndmu-brand span { display: grid; }
-.topbar .topbar-brand .ndmu-brand b { color: #fff; font-size: 0.9rem; }
+.topbar .topbar-brand .ndmu-brand span {
+  display: grid;
+}
+.topbar .topbar-brand .ndmu-brand b {
+  color: #fff;
+  font-size: 0.9rem;
+}
 .topbar .topbar-brand .ndmu-brand small {
   color: #b8d7c8;
   font-size: 0.64rem;
@@ -7773,7 +8044,40 @@ body,
 }
 
 @media (max-width: 560px) {
-  .topbar-label { display: none; }
-  .topbar .topbar-brand .ndmu-brand b { font-size: 0.76rem; }
-  .topbar .topbar-brand .ndmu-brand small { font-size: 0.56rem; }
+  .topbar-label {
+    display: none;
+  }
+  .topbar .topbar-brand .ndmu-brand b {
+    font-size: 0.76rem;
+  }
+  .topbar .topbar-brand .ndmu-brand small {
+    font-size: 0.56rem;
+  }
+}
+
+/* Final SQL Server import layout authority: only the body scrolls. */
+.course-modal.bulk-import-modal > .mssql-validation-result {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+.course-modal.bulk-import-modal
+  > .mssql-validation-result
+  > .mssql-validation-body {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.course-modal.bulk-import-modal > .mssql-validation-result > footer {
+  position: static !important;
+  flex: 0 0 auto;
+  margin: 0 !important;
+  background: #fff;
 }

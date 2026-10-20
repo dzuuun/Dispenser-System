@@ -2,8 +2,13 @@ import { pool } from "../config/db.js";
 import { decryptPassword } from "../services/encryption.service.js";
 import { encryptPassword } from "../services/encryption.service.js";
 import { auditAdminAction } from "../services/audit.service.js";
+import {
+  currentAcademicPeriod,
+  requireCurrentAcademicPeriod,
+} from "../services/academic-period.service.js";
 
 export async function listStudents(req, res) {
+  const currentPeriod = await currentAcademicPeriod();
   // Supports both the regular API and DataTables server-side paging requests.
   const draw = Number(req.query.draw) || null;
   const limit = Math.min(
@@ -20,8 +25,9 @@ export async function listStudents(req, res) {
     req.query["search[value]"] || req.query.search || "",
   ).trim();
   const status = String(req.query.status || "all");
-  const filters = [],
+  const filters = ["s.academic_period_id=?"],
     values = [];
+  values.push(currentPeriod?.id || 0);
   if (search) {
     const q = `%${search}%`;
     const numericSearch = /^\d+$/.test(search);
@@ -191,8 +197,9 @@ export async function createStudent(req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const period = await requireCurrentAcademicPeriod(connection);
     const [created] = await connection.execute(
-      "INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, year_level, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+      "INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, academic_period_id, year_level, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
       [
         studentId,
         kumosoftId,
@@ -201,6 +208,7 @@ export async function createStudent(req, res) {
         lastName,
         birthDate,
         courseId,
+        period.id,
         isActive,
       ],
     );
@@ -372,7 +380,8 @@ export async function updateStudent(req, res) {
         );
     } else if (assignNextVoucher) {
       const [[available]] = await connection.query(
-        "SELECT id FROM wifi_vouchers WHERE is_active=1 AND is_assigned=0 AND is_released=0 ORDER BY id LIMIT 1 FOR UPDATE",
+        "SELECT id FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 ORDER BY id LIMIT 1 FOR UPDATE",
+        [id],
       );
       if (!available) {
         await connection.rollback();
@@ -399,8 +408,8 @@ export async function updateStudent(req, res) {
       );
     } else if (voucherCode) {
       const [[voucher]] = await connection.execute(
-        "SELECT id, is_assigned, is_active FROM wifi_vouchers WHERE voucher_code=? LIMIT 1 FOR UPDATE",
-        [voucherCode],
+        "SELECT id, is_assigned, is_active FROM wifi_vouchers WHERE voucher_code=? AND academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) LIMIT 1 FOR UPDATE",
+        [voucherCode, id],
       );
       if (!voucher) {
         await connection.rollback();
@@ -470,7 +479,8 @@ export async function generateStudentVoucher(req, res) {
     if (!student)
       return res.status(404).json({ message: "Student record not found." });
     const [[voucher]] = await connection.query(
-      "SELECT id, voucher_code FROM wifi_vouchers WHERE is_active=1 AND is_assigned=0 AND is_released=0 LIMIT 1 FOR UPDATE",
+      "SELECT id, voucher_code FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 LIMIT 1 FOR UPDATE",
+      [id],
     );
     if (!voucher)
       return res.status(400).json({

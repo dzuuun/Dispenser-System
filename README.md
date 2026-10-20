@@ -71,7 +71,7 @@ Copy `.env.example` instead of committing a real `.env` file.
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `NODE_ENV`                                                                     | Use `development` locally and `production` when deployed.                                                                                                                 |
 | `PORT`                                                                         | Express application port; defaults to `3000`.                                                                                                                             |
-| `LISTEN_HOST`                                                                  | Network interface to listen on; defaults to `0.0.0.0` for LAN access. Set to `127.0.0.1` for reverse-proxy-only deployments.                                             |
+| `LISTEN_HOST`                                                                  | Network interface to listen on; defaults to `0.0.0.0` for LAN access. Set to `127.0.0.1` for reverse-proxy-only deployments.                                              |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`                      | MySQL connection settings.                                                                                                                                                |
 | `JWT_ACCESS_SECRET`                                                            | Long random secret for administrator access tokens.                                                                                                                       |
 | `JWT_REFRESH_SECRET`                                                           | Different long random secret for refresh sessions.                                                                                                                        |
@@ -94,7 +94,7 @@ Production startup rejects missing or placeholder database, JWT, encryption, and
 
 ## Administrator workflow
 
-1. Add courses before importing or creating students.
+1. Open **Academic periods** and create/activate the current school year and semester before importing or creating students. When adding the first period, select **Move unassigned records** to attach existing student and voucher records.
 2. Import student records and credential-account files from **Imports**, reviewing validation results first.
 3. Import WiFi voucher codes from **WiFi vouchers**.
 4. Let students retrieve credentials at the kiosk, or assign a voucher from a student record when needed.

@@ -23,6 +23,20 @@ Invoke-WebRequest http://127.0.0.1:3000/dispenser/api/health
 
 The health request must return JSON before configuring IIS.
 
+### LAN HTTP safeguard
+
+For an internal HTTP deployment, run this after every server restart or update:
+
+```powershell
+npm run verify:lan-http
+```
+
+It verifies that the page does not send the `upgrade-insecure-requests` policy
+and that its JavaScript bundle is available over HTTP. That policy must remain
+disabled unless IIS has a valid, trusted HTTPS certificate for the URL used by
+the kiosk; otherwise browsers block the application assets and display a blank
+page.
+
 ## 2. Configure IIS
 
 1. Install **IIS URL Rewrite Module 2** and **Application Request Routing

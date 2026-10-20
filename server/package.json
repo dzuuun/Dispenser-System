@@ -7,6 +7,7 @@
     "start": "node server.js",
     "create-db": "node db/create-database.js",
     "migrate": "node db/migrate.js",
+    "migrate-academic-periods": "node db/migrate-academic-periods.js",
     "migrate-separate-accounts": "node db/migrate-separate-accounts.js",
     "simplify-course-schema": "node db/simplify-course-schema.js",
     "setup-db": "npm run rebuild-db",

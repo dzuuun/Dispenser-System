@@ -68,6 +68,12 @@ import {
   listKiosks,
   queueKioskAction,
 } from "../controllers/kiosk-admin.controller.js";
+import {
+  activateAcademicPeriod,
+  createAcademicPeriod,
+  listAcademicPeriods,
+  updateAcademicPeriod,
+} from "../controllers/academic-period.controller.js";
 
 const asyncRoute = (handler) => (req, res, next) =>
   Promise.resolve()
@@ -172,6 +178,29 @@ adminRouter.patch(
   updateAdminUser,
 );
 adminRouter.get("/admin-roles", requireRoles("Super Admin"), listAdminRoles);
+adminRouter.get(
+  "/academic-periods",
+  requireRoles("Super Admin"),
+  listAcademicPeriods,
+);
+adminRouter.post(
+  "/academic-periods",
+  requireRoles("Super Admin"),
+  auditAdminMutation("CREATE", "ACADEMIC_PERIOD"),
+  createAcademicPeriod,
+);
+adminRouter.patch(
+  "/academic-periods/:id",
+  requireRoles("Super Admin"),
+  auditAdminMutation("UPDATE", "ACADEMIC_PERIOD"),
+  updateAcademicPeriod,
+);
+adminRouter.patch(
+  "/academic-periods/:id/activate",
+  requireRoles("Super Admin"),
+  auditAdminMutation("ACTIVATE", "ACADEMIC_PERIOD"),
+  activateAcademicPeriod,
+);
 adminRouter.get(
   "/account-exports",
   requireRoles("Super Admin"),

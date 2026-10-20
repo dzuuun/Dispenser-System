@@ -160,7 +160,8 @@ export async function completePasswordResetRequest(req, res) {
         [request.student_id],
       );
       const [[available]] = await connection.query(
-        "SELECT id, voucher_code FROM wifi_vouchers WHERE is_active=1 AND is_assigned=0 AND is_released=0 ORDER BY id LIMIT 1 FOR UPDATE",
+        "SELECT id, voucher_code FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 ORDER BY id LIMIT 1 FOR UPDATE",
+        [request.student_id],
       );
       if (!available) {
         await connection.rollback();

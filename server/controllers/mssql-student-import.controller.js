@@ -1,6 +1,7 @@
 import sql from "mssql";
 import { config } from "../config/env.js";
 import { pool } from "../config/db.js";
+import { currentAcademicPeriod } from "../services/academic-period.service.js";
 import {
   reviewStudentRows,
   upsertStudentRows,
@@ -36,17 +37,26 @@ const normalizeValue = (value) =>
     ? value.toISOString().slice(0, 10)
     : String(value ?? "").trim();
 
-const importPeriod = (source) => {
-  const schoolYear = String(source?.schoolYear || "").trim();
-  const semester = Number(source?.semester);
-  if (!/^\d{4}-\d{4}$/.test(schoolYear) || ![1, 2, 3].includes(semester))
+const importPeriod = async () => {
+  const active = await currentAcademicPeriod();
+  const schoolYear = String(active?.school_year || "").trim();
+  const term = String(active?.semester || "").trim();
+  const semester = {
+    "first semester": 1,
+    "first term": 1,
+    "second semester": 2,
+    "second term": 2,
+    summer: 3,
+    "third term": 3,
+  }[term.toLowerCase()];
+  if (!/^\d{4}-\d{4}$/.test(schoolYear) || !semester)
     throw Object.assign(
       new Error(
-        "Choose a school year in YYYY-YYYY format and a valid semester.",
+        "Activate an academic period with a supported term before importing enrolled students.",
       ),
       { status: 400 },
     );
-  return { schoolYear, semester };
+  return { schoolYear, semester, term };
 };
 
 async function readMssqlStudents(period) {
@@ -208,7 +218,7 @@ async function deactivateStudentsMissingFromSource(ids, connection) {
 
 export async function previewMssqlStudentImport(req, res, next) {
   try {
-    const period = importPeriod(req.query);
+    const period = await importPeriod();
     const rows = await readMssqlStudents(period);
     const result = await reviewStudentRows(rows);
     const offset = previewOffset(req.query.offset);
@@ -243,7 +253,7 @@ export async function previewMssqlStudentImport(req, res, next) {
 export async function importMssqlStudents(req, res, next) {
   let connection;
   try {
-    const period = importPeriod(req.body);
+    const period = await importPeriod();
     const rows = await readMssqlStudents(period);
     const sourceIds = sourceStudentIds(rows);
     connection = await pool.getConnection();
@@ -261,7 +271,7 @@ export async function importMssqlStudents(req, res, next) {
       sourceIds,
       connection,
     );
-    if (pendingDeactivations && req.body.confirmDeactivation !== true) {
+    if (pendingDeactivations && req.body?.confirmDeactivation !== true) {
       await connection.rollback();
       return res.status(409).json({
         message: `Confirmation is required before deactivating ${pendingDeactivations} student${pendingDeactivations === 1 ? "" : "s"}.`,

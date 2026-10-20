@@ -13,7 +13,19 @@ const app = express(),
 const BASE_PATH = "/dispenser";
 app.disable("x-powered-by");
 app.set("trust proxy", "loopback");
-app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+    // This deployment is intentionally available on the internal LAN over
+    // HTTP. Helmet's default `upgrade-insecure-requests` directive upgrades
+    // every CSS/JS/image request to HTTPS; because the LAN IP does not have a
+    // trusted HTTPS certificate, the browser blocks those assets and shows a
+    // blank page.
+    contentSecurityPolicy: {
+      directives: { upgradeInsecureRequests: null },
+    },
+  }),
+);
 app.use(
   cors({
     origin: cfg.corsOrigin,
@@ -45,5 +57,7 @@ app.get(`${BASE_PATH}/{*splat}`, (req, res, next) =>
 );
 app.use(errorHandler);
 app.listen(cfg.port, cfg.listenHost, () =>
-  console.log(`Credentials API listening on http://${cfg.listenHost}:${cfg.port}`),
+  console.log(
+    `Credentials API listening on http://${cfg.listenHost}:${cfg.port}`,
+  ),
 );

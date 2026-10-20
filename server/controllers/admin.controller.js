@@ -1,6 +1,9 @@
 import { pool } from "../config/db.js";
+import { currentAcademicPeriod } from "../services/academic-period.service.js";
 
 export async function dashboard(_req, res) {
+  const period = await currentAcademicPeriod();
+  const periodId = period?.id || 0;
   const [
     [students],
     [vouchers],
@@ -10,17 +13,22 @@ export async function dashboard(_req, res) {
     [requests],
     [courses],
   ] = await Promise.all([
-    pool.query("SELECT COUNT(*) total FROM students WHERE is_active=1"),
+    pool.execute(
+      "SELECT COUNT(*) total FROM students WHERE is_active=1 AND academic_period_id=?",
+      [periodId],
+    ),
     pool.query(
-      "SELECT SUM(is_active=1 AND is_assigned=0 AND is_released=0) available, SUM(is_active=1 AND is_assigned=1) assigned FROM wifi_vouchers",
+      "SELECT SUM(is_active=1 AND is_assigned=0 AND is_released=0) available, SUM(is_active=1 AND is_assigned=1) assigned FROM wifi_vouchers WHERE academic_period_id=?",
+      [periodId],
     ),
     pool.query(
       `SELECT t.transaction_type, t.created_at, t.kiosk_code, s.student_id,
                 s.first_name, s.middle_name, s.last_name
            FROM credential_transactions t
            LEFT JOIN students s ON s.id=t.student_id
-          WHERE t.transaction_type='VIEW_CREDENTIALS' AND t.success=1
+          WHERE t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1
           ORDER BY t.created_at DESC, t.id DESC LIMIT 8`,
+      [periodId],
     ),
     pool.query(
       "SELECT COUNT(*) total, SUM(is_active=1 AND last_seen >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)) online FROM kiosks",
@@ -34,6 +42,13 @@ export async function dashboard(_req, res) {
     pool.query("SELECT COUNT(*) total FROM courses WHERE is_active=1"),
   ]);
   res.json({
+    academicPeriod: period
+      ? {
+          id: period.id,
+          schoolYear: period.school_year,
+          semester: period.semester,
+        }
+      : null,
     activeStudents: students[0].total,
     activeCourses: Number(courses[0].total || 0),
     pendingRequests: Number(requests[0].total || 0),
@@ -59,7 +74,8 @@ export async function listTransactions(_req, res) {
             s.first_name, s.middle_name, s.last_name
        FROM credential_transactions t
        LEFT JOIN students s ON s.id=t.student_id
-      WHERE t.transaction_type='VIEW_CREDENTIALS' AND t.success=1
+      WHERE t.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1)
+        AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1
       ORDER BY t.created_at DESC, t.id DESC
       LIMIT 1000`,
   );
