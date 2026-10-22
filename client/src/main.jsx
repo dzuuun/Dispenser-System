@@ -7505,6 +7505,7 @@ function PasswordResetRequestsPage({ token }) {
     [saving, setSaving] = useState(false),
     [queueFilter, setQueueFilter] = useState("PENDING"),
     [page, setPage] = useState(1),
+    [passwordResetForm, setPasswordResetForm] = useState({ replacePassword: false, password: "" }),
     [accountRequestForm, setAccountRequestForm] = useState({
       emailAddress: "",
       password: "",
@@ -7577,7 +7578,9 @@ function PasswordResetRequestsPage({ token }) {
           body: JSON.stringify(
             selected.request_kind === "ACCOUNT_CREATION"
               ? accountRequestForm
-              : {},
+              : canReplacePassword && passwordResetForm.replacePassword
+                ? { replacePassword: true, password: passwordResetForm.password }
+                : {},
           ),
         },
       );
@@ -7637,6 +7640,7 @@ function PasswordResetRequestsPage({ token }) {
   const reviewRequest = (item) => {
     setError("");
     setAccountRequestForm({ emailAddress: "", password: "" });
+    setPasswordResetForm({ replacePassword: false, password: "" });
     setSelected(item);
   };
   const copyRequestValue = async (value, label) => {
@@ -7669,11 +7673,17 @@ function PasswordResetRequestsPage({ token }) {
       );
     }
   };
+  const canReplacePassword = selected?.request_kind === "PASSWORD_RESET" && ["EMAIL", "KUMOSOFT", "SCHOOLOGY"].includes(selected.credential_type);
+  const resetSource = { EMAIL: "Google Workspace", KUMOSOFT: "Kumosoft", SCHOOLOGY: "Schoology" }[selected?.credential_type];
   const accountRequestReady =
     selected?.request_kind !== "ACCOUNT_CREATION" ||
     (Boolean(accountRequestForm.password) &&
       (selected.credential_type !== "EMAIL" ||
         Boolean(accountRequestForm.emailAddress.trim())));
+  const passwordResetReady = selected?.request_kind !== "PASSWORD_RESET" ||
+    (canReplacePassword && passwordResetForm.replacePassword
+      ? Boolean(passwordResetForm.password.trim())
+      : Boolean(selected.default_password));
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
@@ -8045,10 +8055,51 @@ function PasswordResetRequestsPage({ token }) {
                   >
                     Copy default password
                   </Button>
+                  {canReplacePassword && (
+                    <>
+                      <label className="status-toggle">
+                        <span>
+                          <b>Replace default password</b>
+                          <small>Save a replacement password when completing this reset.</small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={passwordResetForm.replacePassword}
+                          disabled={saving}
+                          onChange={(event) => setPasswordResetForm({ replacePassword: event.target.checked, password: "" })}
+                        />
+                        <i />
+                      </label>
+                      {passwordResetForm.replacePassword && (
+                        <>
+                          <label className="field">
+                            <span>Replacement password</span>
+                            <input
+                              type="text"
+                              autoComplete="off"
+                              spellCheck={false}
+                              required
+                              disabled={saving}
+                              value={passwordResetForm.password}
+                              placeholder="Enter the replacement password"
+                              onChange={(event) => setPasswordResetForm({ ...passwordResetForm, password: event.target.value })}
+                            />
+                          </label>
+                          <Button
+                            variant="secondary"
+                            disabled={!passwordResetForm.password.trim()}
+                            onClick={() => copyRequestValue(passwordResetForm.password, "Replacement password")}
+                          >
+                            Copy replacement password
+                          </Button>
+                        </>
+                      )}
+                    </>
+                  )}
                   <p>
-                    Use this password when resetting the account in{" "}
-                    {selected.credential_type}. Complete the request only after
-                    the source system accepts the reset.
+                    {canReplacePassword && passwordResetForm.replacePassword
+                      ? `Set the replacement password in ${resetSource} first. Complete this request only after the reset succeeds; the replacement will be saved as the student's new default password here.`
+                      : `Use this password when resetting the account in ${selected.credential_type}. Complete the request only after the source system accepts the reset.`}
                   </p>
                 </>
               )}
@@ -8072,8 +8123,7 @@ function PasswordResetRequestsPage({ token }) {
                 disabled={
                   saving ||
                   !accountRequestReady ||
-                  (selected.request_kind === "PASSWORD_RESET" &&
-                    !selected.default_password)
+                  !passwordResetReady
                 }
                 onClick={complete}
               >

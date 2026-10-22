@@ -6348,6 +6348,10 @@ strong {
   gap: 6px;
 }
 
+.reset-request-details .status-toggle {
+  display: flex;
+}
+
 .reset-request-details label span {
   color: #526f64;
   font-size: 0.76rem;
