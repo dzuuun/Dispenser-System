@@ -50,6 +50,12 @@ export async function listVouchers(req, res) {
     const search = String(req.query["search[value]"] || "").trim();
     const where = ["w.academic_period_id=?"];
     const values = [periodId];
+    const status = String(req.query.status || "all");
+    const filterStatus = status === "active" || status === "inactive";
+    if (filterStatus) {
+      where.push("w.is_active=?");
+      values.push(status === "active" ? 1 : 0);
+    }
     if (search) {
       where.push(
         "(w.voucher_code LIKE ? OR s.student_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)",
@@ -71,13 +77,14 @@ export async function listVouchers(req, res) {
        FROM wifi_vouchers WHERE academic_period_id=?`,
       [periodId],
     );
-    // A joined count is only necessary when searching student fields.
-    const countQuery = search
-      ? pool.execute(
-          `SELECT COUNT(*) AS count FROM wifi_vouchers w LEFT JOIN students s ON s.voucher_id=w.id WHERE ${where.join(" AND ")}`,
-          values,
-        )
-      : Promise.resolve(null);
+    // Only join students when the search includes student fields.
+    const countQuery =
+      search || filterStatus
+        ? pool.execute(
+            `SELECT COUNT(*) AS count FROM wifi_vouchers w${search ? " LEFT JOIN students s ON s.voucher_id=w.id" : ""} WHERE ${where.join(" AND ")}`,
+            values,
+          )
+        : Promise.resolve(null);
     const rowsQuery = pool.query(
       `SELECT w.id, w.voucher_code, w.is_active, w.is_assigned, w.is_released, w.assigned_at, w.released_at, w.created_at,
         s.id student_record_id, s.student_id, s.first_name, s.middle_name, s.last_name

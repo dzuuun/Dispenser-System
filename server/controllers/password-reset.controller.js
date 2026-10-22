@@ -115,22 +115,18 @@ export async function completePasswordResetRequest(req, res) {
         !Object.hasOwn(passwordResetTypes, request.credential_type)
       ) {
         await connection.rollback();
-        return res
-          .status(400)
-          .json({
-            message:
-              "Password replacement is available only for Email, Kumosoft, and Schoology password resets.",
-          });
+        return res.status(400).json({
+          message:
+            "Password replacement is available only for Email, Kumosoft, and Schoology password resets.",
+        });
       }
       const password = req.body?.password;
       if (typeof password !== "string" || !password.trim()) {
         await connection.rollback();
-        return res
-          .status(400)
-          .json({
-            message:
-              "Enter a replacement password before completing this request.",
-          });
+        return res.status(400).json({
+          message:
+            "Enter a replacement password before completing this request.",
+        });
       }
       const [[account]] = await connection.execute(
         `SELECT id, is_active FROM ${accountTables[request.credential_type]} WHERE student_id=? FOR UPDATE`,
@@ -138,11 +134,9 @@ export async function completePasswordResetRequest(req, res) {
       );
       if (!account || !account.is_active) {
         await connection.rollback();
-        return res
-          .status(404)
-          .json({
-            message: `The active ${passwordResetTypes[request.credential_type]} account was not found.`,
-          });
+        return res.status(404).json({
+          message: `The active ${passwordResetTypes[request.credential_type]} account was not found.`,
+        });
       }
       const encrypted = encryptPassword(password);
       await connection.execute(

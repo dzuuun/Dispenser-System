@@ -7,6 +7,7 @@ import "datatables.net-dt/css/dataTables.dataTables.css";
 import "material-symbols/rounded.css";
 import "./styles.css";
 import ndmuLogo from "./assets/ndmu-logo.png";
+import { generateRandomPassword } from "./password-generator.js";
 
 const APP_BASE = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
 const API = `${APP_BASE}/api`;
@@ -122,6 +123,164 @@ function Button({ children, onClick, variant = "primary", disabled = false }) {
     >
       {children}
     </button>
+  );
+}
+function InactiveRecordsToggle({ visible, onChange }) {
+  return (
+    <button
+      type="button"
+      className="btn secondary"
+      aria-pressed={visible}
+      onClick={() => onChange(!visible)}
+    >
+      {visible ? "Hide inactive" : "Show inactive"}
+    </button>
+  );
+}
+function RecordsTableControls({
+  search,
+  onSearchChange,
+  searchLabel,
+  searchPlaceholder,
+  pageSize,
+  onPageSizeChange,
+  pageSizeLabel = "Rows per page",
+}) {
+  return (
+    <div className="records-table-controls">
+      <label className="records-table-field records-table-search">
+        <span>{searchLabel}</span>
+        <span className="records-table-search-input">
+          <AppIcon name="search" size={18} />
+          <input
+            type="search"
+            aria-label={searchLabel}
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </span>
+      </label>
+      <label className="records-table-field records-table-page-size">
+        <span>Rows per page</span>
+        <select
+          aria-label={pageSizeLabel}
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+        >
+          {[10, 25, 50, 100].map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+function RequestValueField({ label, value, onCopy }) {
+  return (
+    <div className="request-value-field">
+      <span>{label}</span>
+      <div className="request-value-control">
+        <code>{value || "Unavailable"}</code>
+        {onCopy && (
+          <button
+            type="button"
+            className="btn secondary request-value-copy"
+            disabled={!value}
+            aria-label={`Copy ${label.toLowerCase()}`}
+            onClick={onCopy}
+          >
+            <AppIcon name="content_copy" size={16} /> Copy
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+function RequestPasswordField({ label, value, onChange, onGenerate, saving }) {
+  return (
+    <div className="request-password-field">
+      <label className="field">
+        <span>{label}</span>
+        <input
+          type="text"
+          required
+          autoComplete="off"
+          spellCheck={false}
+          disabled={saving}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={`Enter the ${label.toLowerCase()}`}
+        />
+      </label>
+      <div className="request-password-actions">
+        <Button variant="secondary" disabled={saving} onClick={onGenerate}>
+          <AppIcon name="refresh" size={18} /> Generate password
+        </Button>
+      </div>
+    </div>
+  );
+}
+function ResolvedRequestDetails({ request, onCopy }) {
+  const requestType = {
+    PASSWORD_RESET: "Password reset",
+    ACCOUNT_CREATION: "Account creation",
+    VOUCHER_REQUEST: "Voucher replacement",
+  }[request.request_kind] || request.request_kind;
+  const formatTime = (value) => value ? new Date(value).toLocaleString() : "Not recorded";
+  const facts = [
+    ["Request type", requestType],
+    ["Course", request.course_code || "Not recorded"],
+    ["Requested", formatTime(request.requested_at)],
+    ["Resolved", formatTime(request.resolved_at)],
+    ["Handled by", request.resolved_by_name || "Not recorded"],
+    ["Kiosk", request.kiosk_code || "Not recorded"],
+  ];
+  return (
+    <>
+      <div className="request-resolution-summary">
+        <b>Request #{request.id}</b>
+        <Status tone={request.status === "REJECTED" ? "danger" : "green"}>
+          {request.status === "REJECTED" ? "Rejected" : "Completed"}
+        </Status>
+      </div>
+      <dl className="request-detail-facts">
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {request.request_kind === "VOUCHER_REQUEST" ? (
+        <RequestValueField
+          label="Current voucher"
+          value={request.account_username}
+          onCopy={() => onCopy(request.account_username, "Voucher")}
+        />
+      ) : (
+        <div className="request-account-values">
+          <RequestValueField
+            label={request.credential_type === "EMAIL" ? "Email address" : "Username"}
+            value={request.account_username}
+            onCopy={() => onCopy(request.account_username, request.credential_type === "EMAIL" ? "Email address" : "Username")}
+          />
+          <RequestValueField
+            label="Current default password"
+            value={request.default_password}
+            onCopy={() => onCopy(request.default_password, "Default password")}
+          />
+        </div>
+      )}
+      {request.request_reason && (
+        <div className="request-reason-details">
+          <b>Student's reason</b>
+          <p>{request.request_reason}</p>
+        </div>
+      )}
+    </>
   );
 }
 function ConfirmModal({
@@ -3547,8 +3706,12 @@ function LegacyCoursesPageV6({ token }) {
   );
 }
 function CoursesPage({ token }) {
+  const tableRef = useRef(null);
   const [courses, setCourses] = useState([]),
     [levelFilter, setLevelFilter] = useState("all"),
+    [showInactive, setShowInactive] = useState(false),
+    [search, setSearch] = useState(""),
+    [pageSize, setPageSize] = useState(10),
     [editor, setEditor] = useState(null),
     [confirm, setConfirm] = useState(false),
     [form, setForm] = useState({
@@ -3568,6 +3731,9 @@ function CoursesPage({ token }) {
   useEffect(() => {
     load();
   }, []);
+  useEffect(() => {
+    tableRef.current?.dt()?.page(0).draw(false);
+  }, [showInactive, levelFilter]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 5000);
@@ -3610,21 +3776,22 @@ function CoursesPage({ token }) {
     }
   };
   const columns = [
-    { data: "code" },
-    { data: "name" },
-    { data: "academic_level" },
-    { data: "is_active" },
-    null,
+    { data: "code", width: "14%" },
+    { data: "name", width: "45%" },
+    { data: "academic_level", width: "20%" },
+    { data: "is_active", width: "12%" },
+    { data: null, width: "9%", orderable: false, searchable: false },
   ];
   const levelLabels = {
     COLLEGE: "College",
     GRADUATE_SCHOOL: "Graduate school",
     OTHER: "Other / review",
   };
-  const filteredCourses =
-    levelFilter === "all"
-      ? courses
-      : courses.filter((course) => course.academic_level === levelFilter);
+  const filteredCourses = courses.filter(
+    (course) =>
+      (showInactive || course.is_active) &&
+      (levelFilter === "all" || course.academic_level === levelFilter),
+  );
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
@@ -3633,7 +3800,7 @@ function CoursesPage({ token }) {
         description="Manage course master data used when students are verified at the kiosk."
         actions={<Button onClick={() => edit(null)}>Add course</Button>}
       />
-      <section className="student-summary">
+      <section className="student-summary records-summary">
         <article>
           <span>Total courses</span>
           <strong>{courses.length}</strong>
@@ -3652,38 +3819,59 @@ function CoursesPage({ token }) {
           </strong>
         </article>
       </section>
-      <section className="panel student-panel courses-data-table">
+      <section className="panel student-panel courses-data-table records-data-table">
         <div className="course-intro">
           Only courses classified as College can use SATP. Review Other courses
           and set their academic level.
         </div>
-        <div className="table-toolbar">
-          <label>
-            Academic level{" "}
-            <select
-              aria-label="Filter courses by academic level"
-              value={levelFilter}
-              onChange={(event) => setLevelFilter(event.target.value)}
-            >
-              <option value="all">All levels</option>
-              {Object.entries(levelLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="records-table-toolbar">
+          <div className="records-table-filters">
+            <label className="records-table-field">
+              <span>Academic level</span>
+              <select
+                aria-label="Filter courses by academic level"
+                value={levelFilter}
+                onChange={(event) => setLevelFilter(event.target.value)}
+              >
+                <option value="all">All levels</option>
+                {Object.entries(levelLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <InactiveRecordsToggle
+              visible={showInactive}
+              onChange={setShowInactive}
+            />
+          </div>
+          <RecordsTableControls
+            search={search}
+            searchLabel="Search courses"
+            searchPlaceholder="Search code or course name"
+            onSearchChange={(value) => {
+              setSearch(value);
+              tableRef.current?.dt()?.search(value).draw();
+            }}
+            pageSize={pageSize}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              tableRef.current?.dt()?.page.len(size).draw();
+            }}
+          />
         </div>
         {error && <p className="error">{error}</p>}
         {courses.length ? (
           <DataTable
+            ref={tableRef}
             data={filteredCourses}
             columns={columns}
             slots={{
               0: (data) => <b>{data}</b>,
               2: (data) => levelLabels[data] || "Other / review",
               3: (data) => (
-                <Status tone={data ? "green" : "gold"}>
+                <Status tone={data ? "green" : "danger"}>
                   {data ? "Active" : "Inactive"}
                 </Status>
               ),
@@ -3694,8 +3882,11 @@ function CoursesPage({ token }) {
               ),
             }}
             options={{
-              pageLength: 10,
+              pageLength: pageSize,
               lengthMenu: [10, 25, 50, 100],
+              layout: { topStart: null, topEnd: null },
+              search: { search },
+              autoWidth: false,
               order: [[0, "asc"]],
               language: {
                 search: "Search courses:",
@@ -4348,7 +4539,7 @@ function StudentProfileModal({ record, onClose, onEdit }) {
               <dd>{new Date(student.birth_date).toLocaleDateString()}</dd>
               <dt>Status</dt>
               <dd>
-                <Status tone={student.is_active ? "green" : "gold"}>
+                <Status tone={student.is_active ? "green" : "danger"}>
                   {student.is_active ? "Active" : "Inactive"}
                 </Status>
               </dd>
@@ -7596,6 +7787,14 @@ function PasswordResetRequestsPage({ token }) {
       emailAddress: "",
       password: "",
     });
+  useEffect(() => {
+    if (!selected) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [selected]);
   const refreshRequests = useRef(null);
   const headers = { Authorization: `Bearer ${token}` };
   const load = () => refreshRequests.current?.();
@@ -7732,6 +7931,7 @@ function PasswordResetRequestsPage({ token }) {
   };
   const reviewRequest = (item) => {
     setError("");
+    setToast("");
     setAccountRequestForm({ emailAddress: "", password: "" });
     setPasswordResetForm({ replacePassword: false, password: "" });
     setSelected(item);
@@ -7739,6 +7939,7 @@ function PasswordResetRequestsPage({ token }) {
   const copyRequestValue = async (value, label) => {
     if (!value) return;
     setError("");
+    setToast("");
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(value);
@@ -7769,6 +7970,31 @@ function PasswordResetRequestsPage({ token }) {
   const canReplacePassword =
     selected?.request_kind === "PASSWORD_RESET" &&
     ["EMAIL", "KUMOSOFT", "SCHOOLOGY"].includes(selected.credential_type);
+  const isResolvedRequest = Boolean(selected && selected.status !== "PENDING");
+  const generateRequestPassword = async () => {
+    const creatingAccount = selected?.request_kind === "ACCOUNT_CREATION";
+    if (
+      saving ||
+      (!creatingAccount &&
+        !(canReplacePassword && passwordResetForm.replacePassword))
+    )
+      return;
+    let password;
+    try {
+      password = generateRandomPassword();
+    } catch {
+      setError(
+        "Unable to generate a password. Try again or enter one manually.",
+      );
+      return;
+    }
+    if (creatingAccount) {
+      setAccountRequestForm((current) => ({ ...current, password }));
+    } else {
+      setPasswordResetForm((current) => ({ ...current, password }));
+    }
+    await copyRequestValue(password, "Generated password");
+  };
   const resetSource = {
     EMAIL: "Google Workspace",
     KUMOSOFT: "Kumosoft",
@@ -7786,7 +8012,9 @@ function PasswordResetRequestsPage({ token }) {
       : Boolean(selected.default_password));
   return (
     <>
-      {toast && <Toast message={toast} onClose={() => setToast("")} />}
+      {toast && !selected && (
+        <Toast message={toast} onClose={() => setToast("")} />
+      )}
       <PageHeader
         title="Credential requests"
         description="Process password resets, missing-account requests, and administrator-approved voucher replacements."
@@ -7972,9 +8200,12 @@ function PasswordResetRequestsPage({ token }) {
                           Review request
                         </Button>
                       ) : (
-                        <span className="muted-cell">
-                          {item.resolved_by_name || "Completed"}
-                        </span>
+                        <div className="resolved-request-action">
+                          <Button variant="secondary" onClick={() => reviewRequest(item)}>
+                            View details
+                          </Button>
+                          {item.resolved_by_name && <small>{item.resolved_by_name}</small>}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -8021,240 +8252,233 @@ function PasswordResetRequestsPage({ token }) {
           />
         )}
       </section>
-      {selected && (
-        <div className="modal-backdrop" onMouseDown={() => setSelected(null)}>
-          <section
-            className="course-modal reset-request-modal"
-            onMouseDown={(event) => event.stopPropagation()}
+      {selected &&
+        createPortal(
+          <div
+            className="modal-backdrop credential-request-overlay"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setSelected(null);
+            }}
           >
-            <header>
-              <div>
-                <p className="eyebrow">
-                  {selected.request_kind === "ACCOUNT_CREATION"
-                    ? "ACCOUNT REQUEST"
-                    : selected.request_kind === "VOUCHER_REQUEST"
-                      ? "VOUCHER REQUEST"
-                      : "PASSWORD RESET"}
-                </p>
-                <h2>
-                  {selected.request_kind === "VOUCHER_REQUEST"
-                    ? "New WiFi voucher"
-                    : `${selected.credential_type} account`}
-                </h2>
-                <p>
-                  {selected.first_name} {selected.last_name} ·{" "}
-                  {selected.school_id}
-                </p>
-              </div>
-              <button
-                className="modal-close"
-                onClick={() => setSelected(null)}
-                aria-label="Close"
-              >
-                &times;
-              </button>
-            </header>
-            <div className="reset-request-details">
-              {selected.request_kind === "ACCOUNT_CREATION" ? (
-                <>
-                  <p>
-                    Add the new account credentials here. The account will be
-                    linked to this student when you complete the request.
+            <section
+              className="course-modal reset-request-modal"
+              data-request-kind={selected.request_kind}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="credential-request-title"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <header>
+                <div>
+                  <p className="eyebrow">
+                  {isResolvedRequest
+                    ? "RESOLVED REQUEST"
+                    : selected.request_kind === "ACCOUNT_CREATION"
+                      ? "ACCOUNT REQUEST"
+                      : selected.request_kind === "VOUCHER_REQUEST"
+                        ? "VOUCHER REQUEST"
+                        : "PASSWORD RESET"}
                   </p>
-                  {selected.credential_type === "EMAIL" && (
-                    <label className="field">
-                      <span>Institutional email address</span>
-                      <input
-                        type="email"
-                        required
-                        value={accountRequestForm.emailAddress}
-                        onChange={(event) =>
-                          setAccountRequestForm({
-                            ...accountRequestForm,
-                            emailAddress: event.target.value,
-                          })
-                        }
-                        placeholder="student@ndmu.edu.ph"
-                      />
-                    </label>
-                  )}
-                  <label className="field">
-                    <span>Account password</span>
-                    <input
-                      type="text"
-                      required
-                      value={accountRequestForm.password}
-                      onChange={(event) =>
-                        setAccountRequestForm({
-                          ...accountRequestForm,
-                          password: event.target.value,
-                        })
-                      }
-                      placeholder="Enter the account password"
-                    />
-                  </label>
-                  {selected.credential_type !== "EMAIL" && (
-                    <small className="account-request-username-note">
-                      Username: {selected.school_id}
-                    </small>
-                  )}
-                </>
-              ) : selected.request_kind === "VOUCHER_REQUEST" ? (
-                <>
-                  <label>
-                    <span>Current voucher</span>
-                    <code>{selected.account_username || "Unavailable"}</code>
-                  </label>
-                  <label>
-                    <span>Student's reason</span>
-                    <p className="voucher-request-admin-reason">
-                      {selected.request_reason}
+                  <h2 id="credential-request-title">
+                    {selected.request_kind === "VOUCHER_REQUEST"
+                      ? "New WiFi voucher"
+                      : `${selected.credential_type} account`}
+                  </h2>
+                  <p>
+                  {[selected.first_name, selected.middle_name, selected.last_name].filter(Boolean).join(" ")} ·{" "}
+                    {selected.school_id}
+                  </p>
+                </div>
+                <button
+                  className="modal-close"
+                  onClick={() => setSelected(null)}
+                  aria-label="Close"
+                >
+                  &times;
+                </button>
+              </header>
+              <div className="reset-request-details">
+              {isResolvedRequest ? (
+                <ResolvedRequestDetails request={selected} onCopy={copyRequestValue} />
+              ) : selected.request_kind === "ACCOUNT_CREATION" ? (
+                  <>
+                    <p>
+                      Enter the account credentials to link them to this
+                      student.
                     </p>
-                  </label>
-                  <p>
-                    Approving releases the current voucher and assigns the next
-                    available active voucher. This action cannot be undone from
-                    this dialog.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <label>
-                    <span>
-                      {selected.credential_type === "EMAIL"
-                        ? "Email address"
-                        : "Username"}
-                    </span>
-                    <code>{selected.account_username || "Unavailable"}</code>
-                  </label>
-                  {selected.credential_type === "EMAIL" && (
-                    <Button
-                      variant="secondary"
-                      disabled={!selected.account_username}
-                      onClick={() =>
-                        copyRequestValue(
-                          selected.account_username,
-                          "Email address",
-                        )
-                      }
-                    >
-                      <AppIcon name="content_copy" /> Copy email
-                    </Button>
-                  )}
-                  <label>
-                    <span>Default password</span>
-                    <code>{selected.default_password || "Unavailable"}</code>
-                  </label>
-                  <Button
-                    variant="secondary"
-                    disabled={!selected.default_password}
-                    onClick={() =>
-                      copyRequestValue(
-                        selected.default_password,
-                        "Default password",
-                      )
-                    }
-                  >
-                    Copy default password
-                  </Button>
-                  {canReplacePassword && (
-                    <>
-                      <label className="status-toggle">
-                        <span>
-                          <b>Replace default password</b>
-                          <small>
-                            Save a replacement password when completing this
-                            reset.
-                          </small>
-                        </span>
+                    {selected.credential_type === "EMAIL" ? (
+                      <label className="field">
+                        <span>Institutional email address</span>
                         <input
-                          type="checkbox"
-                          checked={passwordResetForm.replacePassword}
-                          disabled={saving}
+                          type="email"
+                          required
+                          value={accountRequestForm.emailAddress}
                           onChange={(event) =>
-                            setPasswordResetForm({
-                              replacePassword: event.target.checked,
-                              password: "",
+                            setAccountRequestForm({
+                              ...accountRequestForm,
+                              emailAddress: event.target.value,
                             })
                           }
+                          placeholder="student@ndmu.edu.ph"
                         />
-                        <i />
                       </label>
-                      {passwordResetForm.replacePassword && (
-                        <>
-                          <label className="field">
-                            <span>Replacement password</span>
-                            <input
-                              type="text"
-                              autoComplete="off"
-                              spellCheck={false}
-                              required
-                              disabled={saving}
-                              value={passwordResetForm.password}
-                              placeholder="Enter the replacement password"
-                              onChange={(event) =>
-                                setPasswordResetForm({
-                                  ...passwordResetForm,
-                                  password: event.target.value,
-                                })
-                              }
-                            />
-                          </label>
-                          <Button
-                            variant="secondary"
-                            disabled={!passwordResetForm.password.trim()}
-                            onClick={() =>
-                              copyRequestValue(
-                                passwordResetForm.password,
-                                "Replacement password",
-                              )
+                    ) : (
+                      <RequestValueField
+                        label="Username"
+                        value={selected.school_id}
+                        onCopy={() =>
+                          copyRequestValue(selected.school_id, "Username")
+                        }
+                      />
+                    )}
+                    <RequestPasswordField
+                      label="Account password"
+                      value={accountRequestForm.password}
+                      saving={saving}
+                      onChange={(password) =>
+                        setAccountRequestForm((current) => ({
+                          ...current,
+                          password,
+                        }))
+                      }
+                      onGenerate={generateRequestPassword}
+                    />
+                  </>
+                ) : selected.request_kind === "VOUCHER_REQUEST" ? (
+                  <>
+                    <label>
+                      <span>Current voucher</span>
+                      <code>{selected.account_username || "Unavailable"}</code>
+                    </label>
+                    <label>
+                      <span>Student's reason</span>
+                      <p className="voucher-request-admin-reason">
+                        {selected.request_reason}
+                      </p>
+                    </label>
+                    <p>
+                      Approving releases the current voucher and assigns the
+                      next available active voucher. This action cannot be
+                      undone from this dialog.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="request-account-values">
+                      <RequestValueField
+                        label={
+                          selected.credential_type === "EMAIL"
+                            ? "Email address"
+                            : "Username"
+                        }
+                        value={selected.account_username}
+                        onCopy={() =>
+                          copyRequestValue(
+                            selected.account_username,
+                            selected.credential_type === "EMAIL"
+                              ? "Email address"
+                              : "Username",
+                          )
+                        }
+                      />
+                      <RequestValueField
+                        label="Default password"
+                        value={selected.default_password}
+                        onCopy={() =>
+                          copyRequestValue(
+                            selected.default_password,
+                            "Default password",
+                          )
+                        }
+                      />
+                    </div>
+                    {canReplacePassword && (
+                      <div className="request-password-section">
+                        <label className="status-toggle">
+                          <span>
+                            <b>Replace default password</b>
+                            <small>
+                              Save a new default password for this account.
+                            </small>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={passwordResetForm.replacePassword}
+                            disabled={saving}
+                            onChange={(event) =>
+                              setPasswordResetForm({
+                                replacePassword: event.target.checked,
+                                password: "",
+                              })
                             }
-                          >
-                            Copy replacement password
-                          </Button>
-                        </>
-                      )}
-                    </>
-                  )}
-                  <p>
-                    {canReplacePassword && passwordResetForm.replacePassword
-                      ? `Set the replacement password in ${resetSource} first. Complete this request only after the reset succeeds; the replacement will be saved as the student's new default password here.`
-                      : `Use this password when resetting the account in ${selected.credential_type}. Complete the request only after the source system accepts the reset.`}
-                  </p>
+                          />
+                          <i />
+                        </label>
+                        {passwordResetForm.replacePassword && (
+                          <RequestPasswordField
+                            label="Replacement password"
+                            value={passwordResetForm.password}
+                            saving={saving}
+                            onChange={(password) =>
+                              setPasswordResetForm((current) => ({
+                                ...current,
+                                password,
+                              }))
+                            }
+                            onGenerate={generateRequestPassword}
+                          />
+                        )}
+                      </div>
+                    )}
+                    <p className="request-completion-note">
+                      {canReplacePassword && passwordResetForm.replacePassword
+                        ? `Reset the password in ${resetSource} first. Completing this request saves the replacement as the student's new default password.`
+                        : `Reset the account in ${resetSource || selected.credential_type} using this password, then mark the request completed.`}
+                    </p>
+                  </>
+                )}
+                {error && <p className="error">{error}</p>}
+              </div>
+              <footer className="reset-request-footer">
+              {isResolvedRequest ? (
+                <Button variant="secondary" onClick={() => setSelected(null)}>Close</Button>
+              ) : (
+                <>
+                <Button variant="secondary" onClick={() => setSelected(null)}>
+                  Cancel
+                </Button>
+                {selected.request_kind === "VOUCHER_REQUEST" && (
+                  <button
+                    className="btn danger"
+                    disabled={saving}
+                    onClick={rejectVoucher}
+                  >
+                    {saving ? "Saving..." : "Reject request"}
+                  </button>
+                )}
+                <button
+                  className="btn primary"
+                  disabled={
+                    saving || !accountRequestReady || !passwordResetReady
+                  }
+                  onClick={complete}
+                >
+                  {saving
+                    ? "Completing..."
+                    : selected.request_kind === "ACCOUNT_CREATION"
+                      ? "Create account and complete"
+                      : selected.request_kind === "VOUCHER_REQUEST"
+                        ? "Approve and assign voucher"
+                        : "Mark reset completed"}
+                </button>
                 </>
               )}
-              {error && <p className="error">{error}</p>}
-            </div>
-            <footer className="reset-request-footer">
-              <Button variant="secondary" onClick={() => setSelected(null)}>
-                Cancel
-              </Button>
-              {selected.request_kind === "VOUCHER_REQUEST" && (
-                <button
-                  className="btn danger"
-                  disabled={saving}
-                  onClick={rejectVoucher}
-                >
-                  {saving ? "Saving..." : "Reject request"}
-                </button>
-              )}
-              <button
-                className="btn primary"
-                disabled={saving || !accountRequestReady || !passwordResetReady}
-                onClick={complete}
-              >
-                {saving
-                  ? "Completing..."
-                  : selected.request_kind === "ACCOUNT_CREATION"
-                    ? "Create account and complete"
-                    : selected.request_kind === "VOUCHER_REQUEST"
-                      ? "Approve and assign voucher"
-                      : "Mark reset completed"}
-              </button>
-            </footer>
-          </section>
-        </div>
-      )}
+              </footer>
+            </section>
+            {toast && <Toast message={toast} onClose={() => setToast("")} />}
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
@@ -8404,7 +8628,7 @@ function AdminUsersPage({ token }) {
                 </Status>
               ),
               3: (data) => (
-                <Status tone={data ? "green" : "gold"}>
+                <Status tone={data ? "green" : "danger"}>
                   {data ? "Active" : "Inactive"}
                 </Status>
               ),
@@ -8808,6 +9032,7 @@ function VouchersPage({ token }) {
     [search, setSearch] = useState(""),
     [sort, setSort] = useState("code"),
     [direction, setDirection] = useState("asc"),
+    [showInactive, setShowInactive] = useState(false),
     [revision, setRevision] = useState(0),
     [importing, setImporting] = useState(false),
     [releaseTarget, setReleaseTarget] = useState(null),
@@ -8840,6 +9065,7 @@ function VouchersPage({ token }) {
       "search[value]": search,
       sort,
       direction,
+      status: showInactive ? "all" : "active",
     });
     request(`/admin/voucher-records?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -8861,7 +9087,7 @@ function VouchersPage({ token }) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [token, page, limit, search, sort, direction, revision]);
+  }, [token, page, limit, search, sort, direction, showInactive, revision]);
   const changeSort = (column) => {
     setDirection(sort === column && direction === "asc" ? "desc" : "asc");
     setSort(column);
@@ -8937,7 +9163,7 @@ function VouchersPage({ token }) {
           </>
         }
       />
-      <section className="student-summary voucher-summary">
+      <section className="student-summary voucher-summary records-summary">
         <article>
           <span>Total vouchers</span>
           <strong>{summary?.total ?? "…"}</strong>
@@ -8951,32 +9177,38 @@ function VouchersPage({ token }) {
           <strong>{summary?.assigned ?? "…"}</strong>
         </article>
       </section>
-      <section className="panel student-panel vouchers-data-table">
+      <section className="panel student-panel vouchers-data-table records-data-table">
         <div className="course-intro">
           Available vouchers are assigned automatically when an administrator
           generates one for a student or when a student completes kiosk
           verification.
         </div>
         {error && <p className="error">{error}</p>}
-        <div className="student-list-toolbar">
-          <div className="student-list-title">
-            <b>Voucher records</b>
-            <small role="status">
-              {loading
-                ? "Loading vouchers…"
-                : "Search vouchers or assigned students."}
-            </small>
-          </div>
-          <label className="student-search">
-            <AppIcon name="search" size={19} />
-            <input
-              type="search"
-              aria-label="Search vouchers or students"
-              placeholder="Search code, name or ID"
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
+        <div className="records-table-toolbar">
+          <div className="records-table-filters">
+            <InactiveRecordsToggle
+              visible={showInactive}
+              onChange={(visible) => {
+                setShowInactive(visible);
+                setPage(1);
+              }}
             />
-          </label>
+            <span className="sr-only" role="status">
+              {loading ? "Loading vouchers..." : "Voucher records updated."}
+            </span>
+          </div>
+          <RecordsTableControls
+            search={searchInput}
+            searchLabel="Search vouchers or students"
+            searchPlaceholder="Search code, name or ID"
+            onSearchChange={setSearchInput}
+            pageSize={limit}
+            pageSizeLabel="Vouchers per page"
+            onPageSizeChange={(size) => {
+              setLimit(size);
+              setPage(1);
+            }}
+          />
         </div>
         <div className="student-list-wrap" aria-busy={loading}>
           <table className="student-list-table">
@@ -9102,20 +9334,6 @@ function VouchersPage({ token }) {
             {Math.min(page * limit, total)} of {total} vouchers
           </span>
           <div>
-            <select
-              aria-label="Vouchers per page"
-              value={limit}
-              onChange={(event) => {
-                setLimit(Number(event.target.value));
-                setPage(1);
-              }}
-            >
-              {[10, 25, 50, 100].map((size) => (
-                <option key={size} value={size}>
-                  {size} / page
-                </option>
-              ))}
-            </select>
             <button
               aria-label="First page"
               onClick={() => setPage(1)}
@@ -9242,7 +9460,7 @@ function StudentsPage({ token }) {
     [pages, setPages] = useState(1),
     [limit, setLimit] = useState(25),
     [search, setSearch] = useState(""),
-    [status, setStatus] = useState("all"),
+    [status, setStatus] = useState("active"),
     [sort, setSort] = useState("name"),
     [direction, setDirection] = useState("asc"),
     [refresh, setRefresh] = useState(0);
@@ -9305,7 +9523,7 @@ function StudentsPage({ token }) {
         description="Select a student to view or update their profile and linked credentials."
         actions={<Button onClick={() => setAdding(true)}>Add student</Button>}
       />
-      <section className="student-summary">
+      <section className="student-summary records-summary">
         <article>
           <span>Total students</span>
           <strong>{studentTotal}</strong>
@@ -9319,45 +9537,53 @@ function StudentsPage({ token }) {
           <strong>4</strong>
         </article>
       </section>
-      <section className="panel student-panel students-data-table">
+      <section className="panel student-panel students-data-table records-data-table">
         {error && <p className="error">{error}</p>}
-        <div className="student-list-toolbar">
-          <div className="student-list-title">
-            <b>Student records</b>
-            <small>
-              {loading
-                ? "Updating results…"
-                : "Search, filter, or select a student."}
-            </small>
-          </div>
-          <div className="student-list-controls">
-            <label className="student-search">
-              <AppIcon name="search" size={19} />
-              <input
-                type="search"
-                placeholder="Search name or ID"
-                value={search}
+        <div className="records-table-toolbar">
+          <div className="records-table-filters">
+            <label className="records-table-field">
+              <span>Status</span>
+              <select
+                value={status}
                 onChange={(event) => {
-                  setSearch(event.target.value);
+                  setStatus(event.target.value);
                   setPage(1);
                 }}
-              />
+                aria-label="Student status"
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
             </label>
-            <select
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value);
+            <InactiveRecordsToggle
+              visible={status !== "active"}
+              onChange={(visible) => {
+                setStatus(visible ? "all" : "active");
                 setPage(1);
               }}
-              aria-label="Student status"
-            >
-              <option value="all">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
+            />
+            <span className="sr-only" role="status">
+              {loading ? "Updating students..." : "Student records updated."}
+            </span>
           </div>
+          <RecordsTableControls
+            search={search}
+            searchLabel="Search students"
+            searchPlaceholder="Search name or ID"
+            onSearchChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            pageSize={limit}
+            pageSizeLabel="Students per page"
+            onPageSizeChange={(size) => {
+              setLimit(size);
+              setPage(1);
+            }}
+          />
         </div>
-        <div className="student-list-wrap">
+        <div className="student-list-wrap" aria-busy={loading}>
           <table className="student-list-table">
             <thead>
               <tr>
@@ -9401,7 +9627,7 @@ function StudentsPage({ token }) {
                     <small>{student.course_name}</small>
                   </td>
                   <td>
-                    <Status tone={student.is_active ? "green" : "gold"}>
+                    <Status tone={student.is_active ? "green" : "danger"}>
                       {student.is_active ? "Active" : "Inactive"}
                     </Status>
                   </td>
@@ -9420,6 +9646,15 @@ function StudentsPage({ token }) {
                   </td>
                 </tr>
               ))}
+              {!students.length && (
+                <tr>
+                  <td colSpan="4">
+                    {loading
+                      ? "Loading students..."
+                      : "No students match your filters."}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -9429,28 +9664,25 @@ function StudentsPage({ token }) {
             {Math.min(page * limit, studentTotal)} of {studentTotal} students
           </span>
           <div>
-            <select
-              value={limit}
-              onChange={(event) => {
-                setLimit(Number(event.target.value));
-                setPage(1);
-              }}
-              aria-label="Students per page"
+            <button
+              aria-label="First page"
+              onClick={() => changePage(1)}
+              disabled={page === 1}
             >
-              <option value="25">25 / page</option>
-              <option value="50">50 / page</option>
-              <option value="100">100 / page</option>
-            </select>
-            <button onClick={() => changePage(1)} disabled={page === 1}>
               «
             </button>
-            <button onClick={() => changePage(page - 1)} disabled={page === 1}>
+            <button
+              aria-label="Previous page"
+              onClick={() => changePage(page - 1)}
+              disabled={page === 1}
+            >
               ‹
             </button>
             <label>
               Page{" "}
               <input
                 type="number"
+                aria-label="Page number"
                 min="1"
                 max={pages}
                 value={page}
@@ -9461,12 +9693,17 @@ function StudentsPage({ token }) {
               of {pages}
             </label>
             <button
+              aria-label="Next page"
               onClick={() => changePage(page + 1)}
               disabled={page === pages}
             >
               ›
             </button>
-            <button onClick={() => changePage(pages)} disabled={page === pages}>
+            <button
+              aria-label="Last page"
+              onClick={() => changePage(pages)}
+              disabled={page === pages}
+            >
               »
             </button>
           </div>

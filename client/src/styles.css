@@ -3899,7 +3899,7 @@ button {
   width: 47px;
   height: 27px;
   border-radius: 999px;
-  background: #b8c8c0;
+  background: #c94141;
   transition: 0.2s;
 }
 .status-toggle i::after {
@@ -4976,6 +4976,7 @@ strong {
 }
 .student-list-controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
 }
@@ -6335,6 +6336,11 @@ strong {
 
 .reset-request-details .btn {
   justify-self: start;
+}
+.request-password-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .reset-request-details p {
@@ -8226,5 +8232,471 @@ body,
 
   .kiosk-results .credential-summary-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Shared record directories: filters, search, and page size. */
+.student-summary.records-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.records-summary article {
+  padding: 14px 20px;
+}
+.records-summary article strong {
+  margin: 6px 0 0;
+  font-size: 1.65rem;
+}
+.records-table-toolbar,
+.records-table-filters,
+.records-table-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+.records-table-toolbar {
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 18px;
+}
+.records-table-controls {
+  margin-left: auto;
+}
+.records-table-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #55718f;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+.records-table-field input,
+.records-table-field select,
+.records-data-table .records-table-toolbar .btn {
+  box-sizing: border-box;
+  height: 40px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #c9d8d1;
+  border-radius: 8px;
+  background: #fff;
+  color: #244b3e;
+  font: inherit;
+  font-size: 0.82rem;
+}
+.records-table-field select {
+  padding-right: 30px;
+}
+.records-table-field input:focus,
+.records-table-field select:focus {
+  outline: 2px solid #b8d9c9;
+  outline-offset: 1px;
+  border-color: #08714d;
+}
+.records-table-toolbar .btn[aria-pressed="true"] {
+  border-color: #a8c8b7;
+  background: #edf6f0;
+  color: #08714d;
+}
+.records-table-search {
+  width: clamp(220px, 22vw, 340px);
+}
+.records-table-search-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.records-table-search-input .app-icon {
+  position: absolute;
+  left: 11px;
+  color: #71877e;
+  pointer-events: none;
+}
+.records-table-search-input input {
+  width: 100%;
+  padding-left: 36px;
+}
+.courses-data-table .dt-container {
+  padding: 0 18px 16px;
+}
+.courses-data-table .dt-layout-row.dt-layout-table {
+  display: block;
+  margin: 0;
+}
+.courses-data-table .dt-layout-row.dt-layout-table .dt-layout-cell {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+.courses-data-table table.dataTable {
+  width: 100% !important;
+  min-width: 700px;
+  table-layout: fixed;
+}
+.courses-data-table table.dataTable tbody td:nth-child(2) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.courses-data-table table.dataTable tbody td {
+  padding: 10px !important;
+}
+.courses-data-table .dt-layout-row:not(.dt-layout-table) {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 0 0;
+}
+.courses-data-table .dt-info {
+  padding-top: 0;
+}
+.records-data-table .student-list-wrap {
+  margin: 0 18px;
+  border: 0;
+  border-radius: 0;
+}
+.records-data-table .student-list-table {
+  table-layout: fixed;
+}
+.records-data-table .student-list-table th {
+  padding: 13px 10px;
+  background: #f4f8f6;
+  color: #57748b;
+  font-size: 0.68rem;
+  letter-spacing: 0.65px;
+}
+.records-data-table .student-list-table td {
+  padding: 10px;
+  color: #3e5871;
+  overflow-wrap: anywhere;
+}
+.records-data-table .student-list-table .btn {
+  min-height: 34px;
+  padding: 8px 13px;
+  font-size: 0.78rem;
+}
+.records-data-table .student-list-table th:last-child,
+.records-data-table .student-list-table td:last-child {
+  text-align: right;
+}
+.records-data-table .student-list-table .row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.records-data-table .student-list-pagination {
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 18px;
+}
+.records-data-table .student-list-pagination > div {
+  flex-wrap: wrap;
+}
+.students-data-table .student-list-table th:nth-child(1) {
+  width: 36%;
+}
+.students-data-table .student-list-table th:nth-child(2) {
+  width: 34%;
+}
+.students-data-table .student-list-table th:nth-child(3) {
+  width: 12%;
+}
+.students-data-table .student-list-table th:nth-child(4) {
+  width: 18%;
+}
+.vouchers-data-table .student-list-table {
+  min-width: 900px;
+}
+.vouchers-data-table .student-list-table th:nth-child(1) {
+  width: 20%;
+}
+.vouchers-data-table .student-list-table th:nth-child(2) {
+  width: 27%;
+}
+.vouchers-data-table .student-list-table th:nth-child(3) {
+  width: 13%;
+}
+.vouchers-data-table .student-list-table th:nth-child(4) {
+  width: 20%;
+}
+.vouchers-data-table .student-list-table th:nth-child(5) {
+  width: 20%;
+}
+@media (max-width: 900px) {
+  .records-table-controls {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+  .records-table-search {
+    flex: 1;
+    width: auto;
+  }
+}
+@media (max-width: 540px) {
+  .records-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .records-summary article {
+    padding: 12px 10px;
+  }
+  .records-summary article span {
+    min-height: 2.7em;
+    font-size: 0.6rem;
+    line-height: 1.35;
+  }
+  .records-summary article strong {
+    font-size: 1.35rem;
+  }
+  .records-table-toolbar {
+    padding: 14px;
+  }
+  .records-table-filters {
+    flex: 1 1 100%;
+  }
+  .records-table-filters .records-table-field {
+    flex: 1;
+  }
+  .courses-data-table .dt-container {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+  .records-data-table .student-list-wrap {
+    margin-right: 14px;
+    margin-left: 14px;
+  }
+  .records-data-table .student-list-pagination {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+}
+
+/* Compact credential request review with a fixed header and footer. */
+.credential-request-overlay {
+  z-index: 1000;
+}
+.reset-request-modal {
+  width: min(calc(100vw - 48px), 600px);
+}
+.reset-request-modal > header {
+  padding: 20px 24px 16px;
+}
+.reset-request-modal > header h2 {
+  margin: 4px 0 6px;
+  font-size: 1.35rem;
+}
+.reset-request-modal > .reset-request-details {
+  gap: 16px;
+  padding: 18px 24px;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.request-account-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.request-value-field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+.request-value-field > span {
+  color: #526f64;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+.request-value-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid #d7e5de;
+  border-radius: 8px;
+  background: #f6faf8;
+}
+.reset-request-modal .request-value-control code {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.8rem;
+}
+.reset-request-modal .request-value-copy,
+.reset-request-modal .request-password-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.reset-request-modal .request-value-copy {
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 0.74rem;
+}
+.request-password-section {
+  display: grid;
+  gap: 14px;
+}
+.reset-request-modal .status-toggle {
+  gap: 12px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 9px;
+}
+.reset-request-modal .status-toggle > span {
+  gap: 3px;
+  min-width: 0;
+  font-weight: 400;
+}
+.reset-request-modal .status-toggle b {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.reset-request-modal .status-toggle small {
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.reset-request-modal .status-toggle i {
+  flex: 0 0 47px;
+}
+.reset-request-modal .status-toggle:has(input:focus-visible) {
+  outline-width: 2px;
+  outline-offset: 2px;
+}
+.request-password-field {
+  display: grid;
+  gap: 8px;
+}
+.reset-request-modal .request-password-field .field {
+  margin: 0;
+  gap: 6px;
+}
+.reset-request-modal .field input {
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+}
+.reset-request-modal .request-completion-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f5f8f6;
+  font-size: 0.77rem;
+  line-height: 1.5;
+}
+.reset-request-modal > .reset-request-footer {
+  padding: 14px 24px;
+  box-shadow: none;
+}
+.reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
+  .request-password-field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+.reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
+  .request-password-actions
+  .btn {
+  height: 42px;
+}
+@media (max-width: 540px) {
+  .reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
+    .request-password-field {
+    grid-template-columns: 1fr;
+  }
+  .reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
+    .request-password-actions
+    .btn {
+    width: 100%;
+  }
+  .reset-request-modal > header {
+    padding: 18px 16px 14px;
+  }
+  .reset-request-modal > .reset-request-details {
+    padding: 16px;
+  }
+  .request-account-values {
+    grid-template-columns: 1fr;
+  }
+  .reset-request-modal > .reset-request-footer {
+    padding: 12px 16px;
+  }
+}
+
+/* Resolved requests expose their details without processing controls. */
+.resolved-request-action {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+.resolved-request-action small {
+  color: #7890a0;
+  font-size: 0.72rem;
+}
+.request-resolution-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #244b3e;
+  font-size: 0.85rem;
+}
+.request-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 20px;
+  margin: 0;
+  padding: 16px 0;
+  border-top: 1px solid #e3ebe6;
+  border-bottom: 1px solid #e3ebe6;
+}
+.request-detail-facts > div {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+}
+.request-detail-facts dt,
+.request-reason-details > b {
+  color: #526f64;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.request-detail-facts dd {
+  margin: 0;
+  color: #244b3e;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+.request-reason-details {
+  display: grid;
+  gap: 6px;
+}
+.request-reason-details p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 400px) {
+  .request-detail-facts {
+    grid-template-columns: 1fr;
   }
 }
