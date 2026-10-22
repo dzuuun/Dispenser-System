@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { inferAcademicLevel, normalizeAcademicLevel } from "../services/course-level.service.js";
 import {
   readWorkbookRows,
   workbookBase64,
@@ -29,7 +30,7 @@ const buildErrorReport = async (rows, errors) => {
 
 export async function listCourses(_req, res) {
   const [rows] = await pool.query(
-    "SELECT c.id, c.code, c.name, c.is_active, COUNT(s.id) student_count FROM courses c LEFT JOIN students s ON s.course_id=c.id GROUP BY c.id ORDER BY c.code",
+    "SELECT c.id, c.code, c.name, c.academic_level, c.is_active, COUNT(s.id) student_count FROM courses c LEFT JOIN students s ON s.course_id=c.id GROUP BY c.id ORDER BY c.code",
   );
   res.json(rows);
 }
@@ -39,18 +40,23 @@ export async function createCourse(req, res) {
     .toUpperCase();
   const name = String(req.body.name || "").trim();
   const isActive = req.body.isActive === false ? 0 : 1;
+  const academicLevel = req.body.academicLevel === undefined
+    ? inferAcademicLevel(code, name)
+    : normalizeAcademicLevel(req.body.academicLevel);
+  if (!academicLevel)
+    return res.status(400).json({ message: "Choose College, Graduate school, or Other as the academic level." });
   if (!code || !name)
     return res
       .status(400)
       .json({ message: "Course code and course name are required." });
   try {
     const [created] = await pool.execute(
-      "INSERT INTO courses (code, name, is_active) VALUES (?, ?, ?)",
-      [code, name, isActive],
+      "INSERT INTO courses (code, name, academic_level, is_active) VALUES (?, ?, ?, ?)",
+      [code, name, academicLevel, isActive],
     );
     res
       .status(201)
-      .json({ id: created.insertId, code, name, is_active: Boolean(isActive) });
+      .json({ id: created.insertId, code, name, academic_level: academicLevel, is_active: Boolean(isActive) });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY")
       return res
@@ -65,14 +71,19 @@ export async function updateCourse(req, res) {
     .toUpperCase();
   const name = String(req.body.name || "").trim();
   const isActive = req.body.isActive === false ? 0 : 1;
+  const academicLevel = req.body.academicLevel === undefined
+    ? null
+    : normalizeAcademicLevel(req.body.academicLevel);
+  if (req.body.academicLevel !== undefined && !academicLevel)
+    return res.status(400).json({ message: "Choose College, Graduate school, or Other as the academic level." });
   if (!code || !name)
     return res
       .status(400)
       .json({ message: "Course code and course name are required." });
   try {
     const [updated] = await pool.execute(
-      "UPDATE courses SET code = ?, name = ?, is_active = ? WHERE id = ?",
-      [code, name, isActive, req.params.id],
+      "UPDATE courses SET code = ?, name = ?, academic_level=COALESCE(?, academic_level), is_active = ? WHERE id = ?",
+      [code, name, academicLevel, isActive, req.params.id],
     );
     if (!updated.affectedRows)
       return res.status(404).json({ message: "Course not found." });
@@ -80,6 +91,7 @@ export async function updateCourse(req, res) {
       id: Number(req.params.id),
       code,
       name,
+      academic_level: academicLevel ?? undefined,
       is_active: Boolean(isActive),
     });
   } catch (error) {
@@ -127,6 +139,10 @@ async function readImportRows(file) {
     const name = String(
       row.CourseName || row.Name || row.course_name || "",
     ).trim();
+    const levelInput = String(row.AcademicLevel || row.academic_level || row["Academic Level"] || "").trim();
+    const academicLevel = levelInput ? normalizeAcademicLevel(levelInput) : null;
+    if (levelInput && !academicLevel)
+      return errors.push({ row: index + 2, message: "AcademicLevel must be College, Graduate school, or Other." });
     if (!code || !name)
       return errors.push({
         row: index + 2,
@@ -138,7 +154,7 @@ async function readImportRows(file) {
         message: `Duplicate course code ${code} in file.`,
       });
     seen.add(code);
-    valid.push({ row: index + 2, code, name });
+    valid.push({ row: index + 2, code, name, academicLevel });
   });
   return { total: rows.length, valid, errors, sourceRows };
 }
@@ -150,19 +166,20 @@ async function classifyImport(file, executor = pool) {
   if (codes.length) {
     const placeholders = codes.map(() => "?").join(",");
     const [records] = await executor.execute(
-      `SELECT id, code, name FROM courses WHERE code IN (${placeholders})`,
+      `SELECT id, code, name, academic_level FROM courses WHERE code IN (${placeholders})`,
       codes,
     );
     records.forEach((record) => existing.set(record.code, record));
   }
   const items = parsed.valid.map((item) => {
     const record = existing.get(item.code);
+    const academicLevel = item.academicLevel || record?.academic_level || inferAcademicLevel(item.code, item.name);
     const status = !record
       ? "new"
-      : record.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+      : record.name.trim().toLowerCase() === item.name.trim().toLowerCase() && record.academic_level === academicLevel
         ? "unchanged"
         : "update";
-    return { ...item, status, id: record?.id };
+    return { ...item, academicLevel, status, id: record?.id };
   });
   const counts = items.reduce(
     (total, item) => ({ ...total, [item.status]: total[item.status] + 1 }),
@@ -206,14 +223,15 @@ export async function importCourses(req, res) {
       try {
       if (item.status === "new") {
         await connection.execute(
-          "INSERT INTO courses (code, name, is_active) VALUES (?, ?, 1)",
-          [item.code, item.name],
+          "INSERT INTO courses (code, name, academic_level, is_active) VALUES (?, ?, ?, 1)",
+          [item.code, item.name, item.academicLevel],
         );
         inserted++;
       }
       if (item.status === "update") {
-        await connection.execute("UPDATE courses SET name = ? WHERE id = ?", [
+        await connection.execute("UPDATE courses SET name = ?, academic_level=? WHERE id = ?", [
           item.name,
+          item.academicLevel,
           item.id,
         ]);
         updated++;

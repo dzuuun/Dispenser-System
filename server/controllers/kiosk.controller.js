@@ -6,6 +6,7 @@ import { config } from "../config/env.js";
 import { decryptPassword } from "../services/encryption.service.js";
 import { transaction } from "../services/audit.service.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
+import { isSatpEligible } from "../services/course-level.service.js";
 const verification = z.object({
   studentId: z.string().trim().min(1).max(40),
   lastName: z.string().trim().min(1).max(100),
@@ -168,7 +169,7 @@ export async function credentials(req, res) {
       });
     }
     const [[student]] = await conn.execute(
-      "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1",
+      "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1",
       [session.sub, period.id],
     );
     if (!student) {
@@ -179,7 +180,7 @@ export async function credentials(req, res) {
       });
     }
     const [creds] = await conn.execute(
-      "SELECT 'SATP' credential_type, username FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
+      "SELECT 'SATP' credential_type, username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
       [session.sub, session.sub, session.sub, session.sub],
     );
     const [requestRecords] = await conn.execute(
@@ -243,6 +244,7 @@ export async function credentials(req, res) {
           course: `${student.course_code} — ${student.course_name}`,
         },
         credentials: ["SATP", "SCHOOLOGY", "KUMOSOFT", "EMAIL"]
+          .filter((type) => type !== "SATP" || isSatpEligible(student.academic_level))
           .filter((type) => controls.get(type)?.visible ?? true)
           .map((type) => {
             const credential = creds.find(
@@ -251,6 +253,7 @@ export async function credentials(req, res) {
             return {
               type,
               username: credential?.username || null,
+              hasPassword: Boolean(credential?.has_password),
               unavailable: !credential,
               maintenance: controls.get(type)?.maintenance || false,
             };
@@ -306,7 +309,7 @@ export async function revealCredentials(req, res) {
         message: "The credentials dispenser is currently under maintenance.",
       });
     const [[student]] = await pool.execute(
-      "SELECT student_id FROM students WHERE id=? AND academic_period_id=? AND is_active=1",
+      "SELECT s.student_id, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1",
       [session.sub, period.id],
     );
     if (!student)
@@ -326,6 +329,7 @@ export async function revealCredentials(req, res) {
     );
     const revealedCredentials = rows
       .filter((row) => {
+        if (row.credential_type === "SATP" && !isSatpEligible(student.academic_level)) return false;
         const control = controls.get(row.credential_type);
         return (control?.visible ?? true) && !control?.maintenance;
       })
@@ -528,6 +532,16 @@ export async function requestAccount(req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    if (credentialType === "SATP") {
+      const [[student]] = await connection.execute(
+        "SELECT c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? FOR UPDATE",
+        [session.sub],
+      );
+      if (!isSatpEligible(student?.academic_level)) {
+        await connection.rollback();
+        return res.status(403).json({ message: "SATP is available only for college courses." });
+      }
+    }
     const [[account]] = await connection.execute(
       `SELECT id, is_active FROM ${table} WHERE student_id=? FOR UPDATE`,
       [session.sub],

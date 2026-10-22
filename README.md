@@ -111,6 +111,20 @@ Create or configure a read-only registrar view that exposes these columns: `Scho
 
 For a local-network SQL Server that does not have TLS configured, set `MSSQL_ENCRYPT=false`. If SQL Server uses TLS, connect with its certificate hostname rather than an IP address and keep `MSSQL_ENCRYPT=true` with certificate validation enabled.
 
+### Course levels and SATP
+
+Set each course's **Academic level** in **Courses** to **College**, **Graduate school**, or **Other / review**. Only College students receive the SATP card, Google sign-in guidance, and SATP credentials at the kiosk. Graduate school and Other courses retain access to the other enabled services. The API also blocks SATP account requests from students outside College.
+
+For an existing database, apply the course-level migration before restarting the updated server:
+
+```powershell
+npm run migrate-course-academic-levels -w server
+npm run build
+pm2 restart ndmu-credentials-dispenser
+```
+
+The migration classifies recognizable degree programs and leaves ambiguous courses as Other for review. It can be rerun without resetting an administrator's classifications. Course imports accept an optional `AcademicLevel` column (`COLLEGE`, `GRADUATE_SCHOOL`, or `OTHER`). Omitting it preserves an existing course's classification; new courses are classified from their code and name when possible.
+
 ## Semester voucher reset
 
 At the end of a semester, open **WiFi vouchers** in the administrator portal and select **Clear semester vouchers**. After confirmation, the system:

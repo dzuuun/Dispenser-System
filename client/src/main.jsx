@@ -1,5 +1,6 @@
 import React, { Component, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { createPortal } from "react-dom";
 import DataTable from "datatables.net-react";
 import DT from "datatables.net-dt";
 import "datatables.net-dt/css/dataTables.dataTables.css";
@@ -3546,9 +3547,10 @@ function LegacyCoursesPageV6({ token }) {
 }
 function CoursesPage({ token }) {
   const [courses, setCourses] = useState([]),
+    [levelFilter, setLevelFilter] = useState("all"),
     [editor, setEditor] = useState(null),
     [confirm, setConfirm] = useState(false),
-    [form, setForm] = useState({ code: "", name: "", isActive: true }),
+    [form, setForm] = useState({ code: "", name: "", academicLevel: "COLLEGE", isActive: true }),
     [error, setError] = useState(""),
     [toast, setToast] = useState("");
   const load = () =>
@@ -3572,9 +3574,10 @@ function CoursesPage({ token }) {
         ? {
             code: course.code,
             name: course.name,
+            academicLevel: course.academic_level || "OTHER",
             isActive: Boolean(course.is_active),
           }
-        : { code: "", name: "", isActive: true },
+        : { code: "", name: "", academicLevel: "COLLEGE", isActive: true },
     );
     setEditor(course || {});
   };
@@ -3603,9 +3606,12 @@ function CoursesPage({ token }) {
   const columns = [
     { data: "code" },
     { data: "name" },
+    { data: "academic_level" },
     { data: "is_active" },
     null,
   ];
+  const levelLabels = { COLLEGE: "College", GRADUATE_SCHOOL: "Graduate school", OTHER: "Other / review" };
+  const filteredCourses = levelFilter === "all" ? courses : courses.filter((course) => course.academic_level === levelFilter);
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
@@ -3635,21 +3641,31 @@ function CoursesPage({ token }) {
       </section>
       <section className="panel student-panel courses-data-table">
         <div className="course-intro">
-          Courses here appear automatically in the Add Student course selector.
+          Only courses classified as College can use SATP. Review Other courses and set their academic level.
+        </div>
+        <div className="table-toolbar">
+          <label>
+            Academic level{" "}
+            <select aria-label="Filter courses by academic level" value={levelFilter} onChange={(event) => setLevelFilter(event.target.value)}>
+              <option value="all">All levels</option>
+              {Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
         </div>
         {error && <p className="error">{error}</p>}
         {courses.length ? (
           <DataTable
-            data={courses}
+            data={filteredCourses}
             columns={columns}
             slots={{
               0: (data) => <b>{data}</b>,
-              2: (data) => (
+              2: (data) => levelLabels[data] || "Other / review",
+              3: (data) => (
                 <Status tone={data ? "green" : "gold"}>
                   {data ? "Active" : "Inactive"}
                 </Status>
               ),
-              3: (_data, row) => (
+              4: (_data, row) => (
                 <Button variant="secondary" onClick={() => edit(row)}>
                   Edit
                 </Button>
@@ -3669,6 +3685,7 @@ function CoursesPage({ token }) {
               <tr>
                 <th>Course code</th>
                 <th>Course name</th>
+                <th>Academic level</th>
                 <th>Status</th>
                 <th>Action</th>
               </tr>
@@ -3682,10 +3699,11 @@ function CoursesPage({ token }) {
           />
         )}
       </section>
-      {editor && (
+      {editor && createPortal(
+        <div className="course-editor-overlay">
         <div className="modal-backdrop" onMouseDown={() => setEditor(null)}>
           <section
-            className="course-modal"
+            className="course-modal course-editor-modal"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <header>
@@ -3699,6 +3717,7 @@ function CoursesPage({ token }) {
               </button>
             </header>
             <form
+              id="course-editor-form"
               onSubmit={(event) => {
                 event.preventDefault();
                 setConfirm(true);
@@ -3714,6 +3733,13 @@ function CoursesPage({ token }) {
                 value={form.name}
                 onChange={(value) => setForm({ ...form, name: value })}
               />
+              <label className="field">
+                <span>Academic level</span>
+                <select required value={form.academicLevel} onChange={(event) => setForm({ ...form, academicLevel: event.target.value })}>
+                  {Object.entries(levelLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                <small className="field-hint">Only College students can access SATP.</small>
+              </label>
               <label className="status-toggle">
                 <span>
                   <b>Active course</b>
@@ -3730,17 +3756,18 @@ function CoursesPage({ token }) {
                 />
                 <i />
               </label>
-              <footer>
-                <Button variant="secondary" onClick={() => setEditor(null)}>
-                  Cancel
-                </Button>
-                <button className="btn primary">Save course</button>
-              </footer>
             </form>
+            <footer>
+              <Button variant="secondary" onClick={() => setEditor(null)}>
+                Cancel
+              </Button>
+              <button className="btn primary" type="submit" form="course-editor-form">
+                Save course
+              </button>
+            </footer>
           </section>
         </div>
-      )}
-      {confirm && editor && (
+      {confirm && (
         <ConfirmModal
           title={editor.id ? "Save course changes?" : "Add this course?"}
           message={
@@ -3752,6 +3779,9 @@ function CoursesPage({ token }) {
           onClose={() => setConfirm(false)}
           onConfirm={save}
         />
+      )}
+        </div>,
+        document.body,
       )}
     </>
   );
@@ -4505,7 +4535,7 @@ const importTypes = [
   {
     id: "courses",
     title: "Courses",
-    detail: "CourseCode, CourseName",
+    detail: "CourseCode, CourseName, optional AcademicLevel",
     endpoint: "/admin/course-records/import",
   },
   {
@@ -6551,6 +6581,13 @@ function Kiosk() {
                 c.type,
                 c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
               );
+              const satpGoogleSignIn = (
+                <p>
+                  No SATP password is available. Select{" "}
+                  <b>Sign in with Google</b> on SATP and use your
+                  institutional email account.
+                </p>
+              );
               return (
                 <article
                   className="credential credential-summary-card"
@@ -6575,6 +6612,13 @@ function Kiosk() {
                         The MIS administrator has placed this account under
                         maintenance.
                       </span>
+                    </div>
+                  ) : c.unavailable && c.type === "SATP" ? (
+                    <div className="credential-module-unavailable">
+                      {satpGoogleSignIn}
+                      <p className="credential-website">
+                        <b>Website:</b> {meta.website}
+                      </p>
                     </div>
                   ) : c.unavailable ? (
                     <div className="credential-module-unavailable">
@@ -6603,16 +6647,20 @@ function Kiosk() {
                       <p>
                         <b>{meta.username}:</b> <span>{c.username}</span>
                       </p>
-                      <p
-                        className={`credential-password${passwordsVisible ? " visible" : ""}`}
-                      >
-                        <b>Password:</b>
-                        <code>
-                          {passwordsVisible
-                            ? (c.password ?? "Not provided")
-                            : "••••••••"}
-                        </code>
-                      </p>
+                      {c.type === "SATP" && (c.hasPassword === false || (passwordsVisible && !c.password?.trim())) ? (
+                        satpGoogleSignIn
+                      ) : (
+                        <p
+                          className={`credential-password${passwordsVisible ? " visible" : ""}`}
+                        >
+                          <b>Password:</b>
+                          <code>
+                            {passwordsVisible
+                              ? (c.password ?? "Not provided")
+                              : "••••••••"}
+                          </code>
+                        </p>
+                      )}
                       {meta.website && (
                         <p className="credential-website">
                           <b>Website:</b> {meta.website}

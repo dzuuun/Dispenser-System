@@ -24,6 +24,7 @@
     "migrate-kiosk-credential-sessions": "node db/migrate-kiosk-credential-sessions.js",
     "migrate-password-reset-request-control": "node db/migrate-password-reset-request-control.js",
     "migrate-voucher-list-index": "node db/migrate-voucher-list-index.js",
+    "migrate-course-academic-levels": "node db/migrate-course-academic-levels.js",
     "migrate-security-hardening": "node db/migrate-security-hardening.js",
     "rebuild-db": "set ALLOW_DB_REBUILD=true&& node db/rebuild-development.js"
   },

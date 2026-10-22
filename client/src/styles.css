@@ -6227,6 +6227,40 @@ strong {
   padding: 15px 26px;
 }
 
+.course-editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.course-editor-modal > form {
+  flex: 1 1 auto;
+}
+
+.course-editor-modal .field,
+.course-editor-modal .field > span {
+  min-width: 0;
+}
+
+.course-editor-modal .field input,
+.course-editor-modal .field select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.course-editor-modal > footer {
+  padding: 15px 26px;
+}
+
+@media (max-width: 520px) {
+  .course-editor-modal > footer {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+}
+
 .bulk-import-modal form > footer {
   margin: 0;
 }

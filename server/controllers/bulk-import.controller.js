@@ -17,6 +17,7 @@ const TYPES = {
     sample: {
       CourseCode: "BSIT",
       CourseName: "Bachelor of Science in Information Technology",
+      AcademicLevel: "COLLEGE",
     },
   },
   students: {
