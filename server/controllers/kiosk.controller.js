@@ -244,7 +244,9 @@ export async function credentials(req, res) {
           course: `${student.course_code} — ${student.course_name}`,
         },
         credentials: ["SATP", "SCHOOLOGY", "KUMOSOFT", "EMAIL"]
-          .filter((type) => type !== "SATP" || isSatpEligible(student.academic_level))
+          .filter(
+            (type) => type !== "SATP" || isSatpEligible(student.academic_level),
+          )
           .filter((type) => controls.get(type)?.visible ?? true)
           .map((type) => {
             const credential = creds.find(
@@ -313,12 +315,10 @@ export async function revealCredentials(req, res) {
       [session.sub, period.id],
     );
     if (!student)
-      return res
-        .status(403)
-        .json({
-          message:
-            "Your enrollment is not active for the current academic period. Please verify again.",
-        });
+      return res.status(403).json({
+        message:
+          "Your enrollment is not active for the current academic period. Please verify again.",
+      });
     const [rows] = await pool.execute(
       "SELECT 'SATP' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username, encrypted_password, password_iv, password_auth_tag FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username, encrypted_password, password_iv, password_auth_tag FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
       [session.sub, session.sub, session.sub, session.sub],
@@ -329,7 +329,11 @@ export async function revealCredentials(req, res) {
     );
     const revealedCredentials = rows
       .filter((row) => {
-        if (row.credential_type === "SATP" && !isSatpEligible(student.academic_level)) return false;
+        if (
+          row.credential_type === "SATP" &&
+          !isSatpEligible(student.academic_level)
+        )
+          return false;
         const control = controls.get(row.credential_type);
         return (control?.visible ?? true) && !control?.maintenance;
       })
@@ -380,7 +384,9 @@ export async function requestPasswordReset(req, res) {
   const controls = await moduleControls();
   const resetRequestControl = controls.get("PASSWORD_RESET_REQUEST");
   if (resetRequestControl && !resetRequestControl.visible)
-    return res.status(503).json({ message: "Password reset requests are currently unavailable." });
+    return res
+      .status(503)
+      .json({ message: "Password reset requests are currently unavailable." });
   const control = controls.get(credentialType);
   if (control && (!control.visible || control.maintenance))
     return res
@@ -410,7 +416,7 @@ export async function requestPasswordReset(req, res) {
       await connection.rollback();
       return res.json({
         requestId: pending.id,
-        message: `Your ${credentialType} password reset request is already pending.`,
+        message: `Your ${credentialType} password reset request is already pending. Please check again after at least two business hours.`,
       });
     }
     const [result] = await connection.execute(
@@ -422,13 +428,13 @@ export async function requestPasswordReset(req, res) {
     await connection.commit();
     res.status(201).json({
       requestId: result.insertId,
-      message: `Your ${credentialType} password reset request was submitted.`,
+      message: `Your ${credentialType} password reset request was submitted. Please check again after at least two business hours.`,
     });
   } catch (error) {
     await connection.rollback();
     if (error.code === "ER_DUP_ENTRY")
       return res.json({
-        message: `Your ${credentialType} password reset request is already pending.`,
+        message: `Your ${credentialType} password reset request is already pending. Please check again after at least two business hours.`,
       });
     res
       .status(500)
@@ -539,7 +545,9 @@ export async function requestAccount(req, res) {
       );
       if (!isSatpEligible(student?.academic_level)) {
         await connection.rollback();
-        return res.status(403).json({ message: "SATP is available only for college courses." });
+        return res
+          .status(403)
+          .json({ message: "SATP is available only for college courses." });
       }
     }
     const [[account]] = await connection.execute(

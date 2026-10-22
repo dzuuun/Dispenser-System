@@ -500,12 +500,26 @@ async function reviewAccounts(rows, config, executor = pool) {
         row: rowNumber,
         message: `KumosoftID ${kumosoftId} is already linked to another student account.`,
       });
-    const login = config.column === "email_address" ? emailAddress : config.requiresKumosoftId ? kumosoftId : schoolId;
+    const login =
+      config.column === "email_address"
+        ? emailAddress
+        : config.requiresKumosoftId
+          ? kumosoftId
+          : schoolId;
     const loginKey = login.toLowerCase();
     if (seenLogins.has(loginKey))
-      return errors.push({ row: rowNumber, message: `Account ${login} appears more than once in the file.` });
-    if (accountOwnerMap.has(loginKey) && accountOwnerMap.get(loginKey) !== Number(studentId))
-      return errors.push({ row: rowNumber, message: `Account ${login} is already linked to another student.` });
+      return errors.push({
+        row: rowNumber,
+        message: `Account ${login} appears more than once in the file.`,
+      });
+    if (
+      accountOwnerMap.has(loginKey) &&
+      accountOwnerMap.get(loginKey) !== Number(studentId)
+    )
+      return errors.push({
+        row: rowNumber,
+        message: `Account ${login} is already linked to another student.`,
+      });
     seenLogins.add(loginKey);
     seen.add(schoolId);
     if (config.requiresKumosoftId) seenKumosoftIds.add(kumosoftId);
@@ -625,104 +639,109 @@ export async function importData(req, res) {
       const attachedItems = result.items.filter((item) => item.studentId);
       const pendingItems = result.items.filter((item) => !item.studentId);
       const failedRows = new Set();
-      const rowErrorCodes = new Set(["ER_DUP_ENTRY", "ER_DATA_TOO_LONG", "ER_BAD_NULL_ERROR", "ER_TRUNCATED_WRONG_VALUE", "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD", "ER_NO_REFERENCED_ROW_2", "ER_CHECK_CONSTRAINT_VIOLATED", "ER_WARN_DATA_OUT_OF_RANGE"]);
+      const rowErrorCodes = new Set([
+        "ER_DUP_ENTRY",
+        "ER_DATA_TOO_LONG",
+        "ER_BAD_NULL_ERROR",
+        "ER_TRUNCATED_WRONG_VALUE",
+        "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+        "ER_NO_REFERENCED_ROW_2",
+        "ER_CHECK_CONSTRAINT_VIOLATED",
+        "ER_WARN_DATA_OUT_OF_RANGE",
+      ]);
       const recordFailure = async (item, error) => {
         if (!rowErrorCodes.has(error.code)) throw error;
         await connection.query("ROLLBACK TO SAVEPOINT import_row");
         failedRows.add(item.row);
-        result.errors.push({ row: item.row, message: `Could not import row (${error.code}).` });
+        result.errors.push({
+          row: item.row,
+          message: `Could not import row (${error.code}).`,
+        });
       };
-      for (
-        let start = 0;
-        start < attachedItems.length;
-        start += 1
-      ) {
-        const batch = attachedItems.slice(
-          start,
-          start + 1,
-        );
+      for (let start = 0; start < attachedItems.length; start += 1) {
+        const batch = attachedItems.slice(start, start + 1);
         const item = batch[0];
         await connection.query("SAVEPOINT import_row");
         try {
-        const [owners] = await connection.query(`SELECT student_id FROM ${config.table} WHERE ${config.column}=? AND student_id<>? LIMIT 1`, [item.login, item.studentId]);
-        if (owners.length) throw Object.assign(new Error("Account belongs to another student"), { code: "ER_DUP_ENTRY" });
-        const values = [];
-        const placeholders = batch.map((item) => {
-          const encrypted =
-            item.password === null
-              ? {
-                  encrypted_password: null,
-                  password_iv: null,
-                  password_auth_tag: null,
-                }
-              : encryptPassword(item.password);
-          values.push(
-            item.studentId,
-            item.login,
-            encrypted.encrypted_password,
-            encrypted.password_iv,
-            encrypted.password_auth_tag,
+          const [owners] = await connection.query(
+            `SELECT student_id FROM ${config.table} WHERE ${config.column}=? AND student_id<>? LIMIT 1`,
+            [item.login, item.studentId],
           );
-          return "(?, ?, ?, ?, ?, 1)";
-        });
-        await connection.query(
-          `INSERT INTO ${config.table} (student_id, ${config.column}, encrypted_password, password_iv, password_auth_tag, is_active)
+          if (owners.length)
+            throw Object.assign(
+              new Error("Account belongs to another student"),
+              { code: "ER_DUP_ENTRY" },
+            );
+          const values = [];
+          const placeholders = batch.map((item) => {
+            const encrypted =
+              item.password === null
+                ? {
+                    encrypted_password: null,
+                    password_iv: null,
+                    password_auth_tag: null,
+                  }
+                : encryptPassword(item.password);
+            values.push(
+              item.studentId,
+              item.login,
+              encrypted.encrypted_password,
+              encrypted.password_iv,
+              encrypted.password_auth_tag,
+            );
+            return "(?, ?, ?, ?, ?, 1)";
+          });
+          await connection.query(
+            `INSERT INTO ${config.table} (student_id, ${config.column}, encrypted_password, password_iv, password_auth_tag, is_active)
            VALUES ${placeholders.join(", ")}
            ON DUPLICATE KEY UPDATE ${config.column}=VALUES(${config.column}), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag), is_active=1`,
-          values,
-        );
-        if (config.requiresKumosoftId)
-          await Promise.all(
-            batch.map((item) =>
-              connection.query("UPDATE students SET kumosoft_id=? WHERE id=?", [
-                item.kumosoftId,
-                item.studentId,
-              ]),
-            ),
+            values,
           );
+          if (config.requiresKumosoftId)
+            await Promise.all(
+              batch.map((item) =>
+                connection.query(
+                  "UPDATE students SET kumosoft_id=? WHERE id=?",
+                  [item.kumosoftId, item.studentId],
+                ),
+              ),
+            );
         } catch (error) {
           await recordFailure(item, error);
         }
         await connection.query("RELEASE SAVEPOINT import_row");
       }
-      for (
-        let start = 0;
-        start < pendingItems.length;
-        start += 1
-      ) {
-        const batch = pendingItems.slice(
-          start,
-          start + 1,
-        );
+      for (let start = 0; start < pendingItems.length; start += 1) {
+        const batch = pendingItems.slice(start, start + 1);
         const item = batch[0];
         await connection.query("SAVEPOINT import_row");
         try {
-        const values = [];
-        const placeholders = batch.map((item) => {
-          const encrypted =
-            item.password === null
-              ? {
-                  encrypted_password: null,
-                  password_iv: null,
-                  password_auth_tag: null,
-                }
-              : encryptPassword(item.password);
-          values.push(
-            req.params.type,
-            item.schoolId,
-            item.login,
-            encrypted.encrypted_password,
-            encrypted.password_iv,
-            encrypted.password_auth_tag,
-          );
-          return "(?, ?, ?, ?, ?, ?)";
-        });
-        await connection.query(
-          `INSERT INTO pending_account_imports (account_type, school_id, account_name, encrypted_password, password_iv, password_auth_tag)
+          const values = [];
+          const placeholders = batch.map((item) => {
+            const encrypted =
+              item.password === null
+                ? {
+                    encrypted_password: null,
+                    password_iv: null,
+                    password_auth_tag: null,
+                  }
+                : encryptPassword(item.password);
+            values.push(
+              req.params.type,
+              item.schoolId,
+              item.login,
+              encrypted.encrypted_password,
+              encrypted.password_iv,
+              encrypted.password_auth_tag,
+            );
+            return "(?, ?, ?, ?, ?, ?)";
+          });
+          await connection.query(
+            `INSERT INTO pending_account_imports (account_type, school_id, account_name, encrypted_password, password_iv, password_auth_tag)
            VALUES ${placeholders.join(", ")}
            ON DUPLICATE KEY UPDATE account_name=VALUES(account_name), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag)`,
-          values,
-        );
+            values,
+          );
         } catch (error) {
           await recordFailure(item, error);
         }
@@ -730,7 +749,9 @@ export async function importData(req, res) {
       }
       result.items = result.items.filter((item) => !failedRows.has(item.row));
       result.new = result.items.filter((item) => item.status === "new").length;
-      result.update = result.items.filter((item) => item.status === "update").length;
+      result.update = result.items.filter(
+        (item) => item.status === "update",
+      ).length;
     }
     await connection.commit();
     res.json({

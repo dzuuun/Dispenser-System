@@ -1,5 +1,8 @@
 import { pool } from "../config/db.js";
-import { inferAcademicLevel, normalizeAcademicLevel } from "../services/course-level.service.js";
+import {
+  inferAcademicLevel,
+  normalizeAcademicLevel,
+} from "../services/course-level.service.js";
 import {
   readWorkbookRows,
   workbookBase64,
@@ -40,11 +43,17 @@ export async function createCourse(req, res) {
     .toUpperCase();
   const name = String(req.body.name || "").trim();
   const isActive = req.body.isActive === false ? 0 : 1;
-  const academicLevel = req.body.academicLevel === undefined
-    ? inferAcademicLevel(code, name)
-    : normalizeAcademicLevel(req.body.academicLevel);
+  const academicLevel =
+    req.body.academicLevel === undefined
+      ? inferAcademicLevel(code, name)
+      : normalizeAcademicLevel(req.body.academicLevel);
   if (!academicLevel)
-    return res.status(400).json({ message: "Choose College, Graduate school, or Other as the academic level." });
+    return res
+      .status(400)
+      .json({
+        message:
+          "Choose College, Graduate school, or Other as the academic level.",
+      });
   if (!code || !name)
     return res
       .status(400)
@@ -56,7 +65,13 @@ export async function createCourse(req, res) {
     );
     res
       .status(201)
-      .json({ id: created.insertId, code, name, academic_level: academicLevel, is_active: Boolean(isActive) });
+      .json({
+        id: created.insertId,
+        code,
+        name,
+        academic_level: academicLevel,
+        is_active: Boolean(isActive),
+      });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY")
       return res
@@ -71,11 +86,17 @@ export async function updateCourse(req, res) {
     .toUpperCase();
   const name = String(req.body.name || "").trim();
   const isActive = req.body.isActive === false ? 0 : 1;
-  const academicLevel = req.body.academicLevel === undefined
-    ? null
-    : normalizeAcademicLevel(req.body.academicLevel);
+  const academicLevel =
+    req.body.academicLevel === undefined
+      ? null
+      : normalizeAcademicLevel(req.body.academicLevel);
   if (req.body.academicLevel !== undefined && !academicLevel)
-    return res.status(400).json({ message: "Choose College, Graduate school, or Other as the academic level." });
+    return res
+      .status(400)
+      .json({
+        message:
+          "Choose College, Graduate school, or Other as the academic level.",
+      });
   if (!code || !name)
     return res
       .status(400)
@@ -139,10 +160,17 @@ async function readImportRows(file) {
     const name = String(
       row.CourseName || row.Name || row.course_name || "",
     ).trim();
-    const levelInput = String(row.AcademicLevel || row.academic_level || row["Academic Level"] || "").trim();
-    const academicLevel = levelInput ? normalizeAcademicLevel(levelInput) : null;
+    const levelInput = String(
+      row.AcademicLevel || row.academic_level || row["Academic Level"] || "",
+    ).trim();
+    const academicLevel = levelInput
+      ? normalizeAcademicLevel(levelInput)
+      : null;
     if (levelInput && !academicLevel)
-      return errors.push({ row: index + 2, message: "AcademicLevel must be College, Graduate school, or Other." });
+      return errors.push({
+        row: index + 2,
+        message: "AcademicLevel must be College, Graduate school, or Other.",
+      });
     if (!code || !name)
       return errors.push({
         row: index + 2,
@@ -173,10 +201,14 @@ async function classifyImport(file, executor = pool) {
   }
   const items = parsed.valid.map((item) => {
     const record = existing.get(item.code);
-    const academicLevel = item.academicLevel || record?.academic_level || inferAcademicLevel(item.code, item.name);
+    const academicLevel =
+      item.academicLevel ||
+      record?.academic_level ||
+      inferAcademicLevel(item.code, item.name);
     const status = !record
       ? "new"
-      : record.name.trim().toLowerCase() === item.name.trim().toLowerCase() && record.academic_level === academicLevel
+      : record.name.trim().toLowerCase() === item.name.trim().toLowerCase() &&
+          record.academic_level === academicLevel
         ? "unchanged"
         : "update";
     return { ...item, academicLevel, status, id: record?.id };
@@ -221,25 +253,35 @@ export async function importCourses(req, res) {
     for (const item of result.items) {
       await connection.query("SAVEPOINT import_row");
       try {
-      if (item.status === "new") {
-        await connection.execute(
-          "INSERT INTO courses (code, name, academic_level, is_active) VALUES (?, ?, ?, 1)",
-          [item.code, item.name, item.academicLevel],
-        );
-        inserted++;
-      }
-      if (item.status === "update") {
-        await connection.execute("UPDATE courses SET name = ?, academic_level=? WHERE id = ?", [
-          item.name,
-          item.academicLevel,
-          item.id,
-        ]);
-        updated++;
-      }
+        if (item.status === "new") {
+          await connection.execute(
+            "INSERT INTO courses (code, name, academic_level, is_active) VALUES (?, ?, ?, 1)",
+            [item.code, item.name, item.academicLevel],
+          );
+          inserted++;
+        }
+        if (item.status === "update") {
+          await connection.execute(
+            "UPDATE courses SET name = ?, academic_level=? WHERE id = ?",
+            [item.name, item.academicLevel, item.id],
+          );
+          updated++;
+        }
       } catch (error) {
-        if (!["ER_DUP_ENTRY", "ER_DATA_TOO_LONG", "ER_BAD_NULL_ERROR", "ER_WARN_DATA_OUT_OF_RANGE"].includes(error.code)) throw error;
+        if (
+          ![
+            "ER_DUP_ENTRY",
+            "ER_DATA_TOO_LONG",
+            "ER_BAD_NULL_ERROR",
+            "ER_WARN_DATA_OUT_OF_RANGE",
+          ].includes(error.code)
+        )
+          throw error;
         await connection.query("ROLLBACK TO SAVEPOINT import_row");
-        result.errors.push({ row: item.row, message: `Could not import row (${error.code}).` });
+        result.errors.push({
+          row: item.row,
+          message: `Could not import row (${error.code}).`,
+        });
       }
       await connection.query("RELEASE SAVEPOINT import_row");
     }

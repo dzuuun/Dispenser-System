@@ -24,7 +24,9 @@ try {
     [new Date("2026-10-22T00:49:05.000Z")],
   );
   assert.equal(roundTrip.value.toISOString(), row.event_time.toISOString());
-  console.log("Passed: database clock, TIMESTAMP, DATETIME, birthdays, Date write round-trip.");
+  console.log(
+    "Passed: database clock, TIMESTAMP, DATETIME, birthdays, Date write round-trip.",
+  );
 } finally {
   await connection.query("DROP TEMPORARY TABLE IF EXISTS timezone_check");
   connection.release();

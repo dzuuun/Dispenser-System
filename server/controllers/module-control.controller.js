@@ -27,8 +27,13 @@ export async function updateModuleControl(req, res) {
     return res
       .status(400)
       .json({ message: "Use maintenance mode to control the kiosk." });
-  if (moduleKey === "PASSWORD_RESET_REQUEST" && typeof isMaintenance === "boolean")
-    return res.status(400).json({ message: "Use visibility to control password reset requests." });
+  if (
+    moduleKey === "PASSWORD_RESET_REQUEST" &&
+    typeof isMaintenance === "boolean"
+  )
+    return res
+      .status(400)
+      .json({ message: "Use visibility to control password reset requests." });
   if (typeof isVisible !== "boolean" && typeof isMaintenance !== "boolean")
     return res
       .status(400)
