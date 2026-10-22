@@ -7501,6 +7501,34 @@ function PasswordResetRequestsPage({ token }) {
     setAccountRequestForm({ emailAddress: "", password: "" });
     setSelected(item);
   };
+  const copyRequestValue = async (value, label) => {
+    if (!value) return;
+    setError("");
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        // The LAN deployment uses HTTP, where the Clipboard API is unavailable.
+        const field = document.createElement("textarea");
+        const previousFocus = document.activeElement;
+        field.value = value;
+        field.readOnly = true;
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.append(field);
+        try {
+          field.select();
+          if (!document.execCommand("copy")) throw new Error("Copy failed.");
+        } finally {
+          field.remove();
+          previousFocus?.focus({ preventScroll: true });
+        }
+      }
+      setToast(`${label} copied.`);
+    } catch {
+      setError(`Unable to copy automatically. Select and copy the ${label.toLowerCase()} above.`);
+    }
+  };
   const accountRequestReady =
     selected?.request_kind !== "ACCOUNT_CREATION" ||
     (Boolean(accountRequestForm.password) &&
@@ -7840,20 +7868,26 @@ function PasswordResetRequestsPage({ token }) {
               ) : (
                 <>
                   <label>
-                    <span>Username</span>
+                    <span>{selected.credential_type === "EMAIL" ? "Email address" : "Username"}</span>
                     <code>{selected.account_username || "Unavailable"}</code>
                   </label>
+                  {selected.credential_type === "EMAIL" && (
+                    <Button
+                      variant="secondary"
+                      disabled={!selected.account_username}
+                      onClick={() => copyRequestValue(selected.account_username, "Email address")}
+                    >
+                      <AppIcon name="content_copy" /> Copy email
+                    </Button>
+                  )}
                   <label>
                     <span>Default password</span>
                     <code>{selected.default_password || "Unavailable"}</code>
                   </label>
                   <Button
                     variant="secondary"
-                    onClick={() =>
-                      navigator.clipboard
-                        .writeText(selected.default_password || "")
-                        .then(() => setToast("Default password copied."))
-                    }
+                    disabled={!selected.default_password}
+                    onClick={() => copyRequestValue(selected.default_password, "Default password")}
                   >
                     Copy default password
                   </Button>
