@@ -7053,12 +7053,41 @@ function TransactionsPage({ token }) {
   const [transactions, setTransactions] = useState([]),
     [error, setError] = useState("");
   useEffect(() => {
-    request("/admin/transactions", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(setTransactions)
-      .catch((err) => setError(err.message));
-  }, []);
+    const controller = new AbortController();
+    let loading = false;
+    let lastSnapshot = "";
+    const refresh = async () => {
+      if (controller.signal.aborted || loading || document.visibilityState === "hidden") return;
+      loading = true;
+      try {
+        const next = await request("/admin/transactions", {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        const snapshot = JSON.stringify(next);
+        if (snapshot !== lastSnapshot) {
+          lastSnapshot = snapshot;
+          setTransactions(next);
+        }
+        setError("");
+      } catch (err) {
+        if (!controller.signal.aborted) setError(err.message);
+      } finally {
+        loading = false;
+      }
+    };
+    refresh();
+    const interval = setInterval(refresh, 3000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      controller.abort();
+      clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [token]);
   const sortedTransactions = [...transactions].sort(
     (a, b) =>
       new Date(b.created_at) - new Date(a.created_at) ||
