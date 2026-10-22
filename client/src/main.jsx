@@ -7102,9 +7102,14 @@ function ModuleControlsPage({ token }) {
 }
 
 function TransactionsPage({ token }) {
-  const [transactions, setTransactions] = useState([]),
+  const [listing, setListing] = useState({ rows: [], total: 0, today: 0, studentsServed: 0, pages: 1 }),
+    [page, setPage] = useState(1),
+    [limit, setLimit] = useState(25),
+    [loading, setLoading] = useState(true),
     [error, setError] = useState("");
+  const transactions = listing.rows;
   useEffect(() => {
+    setLoading(true);
     const controller = new AbortController();
     let loading = false;
     let lastSnapshot = "";
@@ -7117,7 +7122,7 @@ function TransactionsPage({ token }) {
         return;
       loading = true;
       try {
-        const next = await request("/admin/transactions", {
+        const next = await request(`/admin/transactions?page=${page}&limit=${limit}`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
@@ -7125,12 +7130,14 @@ function TransactionsPage({ token }) {
         const snapshot = JSON.stringify(next);
         if (snapshot !== lastSnapshot) {
           lastSnapshot = snapshot;
-          setTransactions(next);
+          setListing(next);
+          if (next.page !== page) setPage(next.page);
         }
         setError("");
       } catch (err) {
         if (!controller.signal.aborted) setError(err.message);
       } finally {
+        if (!controller.signal.aborted) setLoading(false);
         loading = false;
       }
     };
@@ -7144,13 +7151,7 @@ function TransactionsPage({ token }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [token]);
-  const sortedTransactions = [...transactions].sort(
-    (a, b) =>
-      new Date(b.created_at) - new Date(a.created_at) ||
-      Number(b.id) - Number(a.id),
-  );
-  const today = new Date().toDateString();
+  }, [token, page, limit]);
   return (
     <>
       <PageHeader
@@ -7160,27 +7161,15 @@ function TransactionsPage({ token }) {
       <section className="student-summary transaction-summary">
         <article>
           <span>Total reveals</span>
-          <strong>{transactions.length}</strong>
+          <strong>{listing.total}</strong>
         </article>
         <article>
           <span>Reveals today</span>
-          <strong>
-            {
-              transactions.filter(
-                (item) => new Date(item.created_at).toDateString() === today,
-              ).length
-            }
-          </strong>
+          <strong>{listing.today}</strong>
         </article>
         <article>
           <span>Students served</span>
-          <strong>
-            {
-              new Set(
-                transactions.map((item) => item.student_id).filter(Boolean),
-              ).size
-            }
-          </strong>
+          <strong>{listing.studentsServed}</strong>
         </article>
       </section>
       <section className="panel transactions-panel">
@@ -7189,6 +7178,7 @@ function TransactionsPage({ token }) {
           passwords.
         </div>
         {error && <p className="error">{error}</p>}
+        {loading && <p className="loading-row" role="status">Loading transactions...</p>}
         {transactions.length ? (
           <div className="reset-request-table-wrap">
             <table className="reset-request-table transactions-table">
@@ -7201,7 +7191,7 @@ function TransactionsPage({ token }) {
                 </tr>
               </thead>
               <tbody>
-                {sortedTransactions.map((item) => (
+                {transactions.map((item) => (
                   <tr key={item.id}>
                     <td>
                       {item.student_id ? (
@@ -7227,12 +7217,30 @@ function TransactionsPage({ token }) {
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : !loading && !error ? (
           <Empty
             title="No password reveals yet"
             detail="A record will appear after a student confirms Show All on the kiosk."
           />
-        )}
+        ) : null}
+        <footer className="student-list-pagination">
+          <span>
+            Showing {transactions.length ? (page - 1) * limit + 1 : 0}
+            {" - "}{Math.min(page * limit, listing.total)} of {listing.total} transactions
+          </span>
+          <div>
+            <select aria-label="Transactions per page" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }}>
+              {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size} / page</option>)}
+            </select>
+            <button aria-label="First page" onClick={() => setPage(1)} disabled={loading || page === 1}>First</button>
+            <button aria-label="Previous page" onClick={() => setPage(page - 1)} disabled={loading || page === 1}>Previous</button>
+            <label>
+              Page <input type="number" aria-label="Page number" min="1" max={listing.pages} value={page} onChange={(event) => setPage(Math.min(listing.pages, Math.max(1, Number(event.target.value) || 1)))} /> of {listing.pages}
+            </label>
+            <button aria-label="Next page" onClick={() => setPage(page + 1)} disabled={loading || page >= listing.pages}>Next</button>
+            <button aria-label="Last page" onClick={() => setPage(listing.pages)} disabled={loading || page >= listing.pages}>Last</button>
+          </div>
+        </footer>
       </section>
     </>
   );

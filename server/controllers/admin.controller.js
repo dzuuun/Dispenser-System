@@ -67,7 +67,36 @@ export async function dashboard(_req, res) {
   });
 }
 
-export async function listTransactions(_req, res) {
+export async function listTransactions(req, res) {
+  // Keep the array response compatible with older clients during deployment.
+  if (req.query.page !== undefined) {
+    const period = await currentAcademicPeriod();
+    const requestedPage = Number(req.query.page);
+    const requestedLimit = Number(req.query.limit);
+    const limit = [10, 25, 50, 100].includes(requestedLimit) ? requestedLimit : 25;
+    const where = "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
+    const [[summary]] = await pool.execute(
+      `SELECT COUNT(*) AS total,
+        COALESCE(SUM(DATE(t.created_at)=CURRENT_DATE()), 0) AS today,
+        COUNT(DISTINCT t.student_id) AS studentsServed
+       FROM credential_transactions t WHERE ${where}`,
+      [period?.id || 0],
+    );
+    const total = Number(summary.total);
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const page = Math.min(pages, Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1);
+    const [rows] = await pool.query(
+      `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
+        t.ip_address, t.created_at, s.student_id, s.first_name, s.middle_name, s.last_name
+       FROM credential_transactions t LEFT JOIN students s ON s.id=t.student_id
+       WHERE ${where} ORDER BY t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
+      [period?.id || 0, limit, (page - 1) * limit],
+    );
+    return res.set("Cache-Control", "no-store").json({
+      rows, page, limit, pages, total,
+      today: Number(summary.today), studentsServed: Number(summary.studentsServed),
+    });
+  }
   const [rows] = await pool.query(
     `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
             t.ip_address, t.created_at, s.student_id,
