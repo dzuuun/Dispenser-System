@@ -7838,8 +7838,13 @@ body,
 .sidebar nav {
   min-height: 0;
   padding: 7px 11px;
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 3px;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #538d76 transparent;
 }
@@ -7865,10 +7870,31 @@ body,
   background-color: #91c8af;
 }
 
-.sidebar .nav-section,
 .sidebar .nav-label,
 .sidebar .admin-chip {
   display: none;
+}
+
+.sidebar .nav-section {
+  display: block;
+  visibility: hidden;
+  height: 14px;
+  margin: 10px 12px 6px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.sidebar .nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar .nav-icon {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
 }
 
 .admin-chip-compact {
@@ -7885,23 +7911,44 @@ body,
 
 .sidebar .nav-link {
   position: relative;
-  justify-content: center;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: flex-start;
   min-width: 0;
-  padding: 13px;
+  height: 44px;
+  min-height: 44px;
+  padding: 10px 8px 10px 12px;
+  border: 0;
+  border-left: 3px solid transparent;
 }
 
 .sidebar .nav-link.active {
   border-right: 0;
-  border-bottom: 3px solid #f0b331;
-  border-left: 0;
+  border-bottom: 0;
+  border-left: 3px solid #f0b331;
 }
 
 .sidebar .sidebar-bottom {
   padding: 10px 11px 14px;
-}
-
-.sidebar .sidebar-bottom {
   display: grid;
+  grid-template-rows: 62px repeat(2, 44px);
+  align-items: center;
+  gap: 4px;
+}
+.sidebar .admin-chip-compact {
+  margin: 0 auto;
+}
+.sidebar .admin-chip {
+  box-sizing: border-box;
+  height: 62px;
+  margin: 0 5px;
+  align-content: center;
+}
+.sidebar .admin-chip b,
+.sidebar .admin-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-open .sidebar .nav-section,
@@ -7916,16 +7963,19 @@ body,
 .sidebar-open .sidebar .nav-label {
   display: block;
 }
+.sidebar-open .sidebar .nav-section {
+  visibility: visible;
+}
 .sidebar-open .sidebar .nav-link {
   justify-content: flex-start;
-  padding: 11px 13px;
+  padding: 10px 8px 10px 12px;
 }
 .sidebar-open .sidebar .nav-link.active {
   border-bottom: 0;
   border-left: 3px solid #f0b331;
 }
 .sidebar-open .sidebar .sidebar-bottom {
-  padding: 14px 12px 16px;
+  padding: 10px 11px 14px;
 }
 
 .portal-content {
