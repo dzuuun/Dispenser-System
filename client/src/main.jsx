@@ -8,6 +8,11 @@ import "material-symbols/rounded.css";
 import "./styles.css";
 import ndmuLogo from "./assets/ndmu-logo.png";
 import { generateRandomPassword } from "./password-generator.js";
+import {
+  REQUEST_PERMISSION_GROUPS,
+  REQUEST_PERMISSION_KEYS,
+  effectiveRequestPermissions,
+} from "../../shared/request-permissions.mjs";
 
 const APP_BASE = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
 const API = `${APP_BASE}/api`;
@@ -224,12 +229,14 @@ function RequestPasswordField({ label, value, onChange, onGenerate, saving }) {
   );
 }
 function ResolvedRequestDetails({ request, onCopy }) {
-  const requestType = {
-    PASSWORD_RESET: "Password reset",
-    ACCOUNT_CREATION: "Account creation",
-    VOUCHER_REQUEST: "Voucher replacement",
-  }[request.request_kind] || request.request_kind;
-  const formatTime = (value) => value ? new Date(value).toLocaleString() : "Not recorded";
+  const requestType =
+    {
+      PASSWORD_RESET: "Password reset",
+      ACCOUNT_CREATION: "Account creation",
+      VOUCHER_REQUEST: "Voucher replacement",
+    }[request.request_kind] || request.request_kind;
+  const formatTime = (value) =>
+    value ? new Date(value).toLocaleString() : "Not recorded";
   const facts = [
     ["Request type", requestType],
     ["Course", request.course_code || "Not recorded"],
@@ -263,9 +270,18 @@ function ResolvedRequestDetails({ request, onCopy }) {
       ) : (
         <div className="request-account-values">
           <RequestValueField
-            label={request.credential_type === "EMAIL" ? "Email address" : "Username"}
+            label={
+              request.credential_type === "EMAIL" ? "Email address" : "Username"
+            }
             value={request.account_username}
-            onCopy={() => onCopy(request.account_username, request.credential_type === "EMAIL" ? "Email address" : "Username")}
+            onCopy={() =>
+              onCopy(
+                request.account_username,
+                request.credential_type === "EMAIL"
+                  ? "Email address"
+                  : "Username",
+              )
+            }
           />
           <RequestValueField
             label="Current default password"
@@ -744,7 +760,8 @@ const navGroups = [
   ["Administration", "/admin/users", "Admin users", "admin_panel_settings"],
   ["Periods", "/admin/academic-periods", "Academic periods", "calendar_month"],
 ];
-function AdminShell({ children, path, onLogout, token }) {
+function AdminShell({ children, path, onLogout, token, admin }) {
+  const requestOnly = admin?.role === "Request Staff";
   const [sidebarPinned, setSidebarPinned] = useState(false);
   const [sidebarPreview, setSidebarPreview] = useState(false);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
@@ -790,6 +807,7 @@ function AdminShell({ children, path, onLogout, token }) {
   }, [token]);
   useEffect(() => {
     let active = true;
+    if (requestOnly) return;
     const loadPeriod = () =>
       request("/admin/academic-periods", {
         headers: { Authorization: `Bearer ${token}` },
@@ -807,7 +825,7 @@ function AdminShell({ children, path, onLogout, token }) {
       active = false;
       window.removeEventListener("academic-period-updated", loadPeriod);
     };
-  }, [token]);
+  }, [token, requestOnly]);
   const closeSidebarFromMain = (event) => {
     if (event.type === "click" && dismissingSidebarClick.current) {
       event.preventDefault();
@@ -853,22 +871,26 @@ function AdminShell({ children, path, onLogout, token }) {
         <button
           type="button"
           className="topbar-brand"
-          title="Dashboard"
-          onClick={() => navigate("/admin")}
+          title={requestOnly ? "Credential requests" : "Dashboard"}
+          onClick={() =>
+            navigate(requestOnly ? "/admin/password-resets" : "/admin")
+          }
         >
           <Brand compact light />
         </button>
-        <div className="topbar-academic-period" aria-live="polite">
-          <AppIcon name="calendar_month" size={20} />
-          <span>
-            <small>ACTIVE ACADEMIC PERIOD</small>
-            <b>
-              {activePeriod
-                ? `${activePeriod.schoolYear} · ${activePeriod.semester}`
-                : "No active period"}
-            </b>
-          </span>
-        </div>
+        {!requestOnly && (
+          <div className="topbar-academic-period" aria-live="polite">
+            <AppIcon name="calendar_month" size={20} />
+            <span>
+              <small>ACTIVE ACADEMIC PERIOD</small>
+              <b>
+                {activePeriod
+                  ? `${activePeriod.schoolYear} · ${activePeriod.semester}`
+                  : "No active period"}
+              </b>
+            </span>
+          </div>
+        )}
       </header>
       <aside
         className="sidebar"
@@ -892,54 +914,57 @@ function AdminShell({ children, path, onLogout, token }) {
       >
         <nav id="admin-navigation">
           <p className="nav-section">OPERATIONS</p>
-          {navGroups.map(([group, to, label, icon], index) => (
-            <React.Fragment key={to}>
-              {[1, 6, 10].includes(index) && (
-                <p className="nav-section">
-                  {index === 1
-                    ? "RECORDS & DISPENSING"
-                    : index === 6
-                      ? "MONITORING"
-                      : "ADMINISTRATION"}
-                </p>
-              )}
-              <button
-                type="button"
-                title={label}
-                className={
-                  path === to || (to !== "/admin" && path.startsWith(to))
-                    ? "nav-link active"
-                    : "nav-link"
-                }
-                onClick={() => navigate(to)}
-              >
-                <span className="nav-icon">
-                  <AppIcon name={icon} size={20} />
-                </span>
-                <span className="nav-label">{label}</span>
-                {to === "/admin/password-resets" && pendingRequestCount > 0 && (
-                  <span
-                    className="nav-notification-badge"
-                    aria-label={`${pendingRequestCount} pending requests`}
-                  >
-                    {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
-                  </span>
+          {navGroups
+            .filter(([, to]) => !requestOnly || to === "/admin/password-resets")
+            .map(([group, to, label, icon], index) => (
+              <React.Fragment key={to}>
+                {[1, 6, 10].includes(index) && (
+                  <p className="nav-section">
+                    {index === 1
+                      ? "RECORDS & DISPENSING"
+                      : index === 6
+                        ? "MONITORING"
+                        : "ADMINISTRATION"}
+                  </p>
                 )}
-              </button>
-            </React.Fragment>
-          ))}
+                <button
+                  type="button"
+                  title={label}
+                  className={
+                    path === to || (to !== "/admin" && path.startsWith(to))
+                      ? "nav-link active"
+                      : "nav-link"
+                  }
+                  onClick={() => navigate(to)}
+                >
+                  <span className="nav-icon">
+                    <AppIcon name={icon} size={20} />
+                  </span>
+                  <span className="nav-label">{label}</span>
+                  {to === "/admin/password-resets" &&
+                    pendingRequestCount > 0 && (
+                      <span
+                        className="nav-notification-badge"
+                        aria-label={`${pendingRequestCount} pending requests`}
+                      >
+                        {pendingRequestCount > 99 ? "99+" : pendingRequestCount}
+                      </span>
+                    )}
+                </button>
+              </React.Fragment>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <span
             className="admin-chip-compact"
-            title="MIS Administrator — Super Admin"
-            aria-label="MIS Administrator, Super Admin"
+            title={`${admin?.fullName || admin?.username || "Administrator"} — ${admin?.role || "Administrator"}`}
+            aria-label={`${admin?.fullName || admin?.username || "Administrator"}, ${admin?.role || "Administrator"}`}
           >
             <AppIcon name="admin_panel_settings" size={21} />
           </span>
           <div className="admin-chip">
-            <b>MIS Administrator</b>
-            <small>Super Admin</small>
+            <b>{admin?.fullName || admin?.username || "Administrator"}</b>
+            <small>{admin?.role || "Administrator"}</small>
           </div>
           <button
             type="button"
@@ -6165,6 +6190,7 @@ function AdminApp() {
   const { path, revision } = usePath();
   const [token, setToken] = useState("");
   const [checking, setChecking] = useState(true);
+  const [admin, setAdmin] = useState(null);
   useEffect(() => {
     const updateToken = (event) => setToken(event.detail);
     addEventListener("admin-token-refreshed", updateToken);
@@ -6184,7 +6210,10 @@ function AdminApp() {
       return;
     }
     request("/auth/me", { headers: { Authorization: `Bearer ${token}` } })
-      .then(() => setChecking(false))
+      .then(({ admin: currentAdmin }) => {
+        setAdmin(currentAdmin);
+        setChecking(false);
+      })
       .catch(async (error) => {
         if (error.message === "Authentication required.") {
           try {
@@ -6210,7 +6239,12 @@ function AdminApp() {
     );
   if (!token) return <AdminLogin onLogin={setToken} />;
   const content =
-    path === "/admin" ? (
+    admin?.role === "Request Staff" && path !== "/admin/password-resets" ? (
+      <AdminRedirect
+        to="/admin/password-resets"
+        message="Opening credential requests..."
+      />
+    ) : path === "/admin" ? (
       <Dashboard token={token} />
     ) : path === "/admin/students" ? (
       <StudentsPage token={token} />
@@ -6250,6 +6284,7 @@ function AdminApp() {
     <AdminShell
       path={path}
       token={token}
+      admin={admin}
       onLogout={() => {
         request("/auth/logout", { method: "POST" }).catch(() => {});
         setToken("");
@@ -7320,8 +7355,74 @@ function TransactionsPage({ token }) {
     [page, setPage] = useState(1),
     [limit, setLimit] = useState(25),
     [loading, setLoading] = useState(true),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [periods, setPeriods] = useState([]),
+    [periodId, setPeriodId] = useState(""),
+    [periodsLoading, setPeriodsLoading] = useState(true),
+    [periodError, setPeriodError] = useState(""),
+    [exporting, setExporting] = useState(false),
+    [exportError, setExportError] = useState("");
   const transactions = listing.rows;
+  const currentPeriod = periods.find((period) => period.isCurrent);
+  const periodQuery = periodId
+    ? `academicPeriodId=${encodeURIComponent(periodId)}`
+    : "";
+  useEffect(() => {
+    const controller = new AbortController();
+    setPeriodsLoading(true);
+    request("/admin/transactions/academic-periods", {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then((next) => {
+        if (!controller.signal.aborted) {
+          setPeriods(next);
+          setPeriodError("");
+        }
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) setPeriodError(err.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPeriodsLoading(false);
+      });
+    return () => controller.abort();
+  }, [token]);
+
+  const exportWorkbook = async () => {
+    setExporting(true);
+    setExportError("");
+    try {
+      const response = await adminFetch(
+        `/admin/transactions/export${periodQuery ? `?${periodQuery}` : ""}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!response.ok) {
+        let message = "Unable to export transactions. Please try again.";
+        try {
+          message = (await response.json()).message || message;
+        } catch {}
+        throw new Error(message);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download =
+        response.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] || "transactions.xlsx";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      setExportError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
   useEffect(() => {
     setLoading(true);
     const controller = new AbortController();
@@ -7337,7 +7438,7 @@ function TransactionsPage({ token }) {
       loading = true;
       try {
         const next = await request(
-          `/admin/transactions?page=${page}&limit=${limit}`,
+          `/admin/transactions?page=${page}&limit=${limit}${periodQuery ? `&${periodQuery}` : ""}`,
           {
             headers: { Authorization: `Bearer ${token}` },
             signal: controller.signal,
@@ -7368,7 +7469,7 @@ function TransactionsPage({ token }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [token, page, limit]);
+  }, [token, page, limit, periodQuery]);
   return (
     <>
       <PageHeader
@@ -7394,6 +7495,60 @@ function TransactionsPage({ token }) {
           A password reveal is recorded only after the student confirms Show all
           passwords.
         </div>
+        <div className="records-table-toolbar transaction-export-toolbar">
+          <label className="records-table-field">
+            Academic period
+            <select
+              aria-label="Transaction academic period"
+              value={periodId}
+              disabled={periodsLoading || exporting}
+              onChange={(event) => {
+                setPeriodId(event.target.value);
+                setPage(1);
+                setListing({
+                  rows: [],
+                  total: 0,
+                  today: 0,
+                  studentsServed: 0,
+                  pages: 1,
+                });
+                setLoading(true);
+                setError("");
+                setExportError("");
+              }}
+            >
+              <option value="">
+                {currentPeriod
+                  ? `${currentPeriod.schoolYear} · ${currentPeriod.semester} (Current)`
+                  : "Current academic period"}
+              </option>
+              {periods
+                .filter((period) => !period.isCurrent)
+                .map((period) => (
+                  <option key={period.id} value={period.id}>
+                    {period.schoolYear} · {period.semester}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="transaction-export-actions">
+            <span>Export includes all rows in this academic period.</span>
+            <Button onClick={exportWorkbook} disabled={exporting || loading}>
+              <AppIcon name="download" />{" "}
+              {exporting ? "Exporting..." : "Export Excel"}
+            </Button>
+          </div>
+        </div>
+        {periodError && (
+          <p className="error" role="alert">
+            Unable to load academic periods: {periodError}
+          </p>
+        )}
+        {exportError && (
+          <p className="error" role="alert">
+            {exportError}
+          </p>
+        )}
         {error && <p className="error">{error}</p>}
         {loading && (
           <p className="loading-row" role="status">
@@ -7441,7 +7596,7 @@ function TransactionsPage({ token }) {
         ) : !loading && !error ? (
           <Empty
             title="No password reveals yet"
-            detail="A record will appear after a student confirms Show All on the kiosk."
+            detail="There are no recorded password reveals for this academic period."
           />
         ) : null}
         <footer className="student-list-pagination">
@@ -7936,6 +8091,13 @@ function PasswordResetRequestsPage({ token }) {
     setPasswordResetForm({ replacePassword: false, password: "" });
     setSelected(item);
   };
+  useEffect(() => {
+    setSelected((current) => {
+      if (!current) return current;
+      const latest = requests.find((item) => item.id === current.id);
+      return latest && latest.status === current.status ? current : null;
+    });
+  }, [requests]);
   const copyRequestValue = async (value, label) => {
     if (!value) return;
     setError("");
@@ -8201,10 +8363,15 @@ function PasswordResetRequestsPage({ token }) {
                         </Button>
                       ) : (
                         <div className="resolved-request-action">
-                          <Button variant="secondary" onClick={() => reviewRequest(item)}>
+                          <Button
+                            variant="secondary"
+                            onClick={() => reviewRequest(item)}
+                          >
                             View details
                           </Button>
-                          {item.resolved_by_name && <small>{item.resolved_by_name}</small>}
+                          {item.resolved_by_name && (
+                            <small>{item.resolved_by_name}</small>
+                          )}
                         </div>
                       )}
                     </td>
@@ -8271,13 +8438,13 @@ function PasswordResetRequestsPage({ token }) {
               <header>
                 <div>
                   <p className="eyebrow">
-                  {isResolvedRequest
-                    ? "RESOLVED REQUEST"
-                    : selected.request_kind === "ACCOUNT_CREATION"
-                      ? "ACCOUNT REQUEST"
-                      : selected.request_kind === "VOUCHER_REQUEST"
-                        ? "VOUCHER REQUEST"
-                        : "PASSWORD RESET"}
+                    {isResolvedRequest
+                      ? "RESOLVED REQUEST"
+                      : selected.request_kind === "ACCOUNT_CREATION"
+                        ? "ACCOUNT REQUEST"
+                        : selected.request_kind === "VOUCHER_REQUEST"
+                          ? "VOUCHER REQUEST"
+                          : "PASSWORD RESET"}
                   </p>
                   <h2 id="credential-request-title">
                     {selected.request_kind === "VOUCHER_REQUEST"
@@ -8285,8 +8452,14 @@ function PasswordResetRequestsPage({ token }) {
                       : `${selected.credential_type} account`}
                   </h2>
                   <p>
-                  {[selected.first_name, selected.middle_name, selected.last_name].filter(Boolean).join(" ")} ·{" "}
-                    {selected.school_id}
+                    {[
+                      selected.first_name,
+                      selected.middle_name,
+                      selected.last_name,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}{" "}
+                    · {selected.school_id}
                   </p>
                 </div>
                 <button
@@ -8298,9 +8471,12 @@ function PasswordResetRequestsPage({ token }) {
                 </button>
               </header>
               <div className="reset-request-details">
-              {isResolvedRequest ? (
-                <ResolvedRequestDetails request={selected} onCopy={copyRequestValue} />
-              ) : selected.request_kind === "ACCOUNT_CREATION" ? (
+                {isResolvedRequest ? (
+                  <ResolvedRequestDetails
+                    request={selected}
+                    onCopy={copyRequestValue}
+                  />
+                ) : selected.request_kind === "ACCOUNT_CREATION" ? (
                   <>
                     <p>
                       Enter the account credentials to link them to this
@@ -8440,39 +8616,44 @@ function PasswordResetRequestsPage({ token }) {
                 {error && <p className="error">{error}</p>}
               </div>
               <footer className="reset-request-footer">
-              {isResolvedRequest ? (
-                <Button variant="secondary" onClick={() => setSelected(null)}>Close</Button>
-              ) : (
-                <>
-                <Button variant="secondary" onClick={() => setSelected(null)}>
-                  Cancel
-                </Button>
-                {selected.request_kind === "VOUCHER_REQUEST" && (
-                  <button
-                    className="btn danger"
-                    disabled={saving}
-                    onClick={rejectVoucher}
-                  >
-                    {saving ? "Saving..." : "Reject request"}
-                  </button>
+                {isResolvedRequest ? (
+                  <Button variant="secondary" onClick={() => setSelected(null)}>
+                    Close
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setSelected(null)}
+                    >
+                      Cancel
+                    </Button>
+                    {selected.request_kind === "VOUCHER_REQUEST" && (
+                      <button
+                        className="btn danger"
+                        disabled={saving}
+                        onClick={rejectVoucher}
+                      >
+                        {saving ? "Saving..." : "Reject request"}
+                      </button>
+                    )}
+                    <button
+                      className="btn primary"
+                      disabled={
+                        saving || !accountRequestReady || !passwordResetReady
+                      }
+                      onClick={complete}
+                    >
+                      {saving
+                        ? "Completing..."
+                        : selected.request_kind === "ACCOUNT_CREATION"
+                          ? "Create account and complete"
+                          : selected.request_kind === "VOUCHER_REQUEST"
+                            ? "Approve and assign voucher"
+                            : "Mark reset completed"}
+                    </button>
+                  </>
                 )}
-                <button
-                  className="btn primary"
-                  disabled={
-                    saving || !accountRequestReady || !passwordResetReady
-                  }
-                  onClick={complete}
-                >
-                  {saving
-                    ? "Completing..."
-                    : selected.request_kind === "ACCOUNT_CREATION"
-                      ? "Create account and complete"
-                      : selected.request_kind === "VOUCHER_REQUEST"
-                        ? "Approve and assign voucher"
-                        : "Mark reset completed"}
-                </button>
-                </>
-              )}
               </footer>
             </section>
             {toast && <Toast message={toast} onClose={() => setToast("")} />}
@@ -8496,10 +8677,19 @@ function AdminUsersPage({ token }) {
     password: "",
     roleId: "",
     isActive: true,
+    requestPermissions: [],
   });
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!editor) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [editor]);
   const headers = { Authorization: `Bearer ${token}` };
   const load = () =>
     Promise.all([
@@ -8522,7 +8712,9 @@ function AdminUsersPage({ token }) {
   const openEditor = (user = null) => {
     setConfirm(false);
     const defaultRole =
-      roles.find((role) => role.name === "Super Admin") || roles[0];
+      roles.find((role) => role.name === "Request Staff") ||
+      roles.find((role) => role.name === "Super Admin") ||
+      roles[0];
     const parts = user ? user.full_name.trim().split(/\s+/) : [];
     const firstName = parts.shift() || "";
     const lastName = parts.length ? parts.pop() : "";
@@ -8536,6 +8728,10 @@ function AdminUsersPage({ token }) {
             password: "",
             roleId: String(user.role_id),
             isActive: Boolean(user.is_active),
+            requestPermissions: effectiveRequestPermissions(
+              user.requestPermissions,
+              user.role_name,
+            ),
           }
         : {
             firstName: "",
@@ -8545,6 +8741,10 @@ function AdminUsersPage({ token }) {
             password: "",
             roleId: defaultRole ? String(defaultRole.id) : "",
             isActive: true,
+            requestPermissions: effectiveRequestPermissions(
+              null,
+              defaultRole?.name,
+            ),
           },
     );
     setError("");
@@ -8622,10 +8822,21 @@ function AdminUsersPage({ token }) {
                 </span>
               ),
               1: (data) => <span className="admin-email">{data}</span>,
-              2: (data) => (
-                <Status tone={data === "Super Admin" ? "green" : "gold"}>
-                  {data}
-                </Status>
+              2: (data, row) => (
+                <span className="admin-role-cell">
+                  <Status tone={data === "Super Admin" ? "green" : "gold"}>
+                    {data}
+                  </Status>
+                  <small>
+                    {effectiveRequestPermissions(row.requestPermissions, data)
+                      .length === REQUEST_PERMISSION_KEYS.length
+                      ? "All request types"
+                      : effectiveRequestPermissions(
+                          row.requestPermissions,
+                          data,
+                        ).length + " request permissions"}
+                  </small>
+                </span>
               ),
               3: (data) => (
                 <Status tone={data ? "green" : "danger"}>
@@ -8675,140 +8886,275 @@ function AdminUsersPage({ token }) {
           />
         )}
       </section>
-      {editor && (
-        <div className="modal-backdrop" onMouseDown={() => setEditor(null)}>
-          <section
-            className="course-modal admin-user-modal"
-            onMouseDown={(event) => event.stopPropagation()}
+      {editor &&
+        createPortal(
+          <div
+            className="modal-backdrop admin-user-overlay"
+            onMouseDown={() => setEditor(null)}
           >
-            <header>
-              <div>
-                <p className="eyebrow">ACCESS CONTROL</p>
-                <h2>
-                  {editor.id ? "Edit administrator" : "Add administrator"}
-                </h2>
-                <p>
-                  {editor.id
-                    ? "Update account details, access, or password."
-                    : "Create a secure administrator account."}
-                </p>
-              </div>
-              <button
-                className="modal-close"
-                onClick={() => setEditor(null)}
-                aria-label="Close"
-              >
-                &times;
-              </button>
-            </header>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                setConfirm(true);
-              }}
+            <section
+              className="course-modal admin-user-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-user-title"
+              onMouseDown={(event) => event.stopPropagation()}
             >
-              <div className="admin-name-fields">
-                <Field
-                  label="Last name"
-                  value={form.lastName}
-                  onChange={(value) => setForm({ ...form, lastName: value })}
-                />
-                <Field
-                  label="First name"
-                  value={form.firstName}
-                  onChange={(value) => setForm({ ...form, firstName: value })}
-                />
-                <Field
-                  label="Middle name (optional)"
-                  value={form.middleName}
-                  onChange={(value) => setForm({ ...form, middleName: value })}
-                />
-              </div>
-              <Field
-                label="Email address"
-                type="email"
-                value={form.username}
-                onChange={(value) => setForm({ ...form, username: value })}
-              />
-              <label className="field">
-                <span>Access role</span>
-                <select
-                  required
-                  value={form.roleId}
-                  onChange={(event) =>
-                    setForm({ ...form, roleId: event.target.value })
-                  }
+              <header>
+                <div>
+                  <p className="eyebrow">ACCESS CONTROL</p>
+                  <h2 id="admin-user-title">
+                    {editor.id ? "Edit administrator" : "Add administrator"}
+                  </h2>
+                  <p>
+                    {editor.id
+                      ? "Update account details, access, or password."
+                      : "Create a secure administrator account."}
+                  </p>
+                </div>
+                <button
+                  className="modal-close"
+                  onClick={() => setEditor(null)}
+                  aria-label="Close"
                 >
-                  <option value="">Select a role</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>
-                  {editor.id ? "New password (optional)" : "Password"}
-                </span>
-                <input
-                  type="password"
-                  required={!editor.id}
-                  minLength={editor.id && !form.password ? undefined : 12}
-                  autoComplete="new-password"
-                  placeholder={
-                    editor.id
-                      ? "Leave blank to keep current password"
-                      : "Minimum 12 characters"
-                  }
-                  value={form.password}
-                  onChange={(event) =>
-                    setForm({ ...form, password: event.target.value })
-                  }
-                />
-              </label>
-              <label className="status-toggle">
-                <span>
-                  <b>Active account</b>
-                  <small>Inactive administrators cannot sign in.</small>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={form.isActive}
-                  onChange={(event) =>
-                    setForm({ ...form, isActive: event.target.checked })
-                  }
-                />
-                <i />
-              </label>
-              {error && <p className="error">{error}</p>}
-              <footer>
-                <Button variant="secondary" onClick={() => setEditor(null)}>
-                  Cancel
-                </Button>
-                <button className="btn primary" disabled={saving}>
-                  {saving ? "Saving..." : "Save administrator"}
+                  &times;
                 </button>
-              </footer>
-            </form>
-          </section>
-        </div>
-      )}
-      {confirm && editor && (
-        <ConfirmModal
-          title={
-            editor.id ? "Save administrator changes?" : "Add administrator?"
-          }
-          message={
-            editor.id
-              ? `Update access details for ${form.firstName} ${form.lastName}?`
-              : `Create an administrator account for ${form.firstName} ${form.lastName}?`
-          }
-          confirmLabel={editor.id ? "Save changes" : "Add administrator"}
-          onClose={() => setConfirm(false)}
-          onConfirm={save}
-        />
-      )}
+              </header>
+              <form
+                className="admin-user-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setConfirm(true);
+                }}
+              >
+                <div className="admin-user-form-body">
+                  <div className="admin-name-fields">
+                    <Field
+                      label="Last name"
+                      value={form.lastName}
+                      onChange={(value) =>
+                        setForm({ ...form, lastName: value })
+                      }
+                    />
+                    <Field
+                      label="First name"
+                      value={form.firstName}
+                      onChange={(value) =>
+                        setForm({ ...form, firstName: value })
+                      }
+                    />
+                    <Field
+                      label="Middle name (optional)"
+                      value={form.middleName}
+                      onChange={(value) =>
+                        setForm({ ...form, middleName: value })
+                      }
+                    />
+                  </div>
+                  <div className="admin-access-fields">
+                    <Field
+                      label="Email address"
+                      type="email"
+                      value={form.username}
+                      onChange={(value) =>
+                        setForm({ ...form, username: value })
+                      }
+                    />
+                    <label className="field">
+                      <span>Access role</span>
+                      <select
+                        required
+                        value={form.roleId}
+                        onChange={(event) =>
+                          setForm({
+                            ...form,
+                            roleId: event.target.value,
+                            requestPermissions: effectiveRequestPermissions(
+                              null,
+                              roles.find(
+                                (role) =>
+                                  String(role.id) === event.target.value,
+                              )?.name,
+                            ),
+                          })
+                        }
+                      >
+                        <option value="">Select a role</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <fieldset
+                    className="admin-request-permissions"
+                    disabled={saving}
+                  >
+                    <legend>Credential request permissions</legend>
+                    <p>
+                      Choose the requests this administrator can view and
+                      process.
+                    </p>
+                    <div className="admin-permission-actions">
+                      <Button
+                        variant="secondary"
+                        disabled={saving}
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            requestPermissions: [...REQUEST_PERMISSION_KEYS],
+                          })
+                        }
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={saving}
+                        onClick={() =>
+                          setForm({ ...form, requestPermissions: [] })
+                        }
+                      >
+                        Clear
+                      </Button>
+                      <small aria-live="polite">
+                        {form.requestPermissions.length} of{" "}
+                        {REQUEST_PERMISSION_KEYS.length} selected
+                      </small>
+                    </div>
+                    <div className="admin-permission-table-wrap">
+                      <table className="admin-permission-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Account</th>
+                            <th scope="col">Password resets</th>
+                            <th scope="col">Account creation</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {REQUEST_PERMISSION_GROUPS.map((group) => (
+                            <tr key={group.type}>
+                              <th scope="row">{group.label}</th>
+                              {group.kinds.map((kind) => {
+                                const key = group.type + ":" + kind;
+                                const label = {
+                                  PASSWORD_RESET: "Password resets",
+                                  ACCOUNT_CREATION: "Account creation",
+                                  VOUCHER_REQUEST: "Voucher requests",
+                                }[kind];
+                                return (
+                                  <td
+                                    key={key}
+                                    colSpan={kind === "VOUCHER_REQUEST" ? 2 : 1}
+                                  >
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={group.label + " " + label}
+                                        checked={form.requestPermissions.includes(
+                                          key,
+                                        )}
+                                        onChange={(event) =>
+                                          setForm((current) => ({
+                                            ...current,
+                                            requestPermissions: event.target
+                                              .checked
+                                              ? [
+                                                  ...current.requestPermissions,
+                                                  key,
+                                                ]
+                                              : current.requestPermissions.filter(
+                                                  (value) => value !== key,
+                                                ),
+                                          }))
+                                        }
+                                      />
+                                      {kind === "VOUCHER_REQUEST" && (
+                                        <span>Voucher requests</span>
+                                      )}
+                                    </label>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {!form.requestPermissions.length && (
+                      <small>No request access is selected.</small>
+                    )}
+                  </fieldset>
+                  <label className="field">
+                    <span>
+                      {editor.id ? "New password (optional)" : "Password"}
+                    </span>
+                    <input
+                      type="password"
+                      required={!editor.id}
+                      minLength={editor.id && !form.password ? undefined : 12}
+                      autoComplete="new-password"
+                      placeholder={
+                        editor.id
+                          ? "Leave blank to keep current password"
+                          : "Minimum 12 characters"
+                      }
+                      value={form.password}
+                      onChange={(event) =>
+                        setForm({ ...form, password: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label className="status-toggle">
+                    <span>
+                      <b>Active account</b>
+                      <small>Inactive administrators cannot sign in.</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={form.isActive}
+                      onChange={(event) =>
+                        setForm({ ...form, isActive: event.target.checked })
+                      }
+                    />
+                    <i />
+                  </label>
+                  {error && <p className="error">{error}</p>}
+                </div>
+                <footer className="admin-user-form-footer">
+                  <Button variant="secondary" onClick={() => setEditor(null)}>
+                    Cancel
+                  </Button>
+                  <button className="btn primary" disabled={saving}>
+                    {saving ? "Saving..." : "Save administrator"}
+                  </button>
+                </footer>
+              </form>
+            </section>
+          </div>,
+          document.body,
+        )}
+      {confirm &&
+        editor &&
+        createPortal(
+          <div className="admin-user-confirm-overlay">
+            <ConfirmModal
+              title={
+                editor.id ? "Save administrator changes?" : "Add administrator?"
+              }
+              message={
+                editor.id
+                  ? `Update access details for ${form.firstName} ${form.lastName}?`
+                  : `Create an administrator account for ${form.firstName} ${form.lastName}?`
+              }
+              confirmLabel={editor.id ? "Save changes" : "Add administrator"}
+              onClose={() => setConfirm(false)}
+              onConfirm={save}
+            />
+          </div>,
+          document.body,
+        )}
     </>
   );
 }

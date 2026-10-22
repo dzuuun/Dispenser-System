@@ -1,5 +1,9 @@
 import bcrypt from "bcrypt";
 import { pool } from "../config/db.js";
+import {
+  effectiveRequestPermissions,
+  validateRequestPermissions,
+} from "../../shared/request-permissions.mjs";
 
 const normalize = (body) => {
   const firstName = String(body?.firstName || "").trim();
@@ -16,6 +20,10 @@ const normalize = (body) => {
     password: String(body?.password || ""),
     roleId: Number(body?.roleId),
     isActive: body?.isActive !== false,
+    requestPermissions:
+      body?.requestPermissions === undefined
+        ? undefined
+        : validateRequestPermissions(body.requestPermissions),
   };
 };
 
@@ -31,12 +39,20 @@ export async function listAdminUsers(req, res) {
   if (!requireSuperAdmin(req, res)) return;
   const [rows] = await pool.query(
     `SELECT a.id, a.username, a.full_name, a.role_id, r.name role_name,
-      a.is_active, a.last_login, a.created_at
+      a.is_active, a.last_login, a.created_at, a.request_permissions
      FROM admin_users a
      JOIN roles r ON r.id=a.role_id
      ORDER BY a.full_name, a.username`,
   );
-  res.json(rows);
+  res.json(
+    rows.map(({ request_permissions, ...row }) => ({
+      ...row,
+      requestPermissions: effectiveRequestPermissions(
+        request_permissions,
+        row.role_name,
+      ),
+    })),
+  );
 }
 
 export async function listAdminRoles(req, res) {
@@ -67,8 +83,17 @@ export async function createAdminUser(req, res) {
   try {
     const hash = await bcrypt.hash(input.password, 12);
     const [created] = await pool.execute(
-      "INSERT INTO admin_users (username, password_hash, full_name, role_id, is_active) VALUES (?, ?, ?, ?, ?)",
-      [input.username, hash, input.fullName, input.roleId, input.isActive],
+      "INSERT INTO admin_users (username, password_hash, full_name, role_id, is_active, request_permissions) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        input.username,
+        hash,
+        input.fullName,
+        input.roleId,
+        input.isActive,
+        input.requestPermissions === undefined
+          ? null
+          : JSON.stringify(input.requestPermissions),
+      ],
     );
     res
       .status(201)
@@ -150,6 +175,10 @@ export async function updateAdminUser(req, res) {
     ];
     let sql =
       "UPDATE admin_users SET username=?, full_name=?, role_id=?, is_active=?";
+    if (input.requestPermissions !== undefined) {
+      sql += ", request_permissions=?";
+      values.push(JSON.stringify(input.requestPermissions));
+    }
     if (input.password) {
       sql += ", password_hash=?";
       values.push(await bcrypt.hash(input.password, 12));

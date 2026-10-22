@@ -101,6 +101,8 @@ Production startup rejects missing or placeholder database, JWT, encryption, and
 5. Process password resets, account-creation requests, and replacement-voucher requests in **Credential requests**.
 6. Review transactions and audit records regularly.
 
+In **Transactions**, choose an **Academic period** to view current or historical records, then select **Export Excel** to download every transaction in that period, across all pages. Previous periods remain available even when inactive. Exported timestamps use Philippine time (UTC+08:00).
+
 Most state-changing administrator functions require the **Super Admin** role, including imports, credential-request processing, voucher operations, module controls, kiosk commands, and administrator management.
 
 ### SQL Server student import
@@ -124,6 +126,14 @@ pm2 restart ndmu-credentials-dispenser
 ```
 
 The migration classifies recognizable degree programs and leaves ambiguous courses as Other for review. It can be rerun without resetting an administrator's classifications. Course imports accept an optional `AcademicLevel` column (`COLLEGE`, `GRADUATE_SCHOOL`, or `OTHER`). Omitting it preserves an existing course's classification; new courses are classified from their code and name when possible.
+
+### Administrator request permissions
+
+In **Admin users**, add or edit an administrator and choose their **Credential request permissions**. Password resets and account creation can be assigned separately for each account system; WiFi voucher requests have their own permission. These choices apply to pending and resolved requests, badge counts, and processing actions. Clearing every permission removes request access.
+
+Use the **Request Staff** role for users who should only process assigned requests. Other access follows the selected role. The API reads current access on each call, so permission changes and account deactivation also apply to existing sessions.
+
+The API adds the permissions column and Request Staff role automatically on startup. Existing Super Admins retain full request access until configured. The same additive migration can be run explicitly with `npm run migrate-admin-request-permissions -w server`.
 
 ## Semester voucher reset
 

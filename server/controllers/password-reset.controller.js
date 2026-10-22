@@ -1,5 +1,9 @@
 import { pool } from "../config/db.js";
 import {
+  canHandleRequest,
+  requestPermissionFilter,
+} from "../../shared/request-permissions.mjs";
+import {
   decryptPassword,
   encryptPassword,
 } from "../services/encryption.service.js";
@@ -16,14 +20,17 @@ const passwordResetTypes = {
   SCHOOLOGY: "Schoology",
 };
 
-export async function pendingCredentialRequestCount(_req, res) {
+export async function pendingCredentialRequestCount(req, res) {
+  const filter = requestPermissionFilter(req.admin?.requestPermissions || []);
   const [[row]] = await pool.query(
-    "SELECT COUNT(*) count FROM password_reset_requests WHERE status='PENDING'",
+    `SELECT COUNT(*) count FROM password_reset_requests pr WHERE pr.status='PENDING' AND ${filter.sql}`,
+    filter.values,
   );
   res.set("Cache-Control", "no-store").json({ count: Number(row.count) });
 }
 
-export async function listPasswordResetRequests(_req, res) {
+export async function listPasswordResetRequests(req, res) {
+  const filter = requestPermissionFilter(req.admin?.requestPermissions || []);
   const [rows] = await pool.query(
     `SELECT pr.id, pr.credential_type, pr.request_kind, pr.request_reason, pr.status, pr.kiosk_code,
             pr.requested_at, pr.resolved_at,
@@ -63,8 +70,10 @@ export async function listPasswordResetRequests(_req, res) {
        LEFT JOIN kumosoft_accounts kumosoft ON kumosoft.student_id=s.id
        LEFT JOIN institutional_email_accounts email ON email.student_id=s.id
        LEFT JOIN wifi_vouchers voucher ON voucher.id=s.voucher_id
+      WHERE ${filter.sql}
       ORDER BY (pr.status='PENDING') DESC, pr.requested_at DESC
       LIMIT 500`,
+    filter.values,
   );
 
   res.set("Cache-Control", "no-store").json(
@@ -108,6 +117,12 @@ export async function completePasswordResetRequest(req, res) {
       return res
         .status(404)
         .json({ message: "Pending credential request not found." });
+    }
+    if (!canHandleRequest(req.admin, request)) {
+      await connection.rollback();
+      return res.status(403).json({
+        message: "You do not have permission to handle this request.",
+      });
     }
     if (replacePassword) {
       if (
@@ -277,10 +292,19 @@ export async function rejectVoucherRequest(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1)
     return res.status(400).json({ message: "Invalid voucher request." });
+  if (
+    !canHandleRequest(req.admin, {
+      credential_type: "VOUCHER",
+      request_kind: "VOUCHER_REQUEST",
+    })
+  )
+    return res.status(403).json({
+      message: "You do not have permission to handle voucher requests.",
+    });
   const [result] = await pool.execute(
     `UPDATE password_reset_requests
         SET status='REJECTED', resolved_at=NOW(), resolved_by=?
-      WHERE id=? AND status='PENDING' AND request_kind='VOUCHER_REQUEST'`,
+      WHERE id=? AND status='PENDING' AND credential_type='VOUCHER' AND request_kind='VOUCHER_REQUEST'`,
     [req.admin.sub, id],
   );
   if (!result.affectedRows)

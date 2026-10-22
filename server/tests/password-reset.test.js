@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { pool } from "../config/db.js";
+import { REQUEST_PERMISSION_KEYS } from "../../shared/request-permissions.mjs";
 import {
   encryptPassword,
   decryptPassword,
@@ -73,7 +74,11 @@ function setup(t, options = {}) {
     },
   };
   t.mock.method(pool, "getConnection", async () => connection);
-  const req = { params: { id: "1" }, admin: { sub: 1 }, body: {} };
+  const req = {
+    params: { id: "1" },
+    admin: { sub: 1, requestPermissions: [...REQUEST_PERMISSION_KEYS] },
+    body: {},
+  };
   const res = {
     statusCode: 200,
     status(code) {

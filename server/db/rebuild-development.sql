@@ -19,6 +19,7 @@ CREATE TABLE admin_users (
   username VARCHAR(80) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   full_name VARCHAR(160) NOT NULL,
+  request_permissions JSON NULL,
   role_id BIGINT UNSIGNED NOT NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   last_login DATETIME NULL,

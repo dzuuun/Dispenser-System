@@ -1,7 +1,120 @@
 import { pool } from "../config/db.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
+import { requestPermissionFilter } from "../../shared/request-permissions.mjs";
+import ExcelJS from "exceljs";
 
-export async function dashboard(_req, res) {
+const transactionWhere =
+  "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
+const transactionSelect = `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
+  t.ip_address, t.created_at, s.student_id, s.first_name, s.middle_name, s.last_name
+  FROM credential_transactions t LEFT JOIN students s ON s.id=t.student_id`;
+
+async function transactionPeriod(query) {
+  if (query.academicPeriodId === undefined) return currentAcademicPeriod();
+  const value = query.academicPeriodId;
+  if (
+    typeof value !== "string" ||
+    !/^[1-9]\d*$/.test(value) ||
+    !Number.isSafeInteger(Number(value))
+  ) {
+    throw Object.assign(new Error("Choose a valid academic period."), {
+      status: 400,
+    });
+  }
+  // Historical periods remain available even after they have been deactivated.
+  const [[period]] = await pool.execute(
+    "SELECT id, school_year, semester FROM academic_periods WHERE id=?",
+    [Number(value)],
+  );
+  if (!period)
+    throw Object.assign(new Error("Academic period not found."), {
+      status: 404,
+    });
+  return period;
+}
+
+export async function transactionAcademicPeriods(req, res) {
+  const [periods] = await pool.query(
+    `SELECT id, school_year AS schoolYear, semester,
+      (is_current=1 AND is_active=1) AS isCurrent
+     FROM academic_periods ORDER BY isCurrent DESC, school_year DESC, id DESC`,
+  );
+  res.set("Cache-Control", "no-store").json(periods);
+}
+
+export async function exportTransactions(req, res) {
+  const period = await transactionPeriod(req.query);
+  if (!period)
+    return res
+      .status(404)
+      .json({
+        message:
+          "No current academic period is available. Choose another period.",
+      });
+  // Export the entire period, regardless of the table's page or page size.
+  const [rows] = await pool.execute(
+    `${transactionSelect} WHERE ${transactionWhere} ORDER BY t.created_at DESC, t.id DESC`,
+    [period.id],
+  );
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Transactions");
+  sheet.columns = [
+    { header: "Transaction ID", key: "id", width: 18 },
+    { header: "School year", key: "schoolYear", width: 18 },
+    { header: "Semester", key: "semester", width: 24 },
+    { header: "Student ID", key: "studentId", width: 18 },
+    { header: "Student name", key: "studentName", width: 42 },
+    { header: "Kiosk", key: "kiosk", width: 22 },
+    { header: "Result", key: "result", width: 16 },
+    { header: "Date and time (UTC+08:00)", key: "createdAt", width: 30 },
+  ];
+  const dateFormat = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  for (const row of rows)
+    sheet.addRow({
+      id: row.id,
+      schoolYear: period.school_year,
+      semester: period.semester,
+      studentId: row.student_id || "",
+      studentName:
+        [row.first_name, row.middle_name, row.last_name]
+          .filter(Boolean)
+          .join(" ") || "Unknown student",
+      kiosk: row.kiosk_code || "",
+      result: "Revealed",
+      createdAt: row.created_at
+        ? dateFormat.format(new Date(row.created_at))
+        : "",
+    });
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: "A1", to: "H1" };
+  const label = `${period.school_year}-${period.semester}`.replace(
+    /[^a-zA-Z0-9-]+/g,
+    "-",
+  );
+  res
+    .set({
+      "Cache-Control": "no-store",
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="transactions-${label}-${period.id}.xlsx"`,
+    })
+    .send(Buffer.from(await workbook.xlsx.writeBuffer()));
+}
+
+export async function dashboard(req, res) {
+  const requestFilter = requestPermissionFilter(
+    req.admin?.requestPermissions || [],
+  );
   const period = await currentAcademicPeriod();
   const periodId = period?.id || 0;
   const [
@@ -37,7 +150,8 @@ export async function dashboard(_req, res) {
       "SELECT 'SATP' credential_type, COUNT(*) total FROM satp_accounts WHERE is_active=1 UNION ALL SELECT 'SCHOOLOGY', COUNT(*) FROM schoology_accounts WHERE is_active=1 UNION ALL SELECT 'KUMOSOFT', COUNT(*) FROM kumosoft_accounts WHERE is_active=1 UNION ALL SELECT 'EMAIL', COUNT(*) FROM institutional_email_accounts WHERE is_active=1",
     ),
     pool.query(
-      "SELECT COUNT(*) total FROM password_reset_requests WHERE status='PENDING'",
+      `SELECT COUNT(*) total FROM password_reset_requests pr WHERE pr.status='PENDING' AND ${requestFilter.sql}`,
+      requestFilter.values,
     ),
     pool.query("SELECT COUNT(*) total FROM courses WHERE is_active=1"),
   ]);
@@ -68,21 +182,19 @@ export async function dashboard(_req, res) {
 }
 
 export async function listTransactions(req, res) {
+  const period = await transactionPeriod(req.query);
   // Keep the array response compatible with older clients during deployment.
   if (req.query.page !== undefined) {
-    const period = await currentAcademicPeriod();
     const requestedPage = Number(req.query.page);
     const requestedLimit = Number(req.query.limit);
     const limit = [10, 25, 50, 100].includes(requestedLimit)
       ? requestedLimit
       : 25;
-    const where =
-      "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
     const [[summary]] = await pool.execute(
       `SELECT COUNT(*) AS total,
         COALESCE(SUM(DATE(t.created_at)=CURRENT_DATE()), 0) AS today,
         COUNT(DISTINCT t.student_id) AS studentsServed
-       FROM credential_transactions t WHERE ${where}`,
+       FROM credential_transactions t WHERE ${transactionWhere}`,
       [period?.id || 0],
     );
     const total = Number(summary.total);
@@ -94,10 +206,8 @@ export async function listTransactions(req, res) {
         : 1,
     );
     const [rows] = await pool.query(
-      `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
-        t.ip_address, t.created_at, s.student_id, s.first_name, s.middle_name, s.last_name
-       FROM credential_transactions t LEFT JOIN students s ON s.id=t.student_id
-       WHERE ${where} ORDER BY t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
+      `${transactionSelect} WHERE ${transactionWhere}
+       ORDER BY t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
       [period?.id || 0, limit, (page - 1) * limit],
     );
     return res.set("Cache-Control", "no-store").json({
@@ -111,15 +221,9 @@ export async function listTransactions(req, res) {
     });
   }
   const [rows] = await pool.query(
-    `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
-            t.ip_address, t.created_at, s.student_id,
-            s.first_name, s.middle_name, s.last_name
-       FROM credential_transactions t
-       LEFT JOIN students s ON s.id=t.student_id
-      WHERE t.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1)
-        AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1
-      ORDER BY t.created_at DESC, t.id DESC
-      LIMIT 1000`,
+    `${transactionSelect} WHERE ${transactionWhere}
+     ORDER BY t.created_at DESC, t.id DESC LIMIT 1000`,
+    [period?.id || 0],
   );
   res.set("Cache-Control", "no-store").json(rows);
 }

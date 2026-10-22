@@ -8,6 +8,7 @@ import { authRouter } from "./routes/auth.routes.js";
 import { adminRouter } from "./routes/admin.routes.js";
 import { kioskRouter } from "./routes/kiosk.routes.js";
 import { errorHandler } from "./middleware/errorHandler.middleware.js";
+import { ensureAdminRequestPermissionsSchema } from "./services/admin-request-permissions.service.js";
 const app = express(),
   cfg = config();
 const BASE_PATH = "/dispenser";
@@ -56,6 +57,7 @@ app.get(`${BASE_PATH}/{*splat}`, (req, res, next) =>
     : res.sendFile(path.join(clientBuild, "index.html")),
 );
 app.use(errorHandler);
+await ensureAdminRequestPermissionsSchema();
 app.listen(cfg.port, cfg.listenHost, () =>
   console.log(
     `Credentials API listening on http://${cfg.listenHost}:${cfg.port}`,

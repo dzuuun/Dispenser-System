@@ -8301,6 +8301,25 @@ body,
   background: #edf6f0;
   color: #08714d;
 }
+.transaction-export-toolbar > .records-table-field {
+  width: min(100%, 360px);
+}
+.transaction-export-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+.transaction-export-actions > span {
+  color: #627d72;
+  font-size: 0.78rem;
+}
+.transaction-export-actions .btn {
+  min-height: 40px;
+  white-space: nowrap;
+}
 .records-table-search {
   width: clamp(220px, 22vw, 340px);
 }
@@ -8698,5 +8717,199 @@ body,
 @media (max-width: 400px) {
   .request-detail-facts {
     grid-template-columns: 1fr;
+  }
+}
+
+.admin-request-permissions {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #d7e5de;
+  border-radius: 10px;
+}
+.admin-user-overlay {
+  z-index: 1000;
+}
+.admin-user-modal .field,
+.admin-user-modal .field > span {
+  min-width: 0;
+}
+.admin-user-modal .field input,
+.admin-user-modal .field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.admin-user-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+}
+.admin-request-permissions legend {
+  padding: 0 6px;
+  color: #244b3e;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.admin-request-permissions p {
+  margin: 0;
+  color: #687d74;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.admin-permission-actions {
+  display: flex;
+  gap: 8px;
+}
+.admin-permission-actions .btn {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+.admin-role-cell {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+.admin-role-cell small,
+.admin-request-permissions > small {
+  color: #71877e;
+  font-size: 0.74rem;
+}
+
+/* The administrator form scrolls independently of its action bar. */
+.admin-user-modal > form.admin-user-form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.admin-user-form-body {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 18px;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.admin-user-modal > header {
+  padding: 20px 24px 16px;
+}
+.admin-access-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+.admin-user-form-body .field {
+  gap: 6px;
+  margin: 0;
+}
+.admin-user-form-body .field input,
+.admin-user-form-body .field select {
+  min-height: 42px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.admin-user-form-body .status-toggle {
+  margin: 0;
+  padding: 12px 14px;
+}
+.admin-user-form-body .status-toggle i {
+  flex: 0 0 47px;
+}
+.admin-user-modal > form.admin-user-form > .admin-user-form-footer {
+  position: static;
+  flex: 0 0 auto;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 24px;
+  border-top: 1px solid #dfe8e3;
+  background: #fff;
+  box-shadow: none;
+}
+.admin-permission-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.admin-permission-actions small {
+  margin-left: auto;
+  color: #71877e;
+  font-size: 0.74rem;
+}
+.admin-permission-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.admin-permission-table th,
+.admin-permission-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #e5ede8;
+  color: #244b3e;
+  font-size: 0.8rem;
+  text-align: center;
+}
+.admin-permission-table thead th {
+  background: #f5f8f6;
+  color: #687d74;
+  font-size: 0.73rem;
+  font-weight: 600;
+}
+.admin-permission-table th:first-child {
+  width: 30%;
+  text-align: left;
+}
+.admin-permission-table tbody th {
+  font-weight: 600;
+}
+.admin-permission-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.admin-permission-table td label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 24px;
+  color: #526f64;
+  cursor: pointer;
+}
+.admin-permission-table td[colspan="2"] {
+  text-align: left;
+}
+.admin-permission-table input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #08714d;
+  cursor: pointer;
+}
+@media (max-width: 540px) {
+  .admin-access-fields {
+    grid-template-columns: 1fr;
+  }
+  .admin-user-modal > header,
+  .admin-user-form-body {
+    padding: 16px;
+  }
+  .admin-user-modal > form.admin-user-form > .admin-user-form-footer {
+    padding: 12px 16px;
+  }
+  .admin-request-permissions {
+    padding: 12px;
+  }
+  .admin-permission-table th,
+  .admin-permission-table td {
+    padding-right: 4px;
+    padding-left: 4px;
   }
 }

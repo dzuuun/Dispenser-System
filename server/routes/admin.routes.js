@@ -5,6 +5,8 @@ import { auditAdminMutation } from "../services/audit.service.js";
 import {
   dashboard,
   listTransactions,
+  transactionAcademicPeriods,
+  exportTransactions,
 } from "../controllers/admin.controller.js";
 import {
   courseOptions,
@@ -108,27 +110,37 @@ const upload = multer({
   },
 });
 adminRouter.use(requireAdmin);
+adminRouter.use((req, res, next) => {
+  if (
+    req.admin.role === "Request Staff" &&
+    !req.path.startsWith("/password-reset-requests")
+  )
+    return res.status(403).json({
+      message:
+        "Request Staff access is limited to assigned credential requests.",
+    });
+  next();
+});
 adminRouter.get("/dashboard", dashboard);
 adminRouter.get("/transactions", listTransactions);
+adminRouter.get("/transactions/academic-periods", transactionAcademicPeriods);
 adminRouter.get(
-  "/password-reset-requests",
-  requireRoles("Super Admin"),
-  listPasswordResetRequests,
+  "/transactions/export",
+  auditAdminMutation("EXPORT", "TRANSACTIONS"),
+  exportTransactions,
 );
+adminRouter.get("/password-reset-requests", listPasswordResetRequests);
 adminRouter.get(
   "/password-reset-requests/pending-count",
-  requireRoles("Super Admin"),
   pendingCredentialRequestCount,
 );
 adminRouter.patch(
   "/password-reset-requests/:id/complete",
-  requireRoles("Super Admin"),
   auditAdminMutation("COMPLETE", "CREDENTIAL_REQUEST"),
   completePasswordResetRequest,
 );
 adminRouter.patch(
   "/password-reset-requests/:id/reject",
-  requireRoles("Super Admin"),
   auditAdminMutation("REJECT", "CREDENTIAL_REQUEST"),
   rejectVoucherRequest,
 );
