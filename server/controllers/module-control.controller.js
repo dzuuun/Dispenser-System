@@ -7,11 +7,12 @@ const MODULES = new Set([
   "KUMOSOFT",
   "EMAIL",
   "KIOSK",
+  "PASSWORD_RESET_REQUEST",
 ]);
 
 export async function listModuleControls(_req, res) {
   const [rows] = await pool.query(
-    "SELECT module_key, is_visible, is_maintenance, updated_at FROM credential_module_controls ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','KIOSK')",
+    "SELECT module_key, is_visible, is_maintenance, updated_at FROM credential_module_controls ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','PASSWORD_RESET_REQUEST','KIOSK')",
   );
   res.set("Cache-Control", "no-store").json(rows);
 }
@@ -26,6 +27,8 @@ export async function updateModuleControl(req, res) {
     return res
       .status(400)
       .json({ message: "Use maintenance mode to control the kiosk." });
+  if (moduleKey === "PASSWORD_RESET_REQUEST" && typeof isMaintenance === "boolean")
+    return res.status(400).json({ message: "Use visibility to control password reset requests." });
   if (typeof isVisible !== "boolean" && typeof isMaintenance !== "boolean")
     return res
       .status(400)

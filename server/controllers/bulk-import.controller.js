@@ -75,7 +75,6 @@ const TYPES = {
   },
 };
 
-const ACCOUNT_IMPORT_BATCH_SIZE = 250;
 const STUDENT_IMPORT_BATCH_SIZE = 250;
 const pendingAccountTable = `CREATE TABLE IF NOT EXISTS pending_account_imports (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
@@ -429,12 +428,13 @@ async function reviewAccounts(rows, config, executor = pool) {
   );
   const accountOwnerMap = new Map(
     accounts.map((account) => [
-      String(account.account_name),
+      String(account.account_name).toLowerCase(),
       Number(account.student_id),
     ]),
   );
   const seen = new Set(),
     seenKumosoftIds = new Set(),
+    seenLogins = new Set(),
     errors = [],
     items = [];
   rows.forEach((row, index) => {
@@ -492,13 +492,20 @@ async function reviewAccounts(rows, config, executor = pool) {
       });
     if (
       config.requiresKumosoftId &&
-      accountOwnerMap.has(kumosoftId) &&
-      accountOwnerMap.get(kumosoftId) !== Number(studentId)
+      accountOwnerMap.has(kumosoftId.toLowerCase()) &&
+      accountOwnerMap.get(kumosoftId.toLowerCase()) !== Number(studentId)
     )
       return errors.push({
         row: rowNumber,
         message: `KumosoftID ${kumosoftId} is already linked to another student account.`,
       });
+    const login = config.column === "email_address" ? emailAddress : config.requiresKumosoftId ? kumosoftId : schoolId;
+    const loginKey = login.toLowerCase();
+    if (seenLogins.has(loginKey))
+      return errors.push({ row: rowNumber, message: `Account ${login} appears more than once in the file.` });
+    if (accountOwnerMap.has(loginKey) && accountOwnerMap.get(loginKey) !== Number(studentId))
+      return errors.push({ row: rowNumber, message: `Account ${login} is already linked to another student.` });
+    seenLogins.add(loginKey);
     seen.add(schoolId);
     if (config.requiresKumosoftId) seenKumosoftIds.add(kumosoftId);
     items.push({
@@ -616,15 +623,28 @@ export async function importData(req, res) {
     } else {
       const attachedItems = result.items.filter((item) => item.studentId);
       const pendingItems = result.items.filter((item) => !item.studentId);
+      const failedRows = new Set();
+      const rowErrorCodes = new Set(["ER_DUP_ENTRY", "ER_DATA_TOO_LONG", "ER_BAD_NULL_ERROR", "ER_TRUNCATED_WRONG_VALUE", "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD", "ER_NO_REFERENCED_ROW_2", "ER_CHECK_CONSTRAINT_VIOLATED", "ER_WARN_DATA_OUT_OF_RANGE"]);
+      const recordFailure = async (item, error) => {
+        if (!rowErrorCodes.has(error.code)) throw error;
+        await connection.query("ROLLBACK TO SAVEPOINT import_row");
+        failedRows.add(item.row);
+        result.errors.push({ row: item.row, message: `Could not import row (${error.code}).` });
+      };
       for (
         let start = 0;
         start < attachedItems.length;
-        start += ACCOUNT_IMPORT_BATCH_SIZE
+        start += 1
       ) {
         const batch = attachedItems.slice(
           start,
-          start + ACCOUNT_IMPORT_BATCH_SIZE,
+          start + 1,
         );
+        const item = batch[0];
+        await connection.query("SAVEPOINT import_row");
+        try {
+        const [owners] = await connection.query(`SELECT student_id FROM ${config.table} WHERE ${config.column}=? AND student_id<>? LIMIT 1`, [item.login, item.studentId]);
+        if (owners.length) throw Object.assign(new Error("Account belongs to another student"), { code: "ER_DUP_ENTRY" });
         const values = [];
         const placeholders = batch.map((item) => {
           const encrypted =
@@ -659,16 +679,23 @@ export async function importData(req, res) {
               ]),
             ),
           );
+        } catch (error) {
+          await recordFailure(item, error);
+        }
+        await connection.query("RELEASE SAVEPOINT import_row");
       }
       for (
         let start = 0;
         start < pendingItems.length;
-        start += ACCOUNT_IMPORT_BATCH_SIZE
+        start += 1
       ) {
         const batch = pendingItems.slice(
           start,
-          start + ACCOUNT_IMPORT_BATCH_SIZE,
+          start + 1,
         );
+        const item = batch[0];
+        await connection.query("SAVEPOINT import_row");
+        try {
         const values = [];
         const placeholders = batch.map((item) => {
           const encrypted =
@@ -695,7 +722,14 @@ export async function importData(req, res) {
            ON DUPLICATE KEY UPDATE account_name=VALUES(account_name), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag)`,
           values,
         );
+        } catch (error) {
+          await recordFailure(item, error);
+        }
+        await connection.query("RELEASE SAVEPOINT import_row");
       }
+      result.items = result.items.filter((item) => !failedRows.has(item.row));
+      result.new = result.items.filter((item) => item.status === "new").length;
+      result.update = result.items.filter((item) => item.status === "update").length;
     }
     await connection.commit();
     res.json({

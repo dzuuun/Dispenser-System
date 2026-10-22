@@ -3656,7 +3656,10 @@ function CoursesPage({ token }) {
               ),
             }}
             options={{
-              pageLength: 10,
+              serverSide: true,
+              processing: true,
+              ajax: voucherAjax,
+              pageLength: 25,
               lengthMenu: [10, 25, 50, 100],
               order: [[0, "asc"]],
               language: {
@@ -6427,7 +6430,8 @@ function Kiosk() {
     availableCredentialCount = visibleCredentials.filter(
       (item) => !item.unavailable && !item.maintenance,
     ).length,
-    kioskControl = moduleControls.find((item) => item.module_key === "KIOSK");
+    kioskControl = moduleControls.find((item) => item.module_key === "KIOSK"),
+    passwordResetRequestsEnabled = moduleControls.find((item) => item.module_key === "PASSWORD_RESET_REQUEST")?.is_visible !== false;
   if (kioskControl?.is_maintenance)
     return (
       <div className="kiosk-page">
@@ -6623,7 +6627,7 @@ function Kiosk() {
                   outcome ||
                   pending ? (
                     <div className="credential-request-row">
-                      {c.type !== "SATP" &&
+                      {passwordResetRequestsEnabled && c.type !== "SATP" &&
                         !c.maintenance &&
                         !c.unavailable && (
                           <button
@@ -6876,6 +6880,8 @@ function ModuleControlsPage({ token }) {
   const displayName = (key) =>
     key === "VOUCHER"
       ? "WiFi Voucher"
+      : key === "PASSWORD_RESET_REQUEST"
+        ? "Password reset requests"
       : key.charAt(0) + key.slice(1).toLowerCase();
   return (
     <>
@@ -6921,9 +6927,13 @@ function ModuleControlsPage({ token }) {
                     )}
                   </td>
                   <td>
+                    {item.module_key === "PASSWORD_RESET_REQUEST" ? (
+                      <span className="muted-cell">Not applicable</span>
+                    ) : (
                     <Status tone={item.is_maintenance ? "gold" : "green"}>
                       {item.is_maintenance ? "Maintenance" : "Normal"}
                     </Status>
+                    )}
                   </td>
                   <td>
                     <div className="module-control-actions">
@@ -6946,7 +6956,7 @@ function ModuleControlsPage({ token }) {
                               : "Enable"}
                         </button>
                       )}
-                      <button
+                      {item.module_key !== "PASSWORD_RESET_REQUEST" && <button
                         className={`btn ${item.is_maintenance ? "secondary" : "maintenance"}`}
                         disabled={Boolean(busy)}
                         onClick={() =>
@@ -6962,7 +6972,7 @@ function ModuleControlsPage({ token }) {
                           : item.is_maintenance
                             ? "Set normal"
                             : "Set maintenance"}
-                      </button>
+                      </button>}
                     </div>
                   </td>
                 </tr>
@@ -8447,18 +8457,17 @@ function ReleaseVouchersPage({ token }) {
 }
 
 function VouchersPage({ token }) {
-  const [vouchers, setVouchers] = useState([]),
+  const [summary, setSummary] = useState({ total: 0, available: 0, assigned: 0 }),
     [importing, setImporting] = useState(false),
     [releaseTarget, setReleaseTarget] = useState(null),
     [clearSemesterOpen, setClearSemesterOpen] = useState(false),
     [statusTarget, setStatusTarget] = useState(null),
-    [statusSelection, setStatusSelection] = useState(null),
     [error, setError] = useState(""),
     [toast, setToast] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
   const load = () =>
-    request("/admin/voucher-records", { headers })
-      .then(setVouchers)
+    request("/admin/voucher-records?summary=1", { headers })
+      .then(setSummary)
       .catch((err) => setError(err.message));
   useEffect(() => {
     load();
@@ -8499,7 +8508,6 @@ function VouchersPage({ token }) {
   const updateStatus = async () => {
     const voucher = statusTarget;
     setStatusTarget(null);
-    setStatusSelection(null);
     try {
       const result = await request(
         `/admin/voucher-records/${voucher.id}/status`,
@@ -8515,13 +8523,15 @@ function VouchersPage({ token }) {
       setError(err.message);
     }
   };
-  const assigned = vouchers.filter(
-      (voucher) => voucher.is_active && voucher.is_assigned,
-    ).length,
-    available = vouchers.filter(
-      (voucher) =>
-        voucher.is_active && !voucher.is_assigned && !voucher.is_released,
-    ).length;
+  const voucherAjax = async (data, callback) => {
+    try {
+      const params = new URLSearchParams({ draw: String(data.draw), start: String(data.start), length: String(data.length), "search[value]": data.search?.value || "" });
+      callback(await request(`/admin/voucher-records?${params}`, { headers }));
+    } catch (err) {
+      setError(err.message);
+      callback({ draw: data.draw, recordsTotal: 0, recordsFiltered: 0, data: [] });
+    }
+  };
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
@@ -8540,57 +8550,17 @@ function VouchersPage({ token }) {
       <section className="student-summary voucher-summary">
         <article>
           <span>Total vouchers</span>
-          <strong>{vouchers.length}</strong>
+          <strong>{summary.total || 0}</strong>
         </article>
         <article>
           <span>Available stock</span>
-          <strong>{available}</strong>
+          <strong>{summary.available || 0}</strong>
         </article>
         <article>
           <span>Assigned vouchers</span>
-          <strong>{assigned}</strong>
+          <strong>{summary.assigned || 0}</strong>
         </article>
       </section>
-      <VoucherRowActions vouchers={vouchers} onSelect={setStatusTarget} />
-      {vouchers.length > 0 && (
-        <section className="panel voucher-status-control">
-          <div>
-            <h2>Voucher status</h2>
-            <p>
-              Deactivate a voucher to prevent future use. Assigned vouchers are
-              released from the student automatically.
-            </p>
-          </div>
-          <label>
-            <span>Voucher</span>
-            <select
-              value={statusSelection?.id || ""}
-              onChange={(event) =>
-                setStatusSelection(
-                  vouchers.find(
-                    (voucher) => voucher.id === Number(event.target.value),
-                  ) || null,
-                )
-              }
-            >
-              <option value="">Select a voucher</option>
-              {vouchers.map((voucher) => (
-                <option key={voucher.id} value={voucher.id}>
-                  {voucher.voucher_code} —{" "}
-                  {voucher.is_active ? "Active" : "Inactive"}
-                  {voucher.is_assigned ? ", assigned" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            variant="secondary"
-            onClick={() => statusSelection && setStatusTarget(statusSelection)}
-          >
-            {statusSelection?.is_active ? "Deactivate" : "Activate"}
-          </Button>
-        </section>
-      )}
       <section className="panel student-panel vouchers-data-table">
         <div className="course-intro">
           Available vouchers are assigned automatically when an administrator
@@ -8598,9 +8568,8 @@ function VouchersPage({ token }) {
           verification.
         </div>
         {error && <p className="error">{error}</p>}
-        {vouchers.length ? (
+        {summary.total > 0 ? (
           <DataTable
-            data={vouchers}
             columns={[
               { data: "voucher_code" },
               { data: null },
@@ -8649,7 +8618,9 @@ function VouchersPage({ token }) {
                     Release
                   </Button>
                 ) : (
-                  <span className="muted-cell">Ready</span>
+                  <Button variant="secondary" onClick={() => setStatusTarget(row)}>
+                    {row.is_active ? "Deactivate" : "Activate"}
+                  </Button>
                 ),
             }}
             options={{

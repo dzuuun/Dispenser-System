@@ -374,6 +374,9 @@ export async function requestPasswordReset(req, res) {
   if (!table)
     return res.status(400).json({ message: "Select a valid account." });
   const controls = await moduleControls();
+  const resetRequestControl = controls.get("PASSWORD_RESET_REQUEST");
+  if (resetRequestControl && !resetRequestControl.visible)
+    return res.status(503).json({ message: "Password reset requests are currently unavailable." });
   const control = controls.get(credentialType);
   if (control && (!control.visible || control.maintenance))
     return res

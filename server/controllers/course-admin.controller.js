@@ -202,6 +202,8 @@ export async function importCourses(req, res) {
     let inserted = 0,
       updated = 0;
     for (const item of result.items) {
+      await connection.query("SAVEPOINT import_row");
+      try {
       if (item.status === "new") {
         await connection.execute(
           "INSERT INTO courses (code, name, is_active) VALUES (?, ?, 1)",
@@ -216,6 +218,12 @@ export async function importCourses(req, res) {
         ]);
         updated++;
       }
+      } catch (error) {
+        if (!["ER_DUP_ENTRY", "ER_DATA_TOO_LONG", "ER_BAD_NULL_ERROR", "ER_WARN_DATA_OUT_OF_RANGE"].includes(error.code)) throw error;
+        await connection.query("ROLLBACK TO SAVEPOINT import_row");
+        result.errors.push({ row: item.row, message: `Could not import row (${error.code}).` });
+      }
+      await connection.query("RELEASE SAVEPOINT import_row");
     }
     await connection.commit();
     res.json({
@@ -225,6 +233,7 @@ export async function importCourses(req, res) {
       unchanged: result.unchanged,
       invalid: result.errors.length,
       errors: result.errors,
+      errorReport: await buildErrorReport(result.sourceRows, result.errors),
     });
   } catch (error) {
     if (connection) await connection.rollback();

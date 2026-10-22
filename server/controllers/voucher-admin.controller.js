@@ -27,8 +27,44 @@ const buildErrorReport = async (source, errors) => {
   );
 };
 
-export async function listVouchers(_req, res) {
+export async function listVouchers(req, res) {
   const period = await currentAcademicPeriod();
+  const periodId = period?.id || 0;
+  if (req.query.summary === "1") {
+    const [[summary]] = await pool.execute(
+      `SELECT COUNT(*) AS total,
+        SUM(is_active=1 AND is_assigned=0 AND is_released=0) AS available,
+        SUM(is_active=1 AND is_assigned=1) AS assigned
+       FROM wifi_vouchers WHERE academic_period_id=?`,
+      [periodId],
+    );
+    return res.json(summary);
+  }
+  if (req.query.draw !== undefined) {
+    const draw = Number(req.query.draw) || 0;
+    const start = Math.max(0, Number(req.query.start) || 0);
+    const length = Math.min(100, Math.max(10, Number(req.query.length) || 25));
+    const search = String(req.query["search[value]"] || "").trim();
+    const where = ["w.academic_period_id=?"];
+    const values = [periodId];
+    if (search) {
+      where.push("(w.voucher_code LIKE ? OR s.student_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)");
+      values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const [[total]] = await pool.execute("SELECT COUNT(*) AS count FROM wifi_vouchers WHERE academic_period_id=?", [periodId]);
+    const [[filtered]] = await pool.execute(
+      `SELECT COUNT(*) AS count FROM wifi_vouchers w LEFT JOIN students s ON s.voucher_id=w.id WHERE ${where.join(" AND ")}`,
+      values,
+    );
+    const [rows] = await pool.execute(
+      `SELECT w.id, w.voucher_code, w.is_active, w.is_assigned, w.is_released, w.assigned_at, w.released_at, w.created_at,
+        s.id student_record_id, s.student_id, s.first_name, s.middle_name, s.last_name
+       FROM wifi_vouchers w LEFT JOIN students s ON s.voucher_id=w.id
+       WHERE ${where.join(" AND ")} ORDER BY w.voucher_code ASC LIMIT ? OFFSET ?`,
+      [...values, length, start],
+    );
+    return res.json({ draw, recordsTotal: total.count, recordsFiltered: filtered.count, data: rows });
+  }
   const [rows] = await pool.execute(
     `SELECT w.id, w.voucher_code, w.is_active, w.is_assigned, w.is_released, w.assigned_at, w.released_at, w.created_at,
       s.id student_record_id, s.student_id, s.first_name, s.middle_name, s.last_name
@@ -36,7 +72,7 @@ export async function listVouchers(_req, res) {
      LEFT JOIN students s ON s.voucher_id = w.id
      WHERE w.academic_period_id=?
      ORDER BY w.created_at DESC, w.id DESC`,
-    [period?.id || 0],
+    [periodId],
   );
   res.json(rows);
 }
@@ -125,15 +161,6 @@ export async function validateVoucherImport(req, res) {
 
 export async function importVouchers(req, res) {
   const review = await reviewVoucherImport(req.file);
-  if (review.errors.length)
-    return res.status(400).json({
-      message: "Fix invalid voucher rows before importing.",
-      errors: review.errors,
-      errorReport: await buildErrorReport(
-        await readVoucherRows(req.file),
-        review.errors,
-      ),
-    });
   if (review.valid.length) {
     const period = await requireCurrentAcademicPeriod();
     await pool.query(
@@ -144,7 +171,9 @@ export async function importVouchers(req, res) {
   }
   res
     .status(201)
-    .json({ added: review.valid.length, duplicates: review.duplicates.length });
+    .json({ added: review.valid.length, duplicates: review.duplicates.length,
+      invalid: review.errors.length, errors: review.errors,
+      errorReport: await buildErrorReport(await readVoucherRows(req.file), review.errors) });
 }
 
 export async function releaseVoucher(req, res) {
