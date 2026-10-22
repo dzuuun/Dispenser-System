@@ -2417,14 +2417,15 @@ button {
 
 .portal:not(.sidebar-open) .sidebar .nav-notification-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 18px;
-  height: 18px;
+  box-sizing: border-box;
+  top: -4px;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
   margin-left: 0;
-  padding: 0 4px;
+  padding: 0 3px;
   border-width: 1px;
-  font-size: 0.58rem;
+  font-size: 0.55rem;
 }
 
 .reset-request-panel {
@@ -7839,6 +7840,7 @@ body,
   min-height: 0;
   padding: 7px 11px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   grid-auto-rows: max-content;
   gap: 3px;
