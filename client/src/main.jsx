@@ -3656,10 +3656,7 @@ function CoursesPage({ token }) {
               ),
             }}
             options={{
-              serverSide: true,
-              processing: true,
-              ajax: voucherAjax,
-              pageLength: 25,
+              pageLength: 10,
               lengthMenu: [10, 25, 50, 100],
               order: [[0, "asc"]],
               language: {
@@ -8190,62 +8187,6 @@ function AdminUsersPage({ token }) {
   );
 }
 
-function VoucherRowActions({ vouchers, onSelect }) {
-  useEffect(() => {
-    const attachActions = () => {
-      document
-        .querySelectorAll(".vouchers-data-table tbody tr")
-        .forEach((row) => {
-          const code = row.cells[0]?.textContent.trim();
-          const voucher = vouchers.find((item) => item.voucher_code === code);
-          const cell = row.cells[row.cells.length - 1];
-          if (!voucher || !cell) return;
-          const statusCell = row.cells[2];
-          if (
-            !voucher.is_active &&
-            statusCell?.dataset.voucherStatus !== "inactive"
-          ) {
-            statusCell.replaceChildren();
-            statusCell.dataset.voucherStatus = "inactive";
-            const badge = document.createElement("span");
-            badge.className = "status voucher-status-inactive";
-            badge.textContent = "Inactive";
-            statusCell.append(badge);
-          }
-          if (
-            voucher.is_active &&
-            statusCell?.dataset.voucherStatus === "inactive"
-          ) {
-            statusCell.replaceChildren();
-            statusCell.dataset.voucherStatus = "active";
-            const badge = document.createElement("span");
-            badge.className = `status ${voucher.is_assigned ? "gold" : "green"}`;
-            badge.textContent = voucher.is_assigned ? "Assigned" : "Available";
-            statusCell.append(badge);
-          }
-          if (cell.dataset.voucherAction === String(voucher.id)) return;
-          cell.replaceChildren();
-          cell.dataset.voucherAction = String(voucher.id);
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "btn secondary voucher-row-action";
-          button.textContent = voucher.is_active ? "Deactivate" : "Activate";
-          button.addEventListener("click", () => onSelect(voucher));
-          cell.append(button);
-        });
-    };
-    const timer = setTimeout(attachActions, 0);
-    const table = document.querySelector(".vouchers-data-table");
-    const observer = table && new MutationObserver(attachActions);
-    observer?.observe(table, { childList: true, subtree: true });
-    return () => {
-      clearTimeout(timer);
-      observer?.disconnect();
-    };
-  }, [vouchers, onSelect]);
-  return null;
-}
-
 function ReleaseVouchersPage({ token }) {
   const [quantity, setQuantity] = useState("1"),
     [preview, setPreview] = useState([]),
@@ -8457,7 +8398,15 @@ function ReleaseVouchersPage({ token }) {
 }
 
 function VouchersPage({ token }) {
-  const [summary, setSummary] = useState({ total: 0, available: 0, assigned: 0 }),
+  const [listing, setListing] = useState(null),
+    [loading, setLoading] = useState(true),
+    [page, setPage] = useState(1),
+    [limit, setLimit] = useState(25),
+    [searchInput, setSearchInput] = useState(""),
+    [search, setSearch] = useState(""),
+    [sort, setSort] = useState("code"),
+    [direction, setDirection] = useState("asc"),
+    [revision, setRevision] = useState(0),
     [importing, setImporting] = useState(false),
     [releaseTarget, setReleaseTarget] = useState(null),
     [clearSemesterOpen, setClearSemesterOpen] = useState(false),
@@ -8465,13 +8414,40 @@ function VouchersPage({ token }) {
     [error, setError] = useState(""),
     [toast, setToast] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
-  const load = () =>
-    request("/admin/voucher-records?summary=1", { headers })
-      .then(setSummary)
-      .catch((err) => setError(err.message));
+  const load = () => setRevision((value) => value + 1);
+  const summary = listing?.summary;
+  const rows = listing?.data || [];
+  const total = Number(listing?.recordsFiltered || 0);
+  const pages = Math.max(1, Math.ceil(total / limit));
   useEffect(() => {
-    load();
-  }, []);
+    if (searchInput.trim() === search) return;
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams({ draw: "1", start: String((page - 1) * limit), length: String(limit), "search[value]": search, sort, direction });
+    request(`/admin/voucher-records?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        const lastPage = Math.max(1, Math.ceil(Number(result.recordsFiltered) / limit));
+        if (page > lastPage) setPage(lastPage);
+        setListing(result);
+      })
+      .catch((err) => { if (!controller.signal.aborted) setError(err.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [token, page, limit, search, sort, direction, revision]);
+  const changeSort = (column) => {
+    setDirection(sort === column && direction === "asc" ? "desc" : "asc");
+    setSort(column);
+    setPage(1);
+  };
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4500);
@@ -8523,15 +8499,6 @@ function VouchersPage({ token }) {
       setError(err.message);
     }
   };
-  const voucherAjax = async (data, callback) => {
-    try {
-      const params = new URLSearchParams({ draw: String(data.draw), start: String(data.start), length: String(data.length), "search[value]": data.search?.value || "" });
-      callback(await request(`/admin/voucher-records?${params}`, { headers }));
-    } catch (err) {
-      setError(err.message);
-      callback({ draw: data.draw, recordsTotal: 0, recordsFiltered: 0, data: [] });
-    }
-  };
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
@@ -8540,7 +8507,7 @@ function VouchersPage({ token }) {
         description="Maintain voucher stock and see which student currently holds each voucher."
         actions={
           <>
-            <Button variant="danger" onClick={() => setClearSemesterOpen(true)}>
+            <Button variant="danger" disabled={!listing || !Number(summary?.total)} onClick={() => setClearSemesterOpen(true)}>
               Clear semester vouchers
             </Button>
             <Button onClick={() => setImporting(true)}>Import XLSX</Button>
@@ -8550,15 +8517,15 @@ function VouchersPage({ token }) {
       <section className="student-summary voucher-summary">
         <article>
           <span>Total vouchers</span>
-          <strong>{summary.total || 0}</strong>
+          <strong>{summary?.total ?? "…"}</strong>
         </article>
         <article>
           <span>Available stock</span>
-          <strong>{summary.available || 0}</strong>
+          <strong>{summary?.available ?? "…"}</strong>
         </article>
         <article>
           <span>Assigned vouchers</span>
-          <strong>{summary.assigned || 0}</strong>
+          <strong>{summary?.assigned ?? "…"}</strong>
         </article>
       </section>
       <section className="panel student-panel vouchers-data-table">
@@ -8568,90 +8535,58 @@ function VouchersPage({ token }) {
           verification.
         </div>
         {error && <p className="error">{error}</p>}
-        {summary.total > 0 ? (
-          <DataTable
-            columns={[
-              { data: "voucher_code" },
-              { data: null },
-              { data: "is_assigned" },
-              { data: "assigned_at" },
-              null,
-            ]}
-            slots={{
-              0: (data) => <code className="voucher-code">{data}</code>,
-              1: (_data, row) =>
-                row.student_id ? (
-                  <span className="student-cell">
-                    <b>
-                      {[row.first_name, row.middle_name, row.last_name]
-                        .filter(Boolean)
-                        .join(" ")}
-                    </b>
-                    <small>{row.student_id}</small>
-                  </span>
-                ) : (
-                  <span className="muted-cell">Not assigned</span>
-                ),
-              2: (data, row) => (
-                <Status
-                  tone={!row.is_active ? "danger" : data ? "gold" : "green"}
-                >
-                  {!row.is_active
-                    ? "Inactive"
-                    : data
-                      ? "Assigned"
-                      : "Available"}
-                </Status>
-              ),
-              3: (data) =>
-                data ? (
-                  new Date(data).toLocaleString()
-                ) : (
-                  <span className="muted-cell">—</span>
-                ),
-              4: (_data, row) =>
-                row.is_assigned ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => setReleaseTarget(row)}
-                  >
-                    Release
-                  </Button>
-                ) : (
-                  <Button variant="secondary" onClick={() => setStatusTarget(row)}>
-                    {row.is_active ? "Deactivate" : "Activate"}
-                  </Button>
-                ),
-            }}
-            options={{
-              pageLength: 10,
-              lengthMenu: [10, 25, 50, 100],
-              order: [[0, "asc"]],
-              language: {
-                search: "Search vouchers:",
-                emptyTable: "No vouchers found.",
-              },
-            }}
-          >
+        <div className="student-list-toolbar">
+          <div className="student-list-title">
+            <b>Voucher records</b>
+            <small role="status">{loading ? "Loading vouchers…" : "Search vouchers or assigned students."}</small>
+          </div>
+          <label className="student-search">
+            <AppIcon name="search" size={19} />
+            <input type="search" aria-label="Search vouchers or students" placeholder="Search code, name or ID" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} />
+          </label>
+        </div>
+        <div className="student-list-wrap" aria-busy={loading}>
+          <table className="student-list-table">
             <thead>
               <tr>
-                <th>Voucher code</th>
-                <th>Assigned student</th>
-                <th>Status</th>
-                <th>Assigned at</th>
+                {[["code", "Voucher code"], ["student", "Assigned student"], ["status", "Status"], ["assigned", "Assigned at"]].map(([key, label]) => (
+                  <th key={key} aria-sort={sort === key ? (direction === "asc" ? "ascending" : "descending") : "none"}>
+                    <button onClick={() => changeSort(key)}>{label}{sort === key ? (direction === "asc" ? " ↑" : " ↓") : ""}</button>
+                  </th>
+                ))}
                 <th>Action</th>
               </tr>
             </thead>
-          </DataTable>
-        ) : (
-          <Empty
-            title="No vouchers in stock"
-            detail="Add voucher codes before students retrieve credentials."
-            action={
-              <Button onClick={() => setImporting(true)}>Import XLSX</Button>
-            }
-          />
-        )}
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td><code className="voucher-code">{row.voucher_code}</code></td>
+                  <td>{row.student_id ? <span className="student-cell"><b>{[row.first_name, row.middle_name, row.last_name].filter(Boolean).join(" ")}</b><small>{row.student_id}</small></span> : <span className="muted-cell">Not assigned</span>}</td>
+                  <td><Status tone={!row.is_active ? "danger" : row.is_assigned ? "gold" : row.is_released ? "gold" : "green"}>{!row.is_active ? "Inactive" : row.is_assigned ? "Assigned" : row.is_released ? "Released" : "Available"}</Status></td>
+                  <td>{row.assigned_at ? new Date(row.assigned_at).toLocaleString() : <span className="muted-cell">—</span>}</td>
+                  <td><span className="row-actions">
+                    {Boolean(row.is_assigned) && <Button variant="secondary" onClick={() => setReleaseTarget(row)}>Release</Button>}
+                    <Button variant="secondary" onClick={() => setStatusTarget(row)}>{row.is_active ? "Deactivate" : "Activate"}</Button>
+                  </span></td>
+                </tr>
+              ))}
+              {!rows.length && <tr><td colSpan="5">{error ? "Could not load vouchers. Please retry." : loading ? "Loading vouchers…" : search ? "No vouchers match your search." : "No vouchers in stock."}{error && <Button variant="secondary" onClick={load}>Retry</Button>}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <footer className="student-list-pagination">
+          <span>Showing {rows.length ? (page - 1) * limit + 1 : 0}–{Math.min(page * limit, total)} of {total} vouchers</span>
+          <div>
+            <select aria-label="Vouchers per page" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }}>
+              {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size} / page</option>)}
+            </select>
+            <button aria-label="First page" onClick={() => setPage(1)} disabled={loading || page === 1}>«</button>
+            <button aria-label="Previous page" onClick={() => setPage(page - 1)} disabled={loading || page === 1}>‹</button>
+            <label>Page <input aria-label="Page number" type="number" min="1" max={pages} value={page} onChange={(event) => setPage(Math.min(pages, Math.max(1, Number(event.target.value) || 1)))} /> of {pages}</label>
+            <button aria-label="Next page" onClick={() => setPage(page + 1)} disabled={loading || page >= pages}>›</button>
+            <button aria-label="Last page" onClick={() => setPage(pages)} disabled={loading || page >= pages}>»</button>
+          </div>
+        </footer>
       </section>
       {importing && (
         <ImportHubModal
@@ -8676,7 +8611,7 @@ function VouchersPage({ token }) {
       {clearSemesterOpen && (
         <ConfirmModal
           title="Clear semester vouchers"
-          message={`Permanently delete all ${vouchers.length} voucher${vouchers.length === 1 ? "" : "s"}, including inactive and released records? Assigned students will lose their voucher links. This cannot be undone; import the new semester's voucher list afterward.`}
+          message={`Permanently delete all ${(summary?.total || 0)} voucher${(summary?.total || 0) === 1 ? "" : "s"}, including inactive and released records? Assigned students will lose their voucher links. This cannot be undone; import the new semester's voucher list afterward.`}
           confirmLabel="Delete semester vouchers"
           onConfirm={clearSemester}
           onClose={() => setClearSemesterOpen(false)}

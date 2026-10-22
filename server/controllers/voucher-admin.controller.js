@@ -41,9 +41,9 @@ export async function listVouchers(req, res) {
     return res.json(summary);
   }
   if (req.query.draw !== undefined) {
-    const draw = Number(req.query.draw) || 0;
-    const start = Math.max(0, Number(req.query.start) || 0);
-    const length = Math.min(100, Math.max(10, Number(req.query.length) || 25));
+    const draw = Math.max(0, Math.trunc(Number(req.query.draw) || 0));
+    const start = Math.max(0, Math.trunc(Number(req.query.start) || 0));
+    const length = Math.min(100, Math.max(10, Math.trunc(Number(req.query.length) || 25)));
     const search = String(req.query["search[value]"] || "").trim();
     const where = ["w.academic_period_id=?"];
     const values = [periodId];
@@ -51,19 +51,30 @@ export async function listVouchers(req, res) {
       where.push("(w.voucher_code LIKE ? OR s.student_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)");
       values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
-    const [[total]] = await pool.execute("SELECT COUNT(*) AS count FROM wifi_vouchers WHERE academic_period_id=?", [periodId]);
-    const [[filtered]] = await pool.execute(
-      `SELECT COUNT(*) AS count FROM wifi_vouchers w LEFT JOIN students s ON s.voucher_id=w.id WHERE ${where.join(" AND ")}`,
-      values,
+    const sortColumns = { code: "w.voucher_code", student: "s.last_name", status: "w.is_assigned", assigned: "w.assigned_at" };
+    const sortColumn = sortColumns[req.query.sort] || sortColumns.code;
+    const direction = req.query.direction === "desc" ? "DESC" : "ASC";
+    const summaryQuery = pool.execute(
+      `SELECT COUNT(*) AS total,
+        COALESCE(SUM(is_active=1 AND is_assigned=0 AND is_released=0), 0) AS available,
+        COALESCE(SUM(is_active=1 AND is_assigned=1), 0) AS assigned
+       FROM wifi_vouchers WHERE academic_period_id=?`, [periodId],
     );
-    const [rows] = await pool.execute(
+    // A joined count is only necessary when searching student fields.
+    const countQuery = search ? pool.execute(
+      `SELECT COUNT(*) AS count FROM wifi_vouchers w LEFT JOIN students s ON s.voucher_id=w.id WHERE ${where.join(" AND ")}`, values,
+    ) : Promise.resolve(null);
+    const rowsQuery = pool.query(
       `SELECT w.id, w.voucher_code, w.is_active, w.is_assigned, w.is_released, w.assigned_at, w.released_at, w.created_at,
         s.id student_record_id, s.student_id, s.first_name, s.middle_name, s.last_name
        FROM wifi_vouchers w LEFT JOIN students s ON s.voucher_id=w.id
-       WHERE ${where.join(" AND ")} ORDER BY w.voucher_code ASC LIMIT ? OFFSET ?`,
+       WHERE ${where.join(" AND ")} ORDER BY ${sortColumn} ${direction}, w.id ${direction} LIMIT ? OFFSET ?`,
       [...values, length, start],
     );
-    return res.json({ draw, recordsTotal: total.count, recordsFiltered: filtered.count, data: rows });
+    const [summaryResult, countResult, [rows]] = await Promise.all([summaryQuery, countQuery, rowsQuery]);
+    const [[summary]] = summaryResult;
+    const filtered = countResult ? countResult[0][0].count : summary.total;
+    return res.json({ draw, recordsTotal: summary.total, recordsFiltered: filtered, summary, data: rows });
   }
   const [rows] = await pool.execute(
     `SELECT w.id, w.voucher_code, w.is_active, w.is_assigned, w.is_released, w.assigned_at, w.released_at, w.created_at,
