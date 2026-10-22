@@ -204,18 +204,16 @@ export async function importVouchers(req, res) {
       review.valid.flatMap((code) => [code, period.id]),
     );
   }
-  res
-    .status(201)
-    .json({
-      added: review.valid.length,
-      duplicates: review.duplicates.length,
-      invalid: review.errors.length,
-      errors: review.errors,
-      errorReport: await buildErrorReport(
-        await readVoucherRows(req.file),
-        review.errors,
-      ),
-    });
+  res.status(201).json({
+    added: review.valid.length,
+    duplicates: review.duplicates.length,
+    invalid: review.errors.length,
+    errors: review.errors,
+    errorReport: await buildErrorReport(
+      await readVoucherRows(req.file),
+      review.errors,
+    ),
+  });
 }
 
 export async function releaseVoucher(req, res) {

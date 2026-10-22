@@ -6542,8 +6542,14 @@ function Kiosk() {
             </p>
             <p className="credentials-summary-guidance">
               Email, Schoology, and Kumosoft passwords shown here are default
-              passwords. If you change one and later forget it, request a
-              password reset.
+              passwords.
+              {passwordResetRequestsEnabled && (
+                <>
+                  {" "}
+                  Forgot your password? Tap Request password reset on the
+                  account below.
+                </>
+              )}
             </p>
           </header>
           <section className="credential-summary-panel">
@@ -6571,16 +6577,26 @@ function Kiosk() {
                     {result.voucherState === "AVAILABLE" && (
                       <button
                         type="button"
-                        className={`voucher-request-button${requestIsPending("VOUCHER", "VOUCHER_REQUEST") ? " pending" : ""}`}
+                        className={`voucher-request-button kiosk-request-button${requestIsPending("VOUCHER", "VOUCHER_REQUEST") ? " pending" : ""}`}
                         disabled={requestIsPending(
                           "VOUCHER",
                           "VOUCHER_REQUEST",
                         )}
                         onClick={() => setVoucherRequestOpen(true)}
                       >
-                        {requestIsPending("VOUCHER", "VOUCHER_REQUEST")
-                          ? "New voucher request pending"
-                          : "Request new voucher"}
+                        <AppIcon
+                          name={
+                            requestIsPending("VOUCHER", "VOUCHER_REQUEST")
+                              ? "check_circle"
+                              : "confirmation_number"
+                          }
+                          size={18}
+                        />
+                        <span className="request-action-label">
+                          {requestIsPending("VOUCHER", "VOUCHER_REQUEST")
+                            ? "New voucher request pending"
+                            : "Request new voucher"}
+                        </span>
                       </button>
                     )}
                   </p>
@@ -6626,6 +6642,10 @@ function Kiosk() {
                 c.type,
                 c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
               );
+              const canRequest =
+                c.type !== "SATP" &&
+                !c.maintenance &&
+                (c.unavailable || passwordResetRequestsEnabled);
               const satpGoogleSignIn = (
                 <p>
                   No SATP password is available. Select{" "}
@@ -6671,21 +6691,6 @@ function Kiosk() {
                       <span>
                         No {meta.title} account is linked to this student.
                       </span>
-                      <button
-                        type="button"
-                        className={`btn secondary${requestIsPending(c.type, "ACCOUNT_CREATION") ? " pending" : ""}`}
-                        disabled={
-                          Boolean(requestingReset) ||
-                          requestIsPending(c.type, "ACCOUNT_CREATION")
-                        }
-                        onClick={() => requestAccount(c.type)}
-                      >
-                        {requestIsPending(c.type, "ACCOUNT_CREATION")
-                          ? "Request pending"
-                          : requestingReset === c.type
-                            ? "Submitting..."
-                            : "Request account"}
-                      </button>
                     </div>
                   ) : (
                     <div className="credential-card-body">
@@ -6715,35 +6720,47 @@ function Kiosk() {
                       )}
                     </div>
                   )}
-                  {(c.type !== "SATP" && !c.maintenance && !c.unavailable) ||
-                  outcome ||
-                  pending ? (
+                  {canRequest || outcome || pending ? (
                     <div className="credential-request-row">
-                      {passwordResetRequestsEnabled &&
-                        c.type !== "SATP" &&
-                        !c.maintenance &&
-                        !c.unavailable && (
-                          <button
-                            type="button"
-                            className={`credential-reset-button${requestIsPending(c.type, "PASSWORD_RESET") ? " pending" : ""}`}
-                            disabled={
-                              Boolean(requestingReset) ||
-                              requestIsPending(c.type, "PASSWORD_RESET")
+                      {canRequest && (
+                        <button
+                          type="button"
+                          className={`credential-reset-button kiosk-request-button${pending ? " pending" : ""}`}
+                          disabled={
+                            Boolean(requestingReset) || Boolean(pending)
+                          }
+                          onClick={() =>
+                            c.unavailable
+                              ? requestAccount(c.type)
+                              : setResetRequestInfo({
+                                  type: c.type,
+                                  title: meta.title,
+                                })
+                          }
+                        >
+                          <AppIcon
+                            name={
+                              pending
+                                ? "check_circle"
+                                : c.unavailable
+                                  ? "person_add"
+                                  : "lock_reset"
                             }
-                            onClick={() =>
-                              setResetRequestInfo({
-                                type: c.type,
-                                title: meta.title,
-                              })
-                            }
-                          >
-                            {requestIsPending(c.type, "PASSWORD_RESET")
-                              ? "Reset request pending"
+                            size={18}
+                          />
+                          <span className="request-action-label">
+                            {pending
+                              ? c.unavailable
+                                ? "Request pending"
+                                : "Reset request pending"
                               : requestingReset === c.type
                                 ? "Submitting..."
-                                : "Request password reset"}
-                          </button>
-                        )}
+                                : c.unavailable
+                                  ? "Request account"
+                                  : "Request password reset"}
+                          </span>
+                        </button>
+                      )}
                       {outcome && (
                         <p
                           className={`credential-request-outcome ${outcome.status.toLowerCase()}`}
@@ -7102,7 +7119,13 @@ function ModuleControlsPage({ token }) {
 }
 
 function TransactionsPage({ token }) {
-  const [listing, setListing] = useState({ rows: [], total: 0, today: 0, studentsServed: 0, pages: 1 }),
+  const [listing, setListing] = useState({
+      rows: [],
+      total: 0,
+      today: 0,
+      studentsServed: 0,
+      pages: 1,
+    }),
     [page, setPage] = useState(1),
     [limit, setLimit] = useState(25),
     [loading, setLoading] = useState(true),
@@ -7122,10 +7145,13 @@ function TransactionsPage({ token }) {
         return;
       loading = true;
       try {
-        const next = await request(`/admin/transactions?page=${page}&limit=${limit}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
+        const next = await request(
+          `/admin/transactions?page=${page}&limit=${limit}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
         if (controller.signal.aborted) return;
         const snapshot = JSON.stringify(next);
         if (snapshot !== lastSnapshot) {
@@ -7178,7 +7204,11 @@ function TransactionsPage({ token }) {
           passwords.
         </div>
         {error && <p className="error">{error}</p>}
-        {loading && <p className="loading-row" role="status">Loading transactions...</p>}
+        {loading && (
+          <p className="loading-row" role="status">
+            Loading transactions...
+          </p>
+        )}
         {transactions.length ? (
           <div className="reset-request-table-wrap">
             <table className="reset-request-table transactions-table">
@@ -7226,19 +7256,72 @@ function TransactionsPage({ token }) {
         <footer className="student-list-pagination">
           <span>
             Showing {transactions.length ? (page - 1) * limit + 1 : 0}
-            {" - "}{Math.min(page * limit, listing.total)} of {listing.total} transactions
+            {" - "}
+            {Math.min(page * limit, listing.total)} of {listing.total}{" "}
+            transactions
           </span>
           <div>
-            <select aria-label="Transactions per page" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }}>
-              {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size} / page</option>)}
+            <select
+              aria-label="Transactions per page"
+              value={limit}
+              onChange={(event) => {
+                setLimit(Number(event.target.value));
+                setPage(1);
+              }}
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size} / page
+                </option>
+              ))}
             </select>
-            <button aria-label="First page" onClick={() => setPage(1)} disabled={loading || page === 1}>First</button>
-            <button aria-label="Previous page" onClick={() => setPage(page - 1)} disabled={loading || page === 1}>Previous</button>
+            <button
+              aria-label="First page"
+              onClick={() => setPage(1)}
+              disabled={loading || page === 1}
+            >
+              First
+            </button>
+            <button
+              aria-label="Previous page"
+              onClick={() => setPage(page - 1)}
+              disabled={loading || page === 1}
+            >
+              Previous
+            </button>
             <label>
-              Page <input type="number" aria-label="Page number" min="1" max={listing.pages} value={page} onChange={(event) => setPage(Math.min(listing.pages, Math.max(1, Number(event.target.value) || 1)))} /> of {listing.pages}
+              Page{" "}
+              <input
+                type="number"
+                aria-label="Page number"
+                min="1"
+                max={listing.pages}
+                value={page}
+                onChange={(event) =>
+                  setPage(
+                    Math.min(
+                      listing.pages,
+                      Math.max(1, Number(event.target.value) || 1),
+                    ),
+                  )
+                }
+              />{" "}
+              of {listing.pages}
             </label>
-            <button aria-label="Next page" onClick={() => setPage(page + 1)} disabled={loading || page >= listing.pages}>Next</button>
-            <button aria-label="Last page" onClick={() => setPage(listing.pages)} disabled={loading || page >= listing.pages}>Last</button>
+            <button
+              aria-label="Next page"
+              onClick={() => setPage(page + 1)}
+              disabled={loading || page >= listing.pages}
+            >
+              Next
+            </button>
+            <button
+              aria-label="Last page"
+              onClick={() => setPage(listing.pages)}
+              disabled={loading || page >= listing.pages}
+            >
+              Last
+            </button>
           </div>
         </footer>
       </section>
@@ -7505,7 +7588,10 @@ function PasswordResetRequestsPage({ token }) {
     [saving, setSaving] = useState(false),
     [queueFilter, setQueueFilter] = useState("PENDING"),
     [page, setPage] = useState(1),
-    [passwordResetForm, setPasswordResetForm] = useState({ replacePassword: false, password: "" }),
+    [passwordResetForm, setPasswordResetForm] = useState({
+      replacePassword: false,
+      password: "",
+    }),
     [accountRequestForm, setAccountRequestForm] = useState({
       emailAddress: "",
       password: "",
@@ -7519,7 +7605,11 @@ function PasswordResetRequestsPage({ token }) {
     let queuedRefresh = false;
     let lastSnapshot = "";
     const refresh = async (force = false) => {
-      if (controller.signal.aborted || (!force && document.visibilityState === "hidden")) return;
+      if (
+        controller.signal.aborted ||
+        (!force && document.visibilityState === "hidden")
+      )
+        return;
       if (loading) {
         if (force) queuedRefresh = true;
         return;
@@ -7579,7 +7669,10 @@ function PasswordResetRequestsPage({ token }) {
             selected.request_kind === "ACCOUNT_CREATION"
               ? accountRequestForm
               : canReplacePassword && passwordResetForm.replacePassword
-                ? { replacePassword: true, password: passwordResetForm.password }
+                ? {
+                    replacePassword: true,
+                    password: passwordResetForm.password,
+                  }
                 : {},
           ),
         },
@@ -7673,14 +7766,21 @@ function PasswordResetRequestsPage({ token }) {
       );
     }
   };
-  const canReplacePassword = selected?.request_kind === "PASSWORD_RESET" && ["EMAIL", "KUMOSOFT", "SCHOOLOGY"].includes(selected.credential_type);
-  const resetSource = { EMAIL: "Google Workspace", KUMOSOFT: "Kumosoft", SCHOOLOGY: "Schoology" }[selected?.credential_type];
+  const canReplacePassword =
+    selected?.request_kind === "PASSWORD_RESET" &&
+    ["EMAIL", "KUMOSOFT", "SCHOOLOGY"].includes(selected.credential_type);
+  const resetSource = {
+    EMAIL: "Google Workspace",
+    KUMOSOFT: "Kumosoft",
+    SCHOOLOGY: "Schoology",
+  }[selected?.credential_type];
   const accountRequestReady =
     selected?.request_kind !== "ACCOUNT_CREATION" ||
     (Boolean(accountRequestForm.password) &&
       (selected.credential_type !== "EMAIL" ||
         Boolean(accountRequestForm.emailAddress.trim())));
-  const passwordResetReady = selected?.request_kind !== "PASSWORD_RESET" ||
+  const passwordResetReady =
+    selected?.request_kind !== "PASSWORD_RESET" ||
     (canReplacePassword && passwordResetForm.replacePassword
       ? Boolean(passwordResetForm.password.trim())
       : Boolean(selected.default_password));
@@ -7744,7 +7844,9 @@ function PasswordResetRequestsPage({ token }) {
           require creating the missing account. Voucher requests replace the
           current code only after administrator approval.
         </div>
-        {(error || refreshError) && <p className="error">{error || refreshError}</p>}
+        {(error || refreshError) && (
+          <p className="error">{error || refreshError}</p>
+        )}
         <div className="request-queue-toolbar">
           <div
             className="request-filter-tabs"
@@ -8060,13 +8162,21 @@ function PasswordResetRequestsPage({ token }) {
                       <label className="status-toggle">
                         <span>
                           <b>Replace default password</b>
-                          <small>Save a replacement password when completing this reset.</small>
+                          <small>
+                            Save a replacement password when completing this
+                            reset.
+                          </small>
                         </span>
                         <input
                           type="checkbox"
                           checked={passwordResetForm.replacePassword}
                           disabled={saving}
-                          onChange={(event) => setPasswordResetForm({ replacePassword: event.target.checked, password: "" })}
+                          onChange={(event) =>
+                            setPasswordResetForm({
+                              replacePassword: event.target.checked,
+                              password: "",
+                            })
+                          }
                         />
                         <i />
                       </label>
@@ -8082,13 +8192,23 @@ function PasswordResetRequestsPage({ token }) {
                               disabled={saving}
                               value={passwordResetForm.password}
                               placeholder="Enter the replacement password"
-                              onChange={(event) => setPasswordResetForm({ ...passwordResetForm, password: event.target.value })}
+                              onChange={(event) =>
+                                setPasswordResetForm({
+                                  ...passwordResetForm,
+                                  password: event.target.value,
+                                })
+                              }
                             />
                           </label>
                           <Button
                             variant="secondary"
                             disabled={!passwordResetForm.password.trim()}
-                            onClick={() => copyRequestValue(passwordResetForm.password, "Replacement password")}
+                            onClick={() =>
+                              copyRequestValue(
+                                passwordResetForm.password,
+                                "Replacement password",
+                              )
+                            }
                           >
                             Copy replacement password
                           </Button>
@@ -8120,11 +8240,7 @@ function PasswordResetRequestsPage({ token }) {
               )}
               <button
                 className="btn primary"
-                disabled={
-                  saving ||
-                  !accountRequestReady ||
-                  !passwordResetReady
-                }
+                disabled={saving || !accountRequestReady || !passwordResetReady}
                 onClick={complete}
               >
                 {saving

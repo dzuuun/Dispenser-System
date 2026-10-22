@@ -73,8 +73,11 @@ export async function listTransactions(req, res) {
     const period = await currentAcademicPeriod();
     const requestedPage = Number(req.query.page);
     const requestedLimit = Number(req.query.limit);
-    const limit = [10, 25, 50, 100].includes(requestedLimit) ? requestedLimit : 25;
-    const where = "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
+    const limit = [10, 25, 50, 100].includes(requestedLimit)
+      ? requestedLimit
+      : 25;
+    const where =
+      "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
     const [[summary]] = await pool.execute(
       `SELECT COUNT(*) AS total,
         COALESCE(SUM(DATE(t.created_at)=CURRENT_DATE()), 0) AS today,
@@ -84,7 +87,12 @@ export async function listTransactions(req, res) {
     );
     const total = Number(summary.total);
     const pages = Math.max(1, Math.ceil(total / limit));
-    const page = Math.min(pages, Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1);
+    const page = Math.min(
+      pages,
+      Number.isSafeInteger(requestedPage) && requestedPage > 0
+        ? requestedPage
+        : 1,
+    );
     const [rows] = await pool.query(
       `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
         t.ip_address, t.created_at, s.student_id, s.first_name, s.middle_name, s.last_name
@@ -93,8 +101,13 @@ export async function listTransactions(req, res) {
       [period?.id || 0, limit, (page - 1) * limit],
     );
     return res.set("Cache-Control", "no-store").json({
-      rows, page, limit, pages, total,
-      today: Number(summary.today), studentsServed: Number(summary.studentsServed),
+      rows,
+      page,
+      limit,
+      pages,
+      total,
+      today: Number(summary.today),
+      studentsServed: Number(summary.studentsServed),
     });
   }
   const [rows] = await pool.query(

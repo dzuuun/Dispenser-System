@@ -48,12 +48,10 @@ export async function createCourse(req, res) {
       ? inferAcademicLevel(code, name)
       : normalizeAcademicLevel(req.body.academicLevel);
   if (!academicLevel)
-    return res
-      .status(400)
-      .json({
-        message:
-          "Choose College, Graduate school, or Other as the academic level.",
-      });
+    return res.status(400).json({
+      message:
+        "Choose College, Graduate school, or Other as the academic level.",
+    });
   if (!code || !name)
     return res
       .status(400)
@@ -63,15 +61,13 @@ export async function createCourse(req, res) {
       "INSERT INTO courses (code, name, academic_level, is_active) VALUES (?, ?, ?, ?)",
       [code, name, academicLevel, isActive],
     );
-    res
-      .status(201)
-      .json({
-        id: created.insertId,
-        code,
-        name,
-        academic_level: academicLevel,
-        is_active: Boolean(isActive),
-      });
+    res.status(201).json({
+      id: created.insertId,
+      code,
+      name,
+      academic_level: academicLevel,
+      is_active: Boolean(isActive),
+    });
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY")
       return res
@@ -91,12 +87,10 @@ export async function updateCourse(req, res) {
       ? null
       : normalizeAcademicLevel(req.body.academicLevel);
   if (req.body.academicLevel !== undefined && !academicLevel)
-    return res
-      .status(400)
-      .json({
-        message:
-          "Choose College, Graduate school, or Other as the academic level.",
-      });
+    return res.status(400).json({
+      message:
+        "Choose College, Graduate school, or Other as the academic level.",
+    });
   if (!code || !name)
     return res
       .status(400)

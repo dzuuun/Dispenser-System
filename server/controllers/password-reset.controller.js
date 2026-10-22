@@ -10,7 +10,11 @@ const accountTables = {
   KUMOSOFT: "kumosoft_accounts",
   EMAIL: "institutional_email_accounts",
 };
-const passwordResetTypes = { EMAIL: "Email", KUMOSOFT: "Kumosoft", SCHOOLOGY: "Schoology" };
+const passwordResetTypes = {
+  EMAIL: "Email",
+  KUMOSOFT: "Kumosoft",
+  SCHOOLOGY: "Schoology",
+};
 
 export async function pendingCredentialRequestCount(_req, res) {
   const [[row]] = await pool.query(
@@ -83,8 +87,13 @@ export async function completePasswordResetRequest(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1)
     return res.status(400).json({ message: "Invalid reset request." });
-  if (req.body?.replacePassword !== undefined && typeof req.body.replacePassword !== "boolean")
-    return res.status(400).json({ message: "Choose whether to replace the default password." });
+  if (
+    req.body?.replacePassword !== undefined &&
+    typeof req.body.replacePassword !== "boolean"
+  )
+    return res
+      .status(400)
+      .json({ message: "Choose whether to replace the default password." });
   const replacePassword = req.body?.replacePassword === true;
 
   const connection = await pool.getConnection();
@@ -101,14 +110,27 @@ export async function completePasswordResetRequest(req, res) {
         .json({ message: "Pending credential request not found." });
     }
     if (replacePassword) {
-      if (request.request_kind !== "PASSWORD_RESET" || !Object.hasOwn(passwordResetTypes, request.credential_type)) {
+      if (
+        request.request_kind !== "PASSWORD_RESET" ||
+        !Object.hasOwn(passwordResetTypes, request.credential_type)
+      ) {
         await connection.rollback();
-        return res.status(400).json({ message: "Password replacement is available only for Email, Kumosoft, and Schoology password resets." });
+        return res
+          .status(400)
+          .json({
+            message:
+              "Password replacement is available only for Email, Kumosoft, and Schoology password resets.",
+          });
       }
       const password = req.body?.password;
       if (typeof password !== "string" || !password.trim()) {
         await connection.rollback();
-        return res.status(400).json({ message: "Enter a replacement password before completing this request." });
+        return res
+          .status(400)
+          .json({
+            message:
+              "Enter a replacement password before completing this request.",
+          });
       }
       const [[account]] = await connection.execute(
         `SELECT id, is_active FROM ${accountTables[request.credential_type]} WHERE student_id=? FOR UPDATE`,
@@ -116,12 +138,21 @@ export async function completePasswordResetRequest(req, res) {
       );
       if (!account || !account.is_active) {
         await connection.rollback();
-        return res.status(404).json({ message: `The active ${passwordResetTypes[request.credential_type]} account was not found.` });
+        return res
+          .status(404)
+          .json({
+            message: `The active ${passwordResetTypes[request.credential_type]} account was not found.`,
+          });
       }
       const encrypted = encryptPassword(password);
       await connection.execute(
         `UPDATE ${accountTables[request.credential_type]} SET encrypted_password=?, password_iv=?, password_auth_tag=? WHERE id=?`,
-        [encrypted.encrypted_password, encrypted.password_iv, encrypted.password_auth_tag, account.id],
+        [
+          encrypted.encrypted_password,
+          encrypted.password_iv,
+          encrypted.password_auth_tag,
+          account.id,
+        ],
       );
     }
     if (request.request_kind === "ACCOUNT_CREATION") {
