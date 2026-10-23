@@ -8302,6 +8302,52 @@ body,
   background: #fff;
 }
 
+/* All import reviews share the grouped SQL Server layout and fixed actions. */
+.import-review-overlay {
+  z-index: 1000;
+  box-sizing: border-box;
+  padding: 20px 12px;
+  overflow: hidden;
+}
+.modal-backdrop > .import-review-modal.is-validation {
+  width: min(calc(100vw - 48px), 820px) !important;
+  height: min(720px, calc(100dvh - 40px)) !important;
+  max-height: min(720px, calc(100dvh - 40px)) !important;
+}
+.import-review-modal.is-validation > header {
+  min-height: 103px;
+  box-sizing: border-box;
+}
+.import-validation-notes {
+  display: grid;
+  gap: 12px;
+  padding: 0 24px 18px;
+}
+.import-validation-notes > .btn {
+  justify-self: start;
+}
+.import-validation-notes > .error,
+.import-validation-notes > .import-progress {
+  margin: 0;
+}
+.mssql-validation-group.unchanged > header span::before {
+  background: #82958b;
+}
+.mssql-validation-rows article > span,
+.mssql-validation-rows article > em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 620px) {
+  .modal-backdrop > .import-review-modal.is-validation {
+    width: calc(100vw - 24px) !important;
+  }
+  .import-validation-notes {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
+
 /* Compact outlined actions fit the kiosk's original fixed-height view. */
 .kiosk-results .kiosk-request-button,
 .kiosk-results

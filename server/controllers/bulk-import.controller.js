@@ -6,6 +6,7 @@ import {
 } from "../services/workbook.service.js";
 import { pool } from "../config/db.js";
 import { requireCurrentAcademicPeriod } from "../services/academic-period.service.js";
+import { importPreview, importErrorPreview } from "../services/import-preview.service.js";
 import {
   decryptPassword,
   encryptPassword,
@@ -596,7 +597,27 @@ export async function upsertStudentRows(items, connection) {
 export async function validateDataImport(req, res) {
   try {
     const result = await review(req.params.type, req.file);
+    const groups = { new: [], update: [], error: importErrorPreview(result.errors) };
+    for (const item of result.items) {
+      const isStudent = req.params.type === "students";
+      groups[item.status].push({
+        row: item.row,
+        label: isStudent
+          ? `${item.schoolId} — ${[item.lastName, item.firstName, item.middleName].filter(Boolean).join(", ")} (${item.courseCode})`
+          : [item.schoolId, item.login !== item.schoolId && item.login].filter(Boolean).join(" — "),
+        message: isStudent
+          ? item.status === "new" ? "Student will be created." : "Student record will be updated."
+          : req.params.type === "student-deactivate"
+            ? "Student will be marked inactive."
+            : !item.studentId
+              ? "Account will be saved until its student is imported."
+              : item.status === "new" ? "Account will be created." : "Account will be updated.",
+      });
+    }
+    const preview = importPreview(groups, req.query);
+    if (preview.category) return res.json(preview);
     res.json({
+      ...preview,
       total: result.total,
       new: result.new,
       update: result.update,

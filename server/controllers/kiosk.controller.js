@@ -180,7 +180,7 @@ export async function credentials(req, res) {
       });
     }
     const [creds] = await conn.execute(
-      "SELECT 'SATP' credential_type, username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
+      "SELECT 'SATP' credential_type, username, encrypted_password, password_iv, password_auth_tag, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM satp_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'SCHOOLOGY' credential_type, username, encrypted_password, password_iv, password_auth_tag, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM schoology_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'KUMOSOFT' credential_type, username, encrypted_password, password_iv, password_auth_tag, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM kumosoft_accounts WHERE student_id=? AND is_active=1 UNION ALL SELECT 'EMAIL' credential_type, email_address username, encrypted_password, password_iv, password_auth_tag, (encrypted_password IS NOT NULL AND encrypted_password <> '') has_password FROM institutional_email_accounts WHERE student_id=? AND is_active=1",
       [session.sub, session.sub, session.sub, session.sub],
     );
     const [requestRecords] = await conn.execute(
@@ -252,10 +252,15 @@ export async function credentials(req, res) {
             const credential = creds.find(
               (item) => item.credential_type === type,
             );
+            const passwordLength = credential
+              ? Array.from(decryptPassword(credential) || "").length
+              : 0;
             return {
               type,
               username: credential?.username || null,
               hasPassword: Boolean(credential?.has_password),
+              // Only expose the follow-up rule; passwords stay hidden until Show All.
+              checkForNewPassword: passwordLength > 0 && passwordLength < 2,
               unavailable: !credential,
               maintenance: controls.get(type)?.maintenance || false,
             };
@@ -337,11 +342,16 @@ export async function revealCredentials(req, res) {
         const control = controls.get(row.credential_type);
         return (control?.visible ?? true) && !control?.maintenance;
       })
-      .map((row) => ({
-        type: row.credential_type,
-        username: row.username,
-        password: decryptPassword(row),
-      }));
+      .map((row) => {
+        const password = decryptPassword(row);
+        return {
+          type: row.credential_type,
+          username: row.username,
+          password,
+          hasPassword: Boolean(password),
+          checkForNewPassword: Boolean(password) && Array.from(password).length < 2,
+        };
+      });
     // A student explicitly confirmed Show All. Record that security-sensitive
     // action even when every credential is currently unavailable or hidden.
     await transaction({

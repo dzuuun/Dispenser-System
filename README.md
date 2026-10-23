@@ -182,6 +182,8 @@ server/                 Express API
 - Administrator passwords are hashed with bcrypt.
 - Credential passwords are encrypted with AES-256-GCM before storage.
 - Administrator refresh tokens are HttpOnly, SameSite cookies that are rotated and can be revoked server-side.
+- Admin API calls silently renew expired 15-minute access tokens and retry once. Concurrent calls share one renewal, including table polling, saves, imports, and exports. An expired or revoked refresh session returns to sign-in; temporary network failures do not sign the administrator out.
+- Session cookies use `Secure` on HTTPS and remain usable on the supported LAN HTTP deployment. Express reads the connection scheme through the trusted proxy. [MDN documents how Secure cookies depend on HTTPS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie#secure).
 - Kiosk sessions are device-scoped and temporary.
 - Administrative mutations are recorded in the audit log.
 - Use HTTPS, restrict CORS to the real frontend origin, use a least-privilege MySQL account, and maintain tested database backups.

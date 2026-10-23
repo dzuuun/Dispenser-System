@@ -6,8 +6,10 @@ import ExcelJS from "exceljs";
 const transactionWhere =
   "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
 const transactionSelect = `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
-  t.ip_address, t.created_at, s.student_id, s.first_name, s.middle_name, s.last_name
-  FROM credential_transactions t LEFT JOIN students s ON s.id=t.student_id`;
+  t.ip_address, t.created_at, s.student_id, s.first_name, s.middle_name, s.last_name,
+  c.code AS course_code
+  FROM credential_transactions t LEFT JOIN students s ON s.id=t.student_id
+  LEFT JOIN courses c ON c.id=s.course_id`;
 
 async function transactionPeriod(query) {
   if (query.academicPeriodId === undefined) return currentAcademicPeriod();

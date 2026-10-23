@@ -54,6 +54,12 @@ The rules redirect `/dispenser` to `/dispenser/`, then forward every
 `/dispenser/...` request unchanged to Node. This includes static assets and
 `/dispenser/api/...` requests.
 
+When configuring HTTPS at IIS, forward the original connection scheme in
+`X-Forwarded-Proto` (`https` for TLS requests), replacing any client-supplied
+value. The app trusts the local reverse proxy and uses this scheme to set
+HTTPS-only session cookies. For the LAN HTTP setup above, cookies work over
+HTTP and administrator access tokens renew automatically without reloading.
+
 ## 3. Verify
 
 Open:

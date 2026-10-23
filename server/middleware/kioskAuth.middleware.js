@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { config } from "../config/env.js";
 import { pool } from "../config/db.js";
+import { sessionCookieOptions } from "../services/session-cookie.service.js";
 
 const cookie = (req, name) =>
   String(req.headers.cookie || "")
@@ -53,13 +54,8 @@ export async function createKioskSession(req, res, next) {
       cfg.accessSecret,
       { expiresIn: "12h" },
     );
-    res.cookie("ndmu_kiosk", token, {
-      httpOnly: true,
-      sameSite: "strict",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 12 * 60 * 60 * 1000,
-      path: "/dispenser/api/kiosk",
-    });
+    res.cookie("ndmu_kiosk", token,
+      sessionCookieOptions(req, "/dispenser/api/kiosk", 12 * 60 * 60 * 1000));
     res.status(204).end();
   } catch (error) {
     next(error);

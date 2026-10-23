@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { importPreview, importErrorPreview } from "../services/import-preview.service.js";
 import {
   readWorkbookRows,
   workbookBase64,
@@ -172,6 +173,7 @@ async function reviewVoucherImport(file) {
   const existing = new Set(existingRows.map((row) => row.voucher_code));
   const seen = new Set();
   const valid = [],
+    validRows = [],
     errors = [],
     duplicates = [];
   for (const item of source) {
@@ -182,14 +184,22 @@ async function reviewVoucherImport(file) {
     } else {
       seen.add(item.code);
       valid.push(item.code);
+      validRows.push(item);
     }
   }
-  return { valid, errors, duplicates };
+  return { valid, validRows, errors, duplicates };
 }
 
 export async function validateVoucherImport(req, res) {
   const review = await reviewVoucherImport(req.file);
+  const preview = importPreview({
+    new: review.validRows.map((item) => ({ row: item.row, label: item.code, message: "Voucher will be added." })),
+    duplicate: review.duplicates.map((item) => ({ row: item.row, label: item.code, message: "Existing or duplicate voucher will be skipped." })),
+    error: importErrorPreview(review.errors),
+  }, req.query);
+  if (preview.category) return res.json(preview);
   res.json({
+    ...preview,
     new: review.valid.length,
     duplicates: review.duplicates.length,
     errors: review.errors,

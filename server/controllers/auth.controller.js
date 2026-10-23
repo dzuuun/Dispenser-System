@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { pool } from "../config/db.js";
 import { config } from "../config/env.js";
+import { sessionCookieOptions } from "../services/session-cookie.service.js";
 const refreshCookie = "ndmu_credentials_refresh";
 const hashToken = (value) =>
   crypto.createHash("sha256").update(value).digest("hex");
@@ -20,21 +21,11 @@ const getCookie = (req, name) =>
     .map((value) => value.trim())
     .find((value) => value.startsWith(`${name}=`))
     ?.slice(name.length + 1) || "";
-const setRefreshCookie = (res, token) =>
-  res.cookie(refreshCookie, token, {
-    httpOnly: true,
-    sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
-    path: "/dispenser/api/auth",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-const clearRefreshCookie = (res) =>
-  res.clearCookie(refreshCookie, {
-    httpOnly: true,
-    sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
-    path: "/dispenser/api/auth",
-  });
+const setRefreshCookie = (req, res, token) =>
+  res.cookie(refreshCookie, token,
+    sessionCookieOptions(req, "/dispenser/api/auth", 7 * 24 * 60 * 60 * 1000));
+const clearRefreshCookie = (req, res) =>
+  res.clearCookie(refreshCookie, sessionCookieOptions(req, "/dispenser/api/auth"));
 const issue = async (admin, req, res) => {
   const sessionId = crypto.randomUUID();
   const refreshToken = jwt.sign(
@@ -54,7 +45,7 @@ const issue = async (admin, req, res) => {
       req.header("user-agent")?.slice(0, 255) || null,
     ],
   );
-  setRefreshCookie(res, refreshToken);
+  setRefreshCookie(req, res, refreshToken);
   return {
     accessToken: jwt.sign(
       { sub: admin.id, username: admin.username, role: admin.role_name },
@@ -114,7 +105,7 @@ export async function refresh(req, res) {
     );
     res.json(await issue(rows[0], req, res));
   } catch {
-    clearRefreshCookie(res);
+    clearRefreshCookie(req, res);
     res.status(401).json({ message: "Please sign in again." });
   }
 }
@@ -127,7 +118,7 @@ export async function logout(req, res) {
       [payload.jti, payload.sub],
     );
   } catch {}
-  clearRefreshCookie(res);
+  clearRefreshCookie(req, res);
   res.status(204).end();
 }
 export async function setupStatus(_req, res) {

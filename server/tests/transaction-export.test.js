@@ -31,6 +31,7 @@ async function setup(t, { count = 1031, noCurrent = false } = {}) {
   const rows = Array.from({ length: count }, (_, index) => ({
     id: index + 1,
     student_id: "0012345",
+    course_code: "BSIT",
     first_name: "Test",
     middle_name: null,
     last_name: "Student",
@@ -162,10 +163,13 @@ test("historical table pagination and summaries use the selected transaction per
   assert.equal(body.total, 1031);
   assert.equal(body.page, 2);
   assert.equal(body.rows[0].id, 11);
+  assert.equal(body.rows[0].course_code, "BSIT");
   const summary = calls.find(({ sql }) => sql.includes("COUNT(*) AS total"));
   const listing = calls.find(({ sql }) => sql.includes("LIMIT ? OFFSET ?"));
   assert.deepEqual(summary.values, [3]);
   assert.deepEqual(listing.values, [3, 10, 10]);
+  assert.match(listing.sql, /c.code AS course_code/);
+  assert.match(listing.sql, /LEFT JOIN courses c ON c.id=s.course_id/);
   assert.match(summary.sql, /t.academic_period_id=\?/);
   assert.doesNotMatch(listing.sql, /s.academic_period_id/);
 });

@@ -10,6 +10,12 @@ import ndmuLogo from "./assets/ndmu-logo.png";
 import { generateRandomPassword } from "./password-generator.js";
 import { createPendingRequestTitle } from "./pending-request-title.js";
 import { createKioskActivityTracker } from "./kiosk-activity.js";
+import { createAdminApi } from "./admin-api.js";
+import {
+  DEFAULT_PASSWORD_RESET_FOLLOW_UP,
+  NEW_PASSWORD_RESET_FOLLOW_UP,
+  passwordResetGuidance,
+} from "./password-reset-guidance.js";
 import {
   REQUEST_PERMISSION_GROUPS,
   REQUEST_PERMISSION_KEYS,
@@ -18,6 +24,12 @@ import {
 
 const APP_BASE = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
 const API = `${APP_BASE}/api`;
+const adminApi = createAdminApi({
+  baseUrl: API,
+  onToken: (token) => dispatchEvent(new CustomEvent("admin-token-refreshed", { detail: token })),
+  onExpired: () => dispatchEvent(new Event("admin-session-expired")),
+});
+const adminFetch = (path, options) => adminApi.fetch(path, options);
 DataTable.use(DT);
 const kioskHeaders = {
   "Content-Type": "application/json",
@@ -29,13 +41,9 @@ const kioskIdentity = {
   location: import.meta.env.VITE_KIOSK_LOCATION || "",
 };
 async function request(path, options = {}) {
-  const res = await fetch(`${API}${path}`, {
-    credentials: "same-origin",
-    cache: "no-store",
-    ...options,
-  });
+  const res = await adminFetch(path, options);
   const data = res.status === 204 ? null : await res.json();
-  if (!res.ok) throw new Error(data.message || "Unable to continue.");
+  if (!res.ok) throw Object.assign(new Error(data?.message || "Unable to continue."), { status: res.status });
   return data;
 }
 
@@ -68,34 +76,6 @@ function addDataTablePageJump() {
   paging.append(form);
   api.on("draw.pageJump", update);
   update();
-}
-async function adminFetch(path, options = {}) {
-  let response = await fetch(`${API}${path}`, {
-    credentials: "same-origin",
-    cache: "no-store",
-    ...options,
-  });
-  if (response.status !== 401 || !options.headers?.Authorization)
-    return response;
-  const refreshed = await fetch(`${API}/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-  });
-  if (!refreshed.ok) return response;
-  const session = await refreshed.json();
-  dispatchEvent(
-    new CustomEvent("admin-token-refreshed", { detail: session.accessToken }),
-  );
-  const headers = new Headers(options.headers);
-  headers.set("Authorization", `Bearer ${session.accessToken}`);
-  response = await fetch(`${API}${path}`, {
-    credentials: "same-origin",
-    cache: "no-store",
-    ...options,
-    headers,
-  });
-  return response;
 }
 const appPath = () => {
   const path = location.pathname;
@@ -330,10 +310,13 @@ function ConfirmModal({
 
 function PasswordResetInfoModal({
   accountTitle,
+  hasDefaultPassword,
+  checkForNewPassword,
   submitting,
   onSubmit,
   onClose,
 }) {
+  const useDefaultPassword = hasDefaultPassword && !checkForNewPassword;
   return (
     <div
       className="modal-backdrop system-modal-backdrop"
@@ -355,7 +338,7 @@ function PasswordResetInfoModal({
             <span>
               <b>When to expect it</b>
               <small>
-                Allow at least two business hours before checking. Requests are
+                Allow at least two business hours for processing. Requests are
                 processed during regular ICT/MIS office hours.
               </small>
             </span>
@@ -365,19 +348,43 @@ function PasswordResetInfoModal({
             <span>
               <b>How you will know</b>
               <small>
-                Return to this kiosk after at least two business hours to check
-                the status. The pending label will disappear once the reset is
-                completed.
+                {useDefaultPassword ? (
+                  <>
+                    Once the administrator completes the reset, you can sign in
+                    with the default credentials shown here.
+                  </>
+                ) : (
+                  <>
+                    Return to this kiosk after at least two business hours to
+                    check the status. The pending label will disappear once the
+                    reset is completed.
+                  </>
+                )}
               </small>
             </span>
           </article>
           <article>
             <AppIcon name="password" size={22} />
             <span>
-              <b>Use the default password</b>
+              <b>{useDefaultPassword ? "Sign in with your default credentials" : checkForNewPassword ? "Check for your new password" : "Check your account credentials"}</b>
               <small>
-                Once the reset is completed, use the account's default password.
-                Open Credentials Summary and tap Show All to view it.
+                {useDefaultPassword ? (
+                  <>
+                    {DEFAULT_PASSWORD_RESET_FOLLOW_UP} Tap Show All in Credentials
+                    Summary to view your username and default password.
+                  </>
+                ) : checkForNewPassword ? (
+                  <>
+                    {NEW_PASSWORD_RESET_FOLLOW_UP} Tap Show All in Credentials
+                    Summary to view your updated password once the reset is completed.
+                  </>
+                ) : (
+                  <>
+                    No default password is currently available. Return to this
+                    kiosk after at least two business hours to check the reset
+                    status and your updated account credentials.
+                  </>
+                )}
               </small>
             </span>
           </article>
@@ -1041,7 +1048,7 @@ function PageHeader({ title, description, actions }) {
     </header>
   );
 }
-function AdminLogin({ onLogin }) {
+function AdminLogin({ onLogin, notice = "" }) {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [setupRequired, setSetupRequired] = useState(false);
@@ -1109,7 +1116,7 @@ function AdminLogin({ onLogin }) {
                 passwordVisible={passwordVisible}
                 onPasswordVisibilityChange={setPasswordVisible}
               />
-              {error && <p className="error">{error}</p>}
+              {(error || notice) && <p className="error" role="alert">{error || notice}</p>}
               <button className="btn primary wide">Sign in</button>
             </form>
             {setupRequired && (
@@ -2815,7 +2822,7 @@ function LegacyCourseImportModal({ token, onClose, onImported }) {
     try {
       const body = new FormData();
       body.append("file", file);
-      const response = await fetch(`${API}/admin/course-records/import`, {
+      const response = await adminFetch("/admin/course-records/import", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body,
@@ -2916,7 +2923,7 @@ function LegacyCourseImportModalV2({ token, onClose, onImported }) {
     try {
       const body = new FormData();
       body.append("file", file);
-      const response = await fetch(`${API}/admin/course-records/import`, {
+      const response = await adminFetch("/admin/course-records/import", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body,
@@ -2938,224 +2945,16 @@ function LegacyCoursesPageV3({ token }) {
   return <div />;
 }
 function CourseImportModal({ token, onClose, onImported, onToast }) {
-  const [file, setFile] = useState(null),
-    [validation, setValidation] = useState(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [done, setDone] = useState(null),
-    [confirm, setConfirm] = useState(false);
-  const validationRef = useRef(null);
-  useEffect(() => {
-    if (validation) validationRef.current?.scrollTo({ top: 0 });
-  }, [validation]);
-  const template = () => {
-    const blob = new Blob(
-      [
-        "\uFEFFCourseCode,CourseName\nBSIT,Bachelor of Science in Information Technology\n",
-      ],
-      { type: "text/csv;charset=utf-8" },
-    );
-    const url = URL.createObjectURL(blob),
-      link = document.createElement("a");
-    link.href = url;
-    link.download = "ndmu-course-import-template.csv";
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-  const send = async (endpoint) => {
-    const body = new FormData();
-    body.append("file", file);
-    const response = await fetch(
-      `${API}/admin/course-records/import${endpoint}`,
-      { method: "POST", headers: { Authorization: `Bearer ${token}` }, body },
-    );
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || "Course import failed.");
-    return data;
-  };
-  const validate = async (e) => {
-    e.preventDefault();
-    if (!file) return setError("Choose a CSV or Excel file first.");
-    setBusy(true);
-    setError("");
-    try {
-      setValidation(await send("/validate"));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const importFile = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const data = await send("");
-      onImported();
-      onToast?.(
-        `${data.inserted} course(s) added and ${data.updated} updated.`,
-      );
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const summary = (data) => (
-    <div className="validation-summary">
-      <span>
-        <b>{data.new || data.inserted || 0}</b> new
-      </span>
-      <span>
-        <b>{data.update || data.updated || 0}</b> updates
-      </span>
-      <span>
-        <b>{data.unchanged || 0}</b> unchanged
-      </span>
-      <span className={data.invalid ? "has-errors" : ""}>
-        <b>{data.invalid || 0}</b> errors
-      </span>
-    </div>
-  );
   return (
-    <>
-      <div className="modal-backdrop" onMouseDown={onClose}>
-        <section
-          className="course-modal bulk-import-modal"
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <header>
-            <div>
-              <p className="eyebrow">BULK ACTION</p>
-              <h2>Import courses</h2>
-            </div>
-            <button
-              className="modal-close"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              &times;
-            </button>
-          </header>
-          {done ? (
-            <div className="import-result">
-              <strong>Import complete</strong>
-              {summary(done)}
-              {done.errors.slice(0, 5).map((item) => (
-                <small key={item.row}>
-                  Row {item.row}: {item.message}
-                </small>
-              ))}
-              <Button onClick={onClose}>Done</Button>
-            </div>
-          ) : validation ? (
-            <div
-              className="validation-result course-import-validation"
-              ref={validationRef}
-            >
-              <p className="eyebrow">VALIDATION RESULT</p>
-              <h3>Review before importing</h3>
-              {summary(validation)}
-              {validation.preview.length > 0 && (
-                <div className="validation-preview">
-                  {validation.preview.map((item) => (
-                    <p key={item.row}>
-                      <b>{item.code}</b>
-                      <span>{item.status}</span>
-                      {item.name}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {validation.errors.slice(0, 5).map((item) => (
-                <small className="validation-error" key={item.row}>
-                  Row {item.row}: {item.message}
-                </small>
-              ))}
-              {validation.invalid > 0 && validation.errorReport && (
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    downloadErrorReport(validation.errorReport, "courses")
-                  }
-                >
-                  <AppIcon name="download" /> Download error rows
-                </Button>
-              )}
-              {error && <p className="error">{error}</p>}
-              <footer>
-                <Button variant="secondary" onClick={() => setValidation(null)}>
-                  Choose another file
-                </Button>
-                <button
-                  disabled={busy || (!validation.new && !validation.update)}
-                  onClick={() => setConfirm(true)}
-                  className="btn primary"
-                >{`Import ${validation.new + validation.update} changes`}</button>
-              </footer>
-            </div>
-          ) : (
-            <form onSubmit={validate}>
-              <label className="bulk-file-picker">
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  onChange={(e) => {
-                    setFile(e.target.files[0] || null);
-                    setError("");
-                  }}
-                />
-                <span className="upload-icon">⇧</span>
-                <b>{file ? file.name : "Choose an Excel file"}</b>
-                <small>
-                  {file
-                    ? "Ready to validate"
-                    : "Use the downloadable template for the required columns"}
-                </small>
-              </label>
-              <p className="template-link">
-                Need the format?{" "}
-                <button type="button" onClick={template}>
-                  Download template
-                </button>
-              </p>
-              {error && <p className="error">{error}</p>}
-              <footer>
-                <Button variant="secondary" onClick={onClose}>
-                  Cancel
-                </Button>
-                <button disabled={busy} className="btn primary">
-                  {busy ? "Validating..." : "Validate file"}
-                </button>
-              </footer>
-            </form>
-          )}
-        </section>
-      </div>
-      {confirm && (
-        <ConfirmModal
-          title="Import course changes?"
-          message={`This will add ${validation.new} new course(s) and update ${validation.update} existing course(s).`}
-          confirmLabel="Import changes"
-          onClose={() => setConfirm(false)}
-          onConfirm={() => {
-            setConfirm(false);
-            importFile();
-          }}
-        />
-      )}{" "}
-      {busy && (
-        <LoadingModal
-          title={validation ? "Importing courses" : "Validating course file"}
-          message={
-            validation
-              ? "Saving approved course changes. Please do not close this page."
-              : "Checking the course file for new records, updates, and errors."
-          }
-        />
-      )}
-    </>
+    <ImportHubModal
+      type={importTypes.find((type) => type.id === "courses")}
+      token={token}
+      onClose={onClose}
+      onComplete={(message) => {
+        onImported();
+        onToast?.(message);
+      }}
+    />
   );
 }
 function LegacyCoursesPageV4({ token }) {
@@ -4685,7 +4484,7 @@ function StudentProfileModal({ record, onClose, onEdit }) {
                     </span>
                     <code>
                       <small>Password</small>
-                      {account.password}
+                      {account.password || "Not provided"}
                     </code>
                   </div>
                 ) : (
@@ -4984,12 +4783,84 @@ function downloadErrorReport(base64, type) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function ImportModalFrame({ children, busy, onClose }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
+  return createPortal(
+    <div className="modal-backdrop import-review-overlay" onMouseDown={busy ? undefined : onClose}>
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function ImportValidationGroups({ groups, sections, onLoadMore, busy, loadingGroup }) {
+  return (
+    <div className="mssql-validation-groups">
+      {sections.map(([title, tone, kind, count, empty]) => {
+        const group = groups?.[kind];
+        const rows = group?.records || [];
+        return (
+          <section className={`mssql-validation-group ${tone}`} key={kind}>
+            <header><span>{title}</span><b>{count || 0}</b></header>
+            {rows.length ? (
+              <div className="mssql-validation-rows">
+                {rows.map((row) => (
+                  <article key={`${kind}-${row.row}`}>
+                    <small>Row {row.row}</small>
+                    <span>
+                      {row.label ?? (row.schoolId
+                        ? `${row.schoolId} — ${row.name} (${row.courseCode})`
+                        : row.message)}
+                    </span>
+                    {(row.label || row.schoolId) && row.message && <em>{row.message}</em>}
+                  </article>
+                ))}
+              </div>
+            ) : <p>{empty}</p>}
+            {group?.hasMore && (
+              <footer>
+                <Button variant="secondary" disabled={busy}
+                  onClick={() => onLoadMore(kind, group.nextOffset)}>
+                  {loadingGroup === kind ? "Loading..." : "Load next 250"}
+                </Button>
+              </footer>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function fileImportSections(type, validation) {
+  const noun = type.id === "courses" ? "courses" : type.id === "students" ? "students"
+    : type.id === "vouchers" ? "vouchers" : "accounts";
+  const sections = type.id === "student-deactivate"
+    ? [["Students to deactivate", "errors", "new", validation.new, "No students will be deactivated."]]
+    : [[`New ${noun}`, "created", "new", validation.new, `No ${noun} will be created.`]];
+  if (type.id === "vouchers") {
+    sections.push(["Duplicate vouchers", "updated", "duplicate", validation.duplicates, "No duplicate vouchers found."]);
+  } else if (type.id !== "student-deactivate") {
+    sections.push([`Updated ${noun}`, "updated", "update", validation.update, `No ${noun} will be updated.`]);
+  }
+  if (type.id === "courses") {
+    sections.push(["Unchanged courses", "unchanged", "unchanged", validation.unchanged, "No unchanged courses found."]);
+  }
+  sections.push(["Errors", "errors", "error", validation.invalid ?? validation.errors?.length ?? 0, "No errors found."]);
+  return sections;
+}
+
 function ImportHubModal({ type, token, onClose, onComplete }) {
   const [file, setFile] = useState(null);
   const [validation, setValidation] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [importErrorReport, setImportErrorReport] = useState(null);
+  const [loadingGroup, setLoadingGroup] = useState("");
   const send = async (suffix = "") => {
     const body = new FormData();
     body.append("file", file);
@@ -5047,6 +4918,30 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
       setBusy(false);
     }
   };
+  const loadValidationPage = async (category, offset) => {
+    setBusy(true);
+    setLoadingGroup(category);
+    setError("");
+    try {
+      const params = new URLSearchParams({ category, offset });
+      const data = await send(`/validate?${params}`);
+      setValidation((current) => ({
+        ...current,
+        groups: {
+          ...current.groups,
+          [category]: {
+            ...data.page,
+            records: [...current.groups[category].records, ...data.page.records],
+          },
+        },
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+      setLoadingGroup("");
+    }
+  };
   const invalid = Number(
     validation?.invalid ?? validation?.errors?.length ?? 0,
   );
@@ -5058,87 +4953,65 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
       ? Number(validation?.new || 0)
       : Number(validation?.new || 0) + Number(validation?.update || 0);
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <ImportModalFrame busy={busy} onClose={onClose}>
       <section
-        className="course-modal bulk-import-modal import-hub-modal"
+        role="dialog"
+        aria-modal="true"
+        className={`course-modal bulk-import-modal import-hub-modal import-review-modal${validation ? " is-validation" : ""}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header>
           <div>
-            <p className="eyebrow">BULK IMPORT</p>
-            <h2>Import {type.title}</h2>
+            <p className="eyebrow">{validation ? "VALIDATION COMPLETE" : "BULK IMPORT"}</p>
+            <h2>{validation ? `Review import: ${type.title}` : `Import ${type.title}`}</h2>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close">
+          <button className="modal-close" onClick={onClose} aria-label="Close" disabled={busy}>
             &times;
           </button>
         </header>
         {validation ? (
-          <div className="validation-result">
-            <p className="eyebrow">VALIDATION RESULT</p>
-            <h3>Review before importing</h3>
-            <div className="validation-summary">
-              <span>
-                <b>{validation.new || 0}</b> new
-              </span>
-              {type.id === "vouchers" ? (
-                <span>
-                  <b>{validation.duplicates || 0}</b> duplicates
-                </span>
-              ) : (
-                <span>
-                  <b>{validation.update || 0}</b> updates
-                </span>
-              )}
-              <span className={invalid ? "has-errors" : ""}>
-                <b>{invalid}</b> errors
-              </span>
-            </div>
-            {validation.errors?.slice(0, 6).map((item) => (
-              <small
-                className="validation-error"
-                key={`${item.row}-${item.message}`}
-              >
-                Row {item.row}: {item.message}
-              </small>
-            ))}
-            {invalid > 0 && validation.errorReport && (
-              <>
-                <p className="import-validation-note">
-                  Valid rows can still be imported. Rows with errors will be
-                  skipped.
-                </p>
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    downloadErrorReport(validation.errorReport, type.id)
-                  }
-                >
-                  <AppIcon name="download" /> Download error rows
-                </Button>
-              </>
-            )}
-            {error && <p className="error">{error}</p>}
-            {importErrorReport && (
-              <Button
-                variant="secondary"
-                onClick={() => downloadErrorReport(importErrorReport, type.id)}
-              >
-                <AppIcon name="download" /> Download failed rows
-              </Button>
-            )}
-            {busy && (
-              <p className="import-progress" role="status">
-                <span className="import-progress-spinner" aria-hidden="true">
-                  <AppIcon name="progress_activity" size={19} />
-                </span>
-                <span>
-                  Importing {changes} records. Please keep this window open.
-                </span>
+          <div className="validation-result mssql-validation-result">
+            <div className="mssql-validation-body">
+              <p className="mssql-validation-copy">
+                Review the grouped rows before importing. Each list initially
+                shows up to 250 rows; loading more is optional and does not
+                affect the import. Rows with errors will be skipped.
               </p>
-            )}
+              <ImportValidationGroups
+                groups={validation.groups}
+                sections={fileImportSections(type, validation)}
+                onLoadMore={loadValidationPage}
+                busy={busy}
+                loadingGroup={loadingGroup}
+              />
+              <div className="import-validation-notes">
+                {invalid > 0 && validation.errorReport && (
+                  <Button variant="secondary" disabled={busy}
+                    onClick={() => downloadErrorReport(validation.errorReport, type.id)}>
+                    <AppIcon name="download" /> Download error rows
+                  </Button>
+                )}
+                {error && <p className="error" role="alert">{error}</p>}
+                {importErrorReport && (
+                  <Button variant="secondary" disabled={busy}
+                    onClick={() => downloadErrorReport(importErrorReport, type.id)}>
+                    <AppIcon name="download" /> Download failed rows
+                  </Button>
+                )}
+                {busy && !loadingGroup && (
+                  <p className="import-progress" role="status">
+                    <span className="import-progress-spinner" aria-hidden="true">
+                      <AppIcon name="progress_activity" size={19} />
+                    </span>
+                    <span>Importing {changes} records. Please keep this window open.</span>
+                  </p>
+                )}
+              </div>
+            </div>
             <footer>
               <Button
                 variant="secondary"
+                disabled={busy}
                 onClick={() => {
                   setValidation(null);
                   setError("");
@@ -5151,7 +5024,8 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
                 disabled={busy || changes < 1}
                 onClick={runImport}
               >
-                {busy ? "Importing..." : `Import ${changes} records`}
+                {busy && !loadingGroup ? "Importing..." : type.id === "student-deactivate"
+                  ? `Deactivate ${changes} students` : `Import ${changes} records`}
               </button>
             </footer>
           </div>
@@ -5161,6 +5035,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
               <input
                 type="file"
                 accept={type.xlsxOnly ? ".xlsx" : ".csv,.xlsx,.xls"}
+                disabled={busy}
                 onChange={(event) => {
                   setFile(event.target.files?.[0] || null);
                   setError("");
@@ -5182,6 +5057,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
               Need the format?{" "}
               <button
                 type="button"
+                disabled={busy}
                 onClick={() =>
                   downloadImportTemplate(type, token).catch((err) =>
                     setError(err.message),
@@ -5193,7 +5069,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
             </p>
             {error && <p className="error">{error}</p>}
             <footer>
-              <Button variant="secondary" onClick={onClose}>
+              <Button variant="secondary" onClick={onClose} disabled={busy}>
                 Cancel
               </Button>
               <button className="btn primary" disabled={busy || !file}>
@@ -5203,7 +5079,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
           </form>
         )}
       </section>
-    </div>
+    </ImportModalFrame>
   );
 }
 
@@ -5211,6 +5087,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
   const [activePeriod, setActivePeriod] = useState(null),
     [preview, setPreview] = useState(null),
     [busy, setBusy] = useState(false),
+    [loadingGroup, setLoadingGroup] = useState(""),
     [confirmDeactivation, setConfirmDeactivation] = useState(false),
     [error, setError] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
@@ -5223,6 +5100,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
   }, []);
   const loadPreview = async (category = "", offset = 0) => {
     setBusy(true);
+    setLoadingGroup(category);
     setError("");
     try {
       const params = new URLSearchParams({ offset });
@@ -5252,6 +5130,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
       setError(err.message);
     } finally {
       setBusy(false);
+      setLoadingGroup("");
     }
   };
   const importStudents = async () => {
@@ -5274,9 +5153,11 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
     }
   };
   return (
-    <div className="modal-backdrop" onMouseDown={busy ? undefined : onClose}>
+    <ImportModalFrame busy={busy} onClose={onClose}>
       <section
-        className={`course-modal bulk-import-modal mssql-student-import-modal${preview ? " is-validation" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        className={`course-modal bulk-import-modal mssql-student-import-modal import-review-modal${preview ? " is-validation" : ""}`}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header>
@@ -5290,7 +5171,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 : "Import enrolled students"}
             </h2>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close">
+          <button className="modal-close" onClick={onClose} aria-label="Close" disabled={busy}>
             &times;
           </button>
         </header>
@@ -5354,72 +5235,17 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 Each list initially shows up to 250 rows; loading more rows is
                 optional and does not affect the import.
               </p>
-              <div className="mssql-validation-groups">
-                {[
-                  [
-                    "Created students",
-                    "created",
-                    "new",
-                    preview.new,
-                    "No students will be created.",
-                  ],
-                  [
-                    "Updated students",
-                    "updated",
-                    "update",
-                    preview.update,
-                    "No students will be updated.",
-                  ],
-                  [
-                    "Errors",
-                    "errors",
-                    "error",
-                    preview.invalid,
-                    "No errors found.",
-                  ],
-                ].map(([title, tone, kind, count, empty]) => {
-                  const group = preview.groups[kind];
-                  const rows = group.records;
-                  return (
-                    <section
-                      className={`mssql-validation-group ${tone}`}
-                      key={kind}
-                    >
-                      <header>
-                        <span>{title}</span>
-                        <b>{count}</b>
-                      </header>
-                      {rows.length ? (
-                        <div className="mssql-validation-rows">
-                          {rows.map((row) => (
-                            <article key={`${row.kind}-${row.row}`}>
-                              <small>Row {row.row}</small>
-                              <span>
-                                {row.schoolId
-                                  ? `${row.schoolId} — ${row.name} (${row.courseCode})`
-                                  : row.message}
-                              </span>
-                              {row.schoolId && <em>{row.message}</em>}
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        <p>{empty}</p>
-                      )}
-                      {group.hasMore && (
-                        <footer>
-                          <Button
-                            variant="secondary"
-                            onClick={() => loadPreview(kind, group.nextOffset)}
-                          >
-                            {busy ? "Loading..." : "Load next 250"}
-                          </Button>
-                        </footer>
-                      )}
-                    </section>
-                  );
-                })}
-              </div>
+              <ImportValidationGroups
+                groups={preview.groups}
+                sections={[
+                  ["Created students", "created", "new", preview.new, "No students will be created."],
+                  ["Updated students", "updated", "update", preview.update, "No students will be updated."],
+                  ["Errors", "errors", "error", preview.invalid, "No errors found."],
+                ]}
+                onLoadMore={loadPreview}
+                busy={busy}
+                loadingGroup={loadingGroup}
+              />
               <p className="mssql-sync-warning">
                 <b>{preview.deactivate}</b> currently active student
                 {preview.deactivate === 1 ? " is" : "s are"} not in this
@@ -5443,16 +5269,6 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
               {error && <p className="error">{error}</p>}
             </div>
             <footer>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setPreview(null);
-                  setConfirmDeactivation(false);
-                  setError("");
-                }}
-              >
-                Change period
-              </Button>
               <button
                 className="btn primary"
                 disabled={
@@ -5462,13 +5278,13 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 }
                 onClick={importStudents}
               >
-                {busy ? "Importing..." : "Import and synchronize"}
+                {busy && !loadingGroup ? "Importing..." : "Import and synchronize"}
               </button>
             </footer>
           </div>
         )}
       </section>
-    </div>
+    </ImportModalFrame>
   );
 }
 
@@ -5504,8 +5320,8 @@ function ImportsPage({ token }) {
           <h2>SQL Server students</h2>
           <p>Pull enrolled students directly from the configured MSSQL view.</p>
           <small>
-            Select the school year and semester, then review the result before
-            importing.
+            Uses the current academic period automatically. Review the result
+            before importing.
           </small>
         </div>
         <footer>
@@ -6309,45 +6125,43 @@ function AdminApp() {
   const [token, setToken] = useState("");
   const [checking, setChecking] = useState(true);
   const [admin, setAdmin] = useState(null);
+  const [sessionNotice, setSessionNotice] = useState("");
   useEffect(() => {
     const updateToken = (event) => setToken(event.detail);
+    const sessionExpired = () => {
+      setToken("");
+      setAdmin(null);
+      setChecking(false);
+      setSessionNotice("Your session has expired. Please sign in again.");
+    };
     addEventListener("admin-token-refreshed", updateToken);
-    return () => removeEventListener("admin-token-refreshed", updateToken);
+    addEventListener("admin-session-expired", sessionExpired);
+    return () => {
+      removeEventListener("admin-token-refreshed", updateToken);
+      removeEventListener("admin-session-expired", sessionExpired);
+    };
   }, []);
   useEffect(() => {
-    if (!token) {
-      request("/auth/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      })
-        .then((session) => {
-          if (session?.accessToken) setToken(session.accessToken);
-          else setChecking(false);
-        })
-        .catch(() => setChecking(false));
-      return;
-    }
-    request("/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+    let active = true;
+    adminApi.restoreSession()
+      .then((restoredToken) => { if (active && !restoredToken) setChecking(false); })
+      .catch(() => { if (active) setChecking(false); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!token) return;
+    const controller = new AbortController();
+    request("/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
       .then(({ admin: currentAdmin }) => {
+        if (controller.signal.aborted) return;
         setAdmin(currentAdmin);
         setChecking(false);
       })
-      .catch(async (error) => {
-        if (error.message === "Authentication required.") {
-          try {
-            const session = await request("/auth/refresh", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-            });
-            if (session?.accessToken) {
-              setToken(session.accessToken);
-              return;
-            }
-          } catch {}
-          setToken("");
-        }
-        setChecking(false);
-      });
+      .catch(() => { if (!controller.signal.aborted) setChecking(false); });
+    return () => controller.abort();
   }, [token]);
   if (checking)
     return (
@@ -6355,7 +6169,12 @@ function AdminApp() {
         Checking your administrator session...
       </main>
     );
-  if (!token) return <AdminLogin onLogin={setToken} />;
+  if (!token) return <AdminLogin notice={sessionNotice} onLogin={(nextToken) => {
+    setChecking(true);
+    setAdmin(null);
+    setSessionNotice("");
+    adminApi.startSession(nextToken);
+  }} />;
   const content =
     admin?.role === "Request Staff" && path !== "/admin/password-resets" ? (
       <AdminRedirect
@@ -6403,9 +6222,13 @@ function AdminApp() {
       path={path}
       token={token}
       admin={admin}
-      onLogout={() => {
-        request("/auth/logout", { method: "POST" }).catch(() => {});
+      onLogout={async () => {
+        setChecking(true);
+        await adminApi.logout().catch(() => {});
         setToken("");
+        setAdmin(null);
+        setSessionNotice("");
+        setChecking(false);
         go("/admin");
       }}
     >
@@ -6755,7 +6578,7 @@ function Kiosk() {
     setRequestingReset(credentialType);
     setResetNotice("");
     try {
-      const response = await request("/kiosk/password-reset-requests", {
+      await request("/kiosk/password-reset-requests", {
         method: "POST",
         headers: {
           ...kioskHeaders,
@@ -6763,7 +6586,9 @@ function Kiosk() {
         },
         body: JSON.stringify({ credentialType }),
       });
-      setResetNotice(response.message);
+      setResetNotice(
+        `Your ${resetRequestInfo.title} password reset request is pending. ${resetRequestInfo.followUp}`,
+      );
       markRequestPending(credentialType, "PASSWORD_RESET");
       setResetRequestInfo(null);
     } catch (err) {
@@ -7117,6 +6942,7 @@ function Kiosk() {
                               : setResetRequestInfo({
                                   type: c.type,
                                   title: meta.title,
+                                  ...passwordResetGuidance(c),
                                 })
                           }
                         >
@@ -7155,7 +6981,7 @@ function Kiosk() {
                           Request submitted on{" "}
                           {formatRequestTime(pending.requestedAt)}.
                           {pending.kind === "PASSWORD_RESET" &&
-                            " Check again after at least two business hours."}
+                            ` ${passwordResetGuidance(c).followUp}`}
                         </p>
                       )}
                     </div>
@@ -7222,6 +7048,8 @@ function Kiosk() {
         {resetRequestInfo && (
           <PasswordResetInfoModal
             accountTitle={resetRequestInfo.title}
+            hasDefaultPassword={resetRequestInfo.hasDefaultPassword}
+            checkForNewPassword={resetRequestInfo.checkForNewPassword}
             submitting={requestingReset === resetRequestInfo.type}
             onSubmit={() => requestReset(resetRequestInfo.type)}
             onClose={() => setResetRequestInfo(null)}
@@ -7760,7 +7588,11 @@ function TransactionsPage({ token }) {
                               .filter(Boolean)
                               .join(" ")}
                           </b>
-                          <small>{item.student_id}</small>
+                          <small>
+                            {[item.student_id, item.course_code]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </small>
                         </span>
                       ) : (
                         <span className="muted-cell">Unknown student</span>
@@ -8118,7 +7950,7 @@ async function sendRequestReview(id, action, reviewToken, token, keepalive = fal
   const path = `/admin/password-reset-requests/${id}/review${action === "acquire" ? "" : `/${action}`}`;
   const options = {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${adminApi.getAccessToken() || token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ reviewToken }),
   };
   const response = keepalive
@@ -10453,7 +10285,11 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
       })
       .catch((e) => setError(e.message));
   }, []);
-  const update = (key, value) => setForm({ ...form, [key]: value });
+  const update = (key, value) => setForm((current) => ({
+    ...current,
+    [key]: value,
+    ...(key === "emailAddress" && !value.trim() ? { emailPassword: "" } : {}),
+  }));
   const generateVoucher = async () => {
     try {
       const data = await request(
@@ -10556,6 +10392,10 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
               <p className="form-note">
                 SATP and Schoology use the School ID. Kumosoft uses the Kumosoft
                 ID when provided.
+              </p>
+              <p className="form-note">
+                Clearing a password removes its saved value. Clearing the
+                institutional email removes the linked email account.
               </p>
               <div className="form-grid">
                 <Field
@@ -10676,11 +10516,9 @@ class AppErrorBoundary extends Component {
             <button
               className="btn primary wide"
               onClick={() => {
-                fetch(`${API}/auth/logout`, {
-                  method: "POST",
-                  credentials: "same-origin",
-                }).catch(() => {});
-                location.assign("/admin");
+                adminApi.logout().catch(() => {}).finally(() =>
+                  location.assign(`${APP_BASE}/admin`),
+                );
               }}
             >
               Return to admin login

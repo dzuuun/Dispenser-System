@@ -278,21 +278,15 @@ export async function updateStudent(req, res) {
     return res
       .status(400)
       .json({ message: "School ID, name, birthday, and course are required." });
-  const satpPassword = String(req.body.satpPassword || ""),
-    schoologyPassword = String(req.body.schoologyPassword || ""),
-    kumosoftPassword = String(req.body.kumosoftPassword || ""),
-    emailAddress = String(req.body.emailAddress || "")
+  const emailAddress = String(req.body.emailAddress || "")
       .trim()
       .toLowerCase(),
     emailPassword = String(req.body.emailPassword || "");
   const voucherCode = String(req.body.voucherCode || "").trim();
   const assignNextVoucher = req.body.assignNextVoucher === true,
     unassignVoucher = req.body.unassignVoucher === true;
-  if (Boolean(emailAddress) !== Boolean(emailPassword))
-    return res.status(400).json({
-      message:
-        "Provide both the institutional email address and its password, or leave both empty.",
-    });
+  if (emailAddress && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress))
+    return res.status(400).json({ message: "Enter a valid institutional email address." });
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -336,14 +330,24 @@ export async function updateStudent(req, res) {
     );
     const saveAccount = async (
       table,
-      password,
+      passwordField,
       email = false,
       username = studentId,
     ) => {
-      if (!password) return;
+      if (!Object.hasOwn(req.body, passwordField)) return;
+      const password = String(req.body[passwordField] ?? "");
+      if (!password.trim()) {
+        // Empty strings also support older schemas with NOT NULL columns.
+        // All readers already treat an empty encrypted password as unavailable.
+        await connection.execute(
+          `UPDATE ${table} SET encrypted_password='', password_iv='', password_auth_tag='' WHERE student_id=?`,
+          [id],
+        );
+        return;
+      }
       const encrypted = encryptPassword(password),
         column = email ? "email_address" : "username",
-        login = email ? emailAddress : username;
+        login = username;
       await connection.execute(
         `INSERT INTO ${table} (student_id, ${column}, encrypted_password, password_iv, password_auth_tag, is_active) VALUES (?, ?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE ${column}=VALUES(${column}), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag), is_active=1`,
         [
@@ -355,15 +359,43 @@ export async function updateStudent(req, res) {
         ],
       );
     };
-    await saveAccount("satp_accounts", satpPassword);
-    await saveAccount("schoology_accounts", schoologyPassword);
+    await saveAccount("satp_accounts", "satpPassword");
+    await saveAccount("schoology_accounts", "schoologyPassword");
     await saveAccount(
       "kumosoft_accounts",
-      kumosoftPassword,
+      "kumosoftPassword",
       false,
       kumosoftId || studentId,
     );
-    await saveAccount("institutional_email_accounts", emailPassword, true);
+    const hasEmailAddress = Object.hasOwn(req.body, "emailAddress");
+    const hasEmailPassword = Object.hasOwn(req.body, "emailPassword");
+    if (hasEmailAddress && !emailAddress) {
+      await connection.execute(
+        "DELETE FROM institutional_email_accounts WHERE student_id=?",
+        [id],
+      );
+    } else if (hasEmailAddress || hasEmailPassword) {
+      const [[existingEmail]] = await connection.execute(
+        "SELECT email_address FROM institutional_email_accounts WHERE student_id=? FOR UPDATE",
+        [id],
+      );
+      const login = hasEmailAddress ? emailAddress : existingEmail?.email_address;
+      if (login || emailPassword.trim()) {
+        if (!existingEmail && (!login || !emailPassword.trim())) {
+          await connection.rollback();
+          return res.status(400).json({
+            message: "Provide an institutional email address and password when adding a new email account.",
+          });
+        }
+        if (existingEmail && hasEmailAddress) {
+          await connection.execute(
+            "UPDATE institutional_email_accounts SET email_address=? WHERE student_id=?",
+            [login, id],
+          );
+        }
+        await saveAccount("institutional_email_accounts", "emailPassword", true, login);
+      }
+    }
     if (unassignVoucher) {
       const [[current]] = await connection.execute(
         "SELECT voucher_id FROM students WHERE id=?",
@@ -458,7 +490,7 @@ export async function updateStudent(req, res) {
     if (error.code === "ER_DUP_ENTRY")
       return res
         .status(409)
-        .json({ message: "That School ID already exists." });
+        .json({ message: "That School ID, Kumosoft ID, or institutional email is already in use." });
     throw error;
   } finally {
     connection.release();
