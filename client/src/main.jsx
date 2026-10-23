@@ -9,6 +9,7 @@ import "./styles.css";
 import ndmuLogo from "./assets/ndmu-logo.png";
 import { generateRandomPassword } from "./password-generator.js";
 import { createPendingRequestTitle } from "./pending-request-title.js";
+import { createKioskActivityTracker } from "./kiosk-activity.js";
 import {
   REQUEST_PERMISSION_GROUPS,
   REQUEST_PERMISSION_KEYS,
@@ -5575,6 +5576,23 @@ function ImportsPage({ token }) {
   );
 }
 
+function KioskUsageStatus({ kiosk }) {
+  const state = kiosk.usage_status || (kiosk.is_online ? "UNKNOWN" : "OFFLINE");
+  const labels = { IN_USE: "In use", IDLE: "Idle", UNKNOWN: "Unknown", OFFLINE: "Offline" };
+  return (
+    <span className="kiosk-usage" data-status={state}>
+      <span>{labels[state] || "Unknown"}</span>
+      {state === "IN_USE" && (
+        <small>
+          {kiosk.activity_state === "VIEWING_CREDENTIALS"
+            ? "Viewing credentials"
+            : "Entering details"}
+        </small>
+      )}
+    </span>
+  );
+}
+
 function KiosksPage({ token }) {
   const [kiosks, setKiosks] = useState([]),
     [error, setError] = useState(""),
@@ -5599,9 +5617,9 @@ function KiosksPage({ token }) {
   };
   useEffect(() => {
     load();
-    const timer = setInterval(() => load({ quiet: true }), 30000);
+    const timer = setInterval(() => load({ quiet: true }), 3000);
     return () => clearInterval(timer);
-  }, []);
+  }, [token]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4500);
@@ -5627,7 +5645,7 @@ function KiosksPage({ token }) {
       request(`/admin/kiosks/${selectedId}`, { headers })
         .then(setDetails)
         .catch((err) => setError(err.message));
-    const timer = setInterval(refreshDetails, 30000);
+    const timer = setInterval(refreshDetails, 3000);
     return () => clearInterval(timer);
   }, [selectedId, token]);
   const queueAction = async () => {
@@ -5647,6 +5665,7 @@ function KiosksPage({ token }) {
     }
   };
   const online = kiosks.filter((item) => item.is_online).length;
+  const inUse = kiosks.filter((item) => item.usage_status === "IN_USE").length;
   const filtered = kiosks.filter((item) =>
     [item.kiosk_name, item.kiosk_code, item.location]
       .filter(Boolean)
@@ -5693,14 +5712,20 @@ function KiosksPage({ token }) {
           <strong>{online}</strong>
         </article>
         <article>
+          <span>In use now</span>
+          <strong>{inUse}</strong>
+        </article>
+        <article>
           <span>Offline</span>
           <strong>{kiosks.length - online}</strong>
         </article>
       </section>
       <section className="panel kiosk-admin-panel">
         <div className="course-intro">
-          This list updates automatically. A kiosk is online when it has
-          authenticated within the last five minutes.
+          Updates every three seconds. In use means someone is entering details
+          or viewing credentials. Usage becomes idle after 30 seconds without
+          interaction; unknown means activity reports are unavailable. Online
+          means the device has connected within the last five minutes.
         </div>
         {error && <p className="error">{error}</p>}
         {loading ? (
@@ -5730,6 +5755,7 @@ function KiosksPage({ token }) {
                     <th>Location</th>
                     <th>Device</th>
                     <th>Status</th>
+                    <th>Usage</th>
                     <th>Last seen</th>
                   </tr>
                 </thead>
@@ -5758,6 +5784,9 @@ function KiosksPage({ token }) {
                           <i />
                           {item.is_online ? "Online" : "Offline"}
                         </span>
+                      </td>
+                      <td>
+                        <KioskUsageStatus kiosk={item} />
                       </td>
                       <td>
                         {item.last_seen ? (
@@ -5816,6 +5845,10 @@ function KiosksPage({ token }) {
                 </span>
               </header>
               <dl className="kiosk-detail-grid">
+                <div>
+                  <dt>Current usage</dt>
+                  <dd><KioskUsageStatus kiosk={selected} /></dd>
+                </div>
                 <div>
                   <dt>IP address</dt>
                   <dd>{selected.ip_address || "Not reported"}</dd>
@@ -6478,6 +6511,14 @@ function Kiosk() {
     [revealing, setRevealing] = useState(false),
     [passwordsVisible, setPasswordsVisible] = useState(false);
   const [kioskReady, setKioskReady] = useState(false);
+  const kioskActivity = useRef(null);
+  const reportKioskActivity = useRef(null);
+  if (!kioskActivity.current) kioskActivity.current = createKioskActivityTracker();
+  const viewingCredentials = Boolean(result);
+  useEffect(() => {
+    kioskActivity.current.setViewing(viewingCredentials);
+    reportKioskActivity.current?.();
+  }, [viewingCredentials]);
   useEffect(() => {
     let active = true;
     const start = async () => {
@@ -6517,6 +6558,8 @@ function Kiosk() {
   useEffect(() => {
     if (!kioskReady) return undefined;
     let active = true;
+    let inFlight = false;
+    let queued = false;
     const completeCommand = (commandId, status, result) =>
       request("/kiosk/commands/complete", {
         method: "POST",
@@ -6524,12 +6567,19 @@ function Kiosk() {
         body: JSON.stringify({ commandId, status, result }),
       });
     const heartbeat = async () => {
+      if (!active) return;
+      if (inFlight) {
+        queued = true;
+        return;
+      }
+      inFlight = true;
       try {
         const { commands = [] } = await request("/kiosk/heartbeat", {
           method: "POST",
           headers: kioskHeaders,
           body: JSON.stringify({
             ...kioskIdentity,
+            activity: kioskActivity.current.snapshot(),
             currentPage: location.pathname,
             uptimeSeconds: Math.floor((Date.now() - KIOSK_STARTED_AT) / 1000),
             operatingSystem:
@@ -6553,13 +6603,34 @@ function Kiosk() {
             "This browser kiosk cannot control the device power. Install the kiosk device agent to use this action.",
           );
         }
-      } catch {}
+      } catch {} finally {
+        inFlight = false;
+        if (queued && active) {
+          queued = false;
+          void heartbeat();
+        }
+      }
     };
+    const trackInteraction = () => {
+      if (kioskActivity.current.interact()) void heartbeat();
+    };
+    const refreshActivity = () => {
+      if (document.visibilityState === "visible") void heartbeat();
+    };
+    const activityEvents = ["pointerdown", "pointermove", "touchstart", "keydown", "input", "wheel"];
+    activityEvents.forEach((event) =>
+      window.addEventListener(event, trackInteraction, { passive: true }),
+    );
+    document.addEventListener("visibilitychange", refreshActivity);
+    reportKioskActivity.current = heartbeat;
     heartbeat();
-    const timer = setInterval(heartbeat, 15000);
+    const timer = setInterval(heartbeat, 5000);
     return () => {
       active = false;
       clearInterval(timer);
+      reportKioskActivity.current = null;
+      activityEvents.forEach((event) => window.removeEventListener(event, trackInteraction));
+      document.removeEventListener("visibilitychange", refreshActivity);
     };
   }, [kioskReady]);
   useEffect(() => {
@@ -7439,6 +7510,8 @@ function TransactionsPage({ token }) {
     }),
     [page, setPage] = useState(1),
     [limit, setLimit] = useState(25),
+    [search, setSearch] = useState(""),
+    [appliedSearch, setAppliedSearch] = useState(""),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [periods, setPeriods] = useState([]),
@@ -7452,6 +7525,15 @@ function TransactionsPage({ token }) {
   const periodQuery = periodId
     ? `academicPeriodId=${encodeURIComponent(periodId)}`
     : "";
+  useEffect(() => {
+    const term = search.trim().replace(/\s+/g, " ");
+    if (term === appliedSearch) return;
+    const timer = setTimeout(() => {
+      setAppliedSearch(term);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, appliedSearch]);
   useEffect(() => {
     const controller = new AbortController();
     setPeriodsLoading(true);
@@ -7523,7 +7605,7 @@ function TransactionsPage({ token }) {
       loading = true;
       try {
         const next = await request(
-          `/admin/transactions?page=${page}&limit=${limit}${periodQuery ? `&${periodQuery}` : ""}`,
+          `/admin/transactions?page=${page}&limit=${limit}${periodQuery ? `&${periodQuery}` : ""}${appliedSearch ? `&search=${encodeURIComponent(appliedSearch)}` : ""}`,
           {
             headers: { Authorization: `Bearer ${token}` },
             signal: controller.signal,
@@ -7554,7 +7636,7 @@ function TransactionsPage({ token }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [token, page, limit, periodQuery]);
+  }, [token, page, limit, periodQuery, appliedSearch]);
   return (
     <>
       <PageHeader
@@ -7563,11 +7645,11 @@ function TransactionsPage({ token }) {
       />
       <section className="student-summary transaction-summary">
         <article>
-          <span>Total reveals</span>
+          <span>{appliedSearch ? "Matching reveals" : "Total reveals"}</span>
           <strong>{listing.total}</strong>
         </article>
         <article>
-          <span>Reveals today</span>
+          <span>{appliedSearch ? "Matching reveals today" : "Reveals today"}</span>
           <strong>{listing.today}</strong>
         </article>
         <article>
@@ -7581,41 +7663,57 @@ function TransactionsPage({ token }) {
           passwords.
         </div>
         <div className="records-table-toolbar transaction-export-toolbar">
-          <label className="records-table-field">
-            Academic period
-            <select
-              aria-label="Transaction academic period"
-              value={periodId}
-              disabled={periodsLoading || exporting}
-              onChange={(event) => {
-                setPeriodId(event.target.value);
-                setPage(1);
-                setListing({
-                  rows: [],
-                  total: 0,
-                  today: 0,
-                  studentsServed: 0,
-                  pages: 1,
-                });
-                setLoading(true);
-                setError("");
-                setExportError("");
-              }}
-            >
-              <option value="">
-                {currentPeriod
-                  ? `${currentPeriod.schoolYear} · ${currentPeriod.semester} (Current)`
-                  : "Current academic period"}
-              </option>
-              {periods
-                .filter((period) => !period.isCurrent)
-                .map((period) => (
-                  <option key={period.id} value={period.id}>
-                    {period.schoolYear} · {period.semester}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <div className="transaction-table-filters">
+            <label className="records-table-field">
+              Academic period
+              <select
+                aria-label="Transaction academic period"
+                value={periodId}
+                disabled={periodsLoading || exporting}
+                onChange={(event) => {
+                  setPeriodId(event.target.value);
+                  setPage(1);
+                  setListing({
+                    rows: [],
+                    total: 0,
+                    today: 0,
+                    studentsServed: 0,
+                    pages: 1,
+                  });
+                  setLoading(true);
+                  setError("");
+                  setExportError("");
+                }}
+              >
+                <option value="">
+                  {currentPeriod
+                    ? `${currentPeriod.schoolYear} · ${currentPeriod.semester} (Current)`
+                    : "Current academic period"}
+                </option>
+                {periods
+                  .filter((period) => !period.isCurrent)
+                  .map((period) => (
+                    <option key={period.id} value={period.id}>
+                      {period.schoolYear} · {period.semester}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="records-table-field records-table-search">
+              <span>Search transactions</span>
+              <span className="records-table-search-input">
+                <AppIcon name="search" size={18} />
+                <input
+                  type="search"
+                  aria-label="Search transactions"
+                  placeholder="Student name, ID, or kiosk"
+                  maxLength={200}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </span>
+            </label>
+          </div>
           <div className="transaction-export-actions">
             <span>Export includes all rows in this academic period.</span>
             <Button onClick={exportWorkbook} disabled={exporting || loading}>
@@ -7680,8 +7778,14 @@ function TransactionsPage({ token }) {
           </div>
         ) : !loading && !error ? (
           <Empty
-            title="No password reveals yet"
-            detail="There are no recorded password reveals for this academic period."
+            title={
+              appliedSearch ? "No matching transactions" : "No password reveals yet"
+            }
+            detail={
+              appliedSearch
+                ? "Try another student name, student ID, or kiosk code."
+                : "There are no recorded password reveals for this academic period."
+            }
           />
         ) : null}
         <footer className="student-list-pagination">

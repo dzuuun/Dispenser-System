@@ -10,6 +10,7 @@ import { kioskRouter } from "./routes/kiosk.routes.js";
 import { errorHandler } from "./middleware/errorHandler.middleware.js";
 import { ensureAdminRequestPermissionsSchema } from "./services/admin-request-permissions.service.js";
 import { ensureRequestReviewSchema } from "./services/request-review.service.js";
+import { ensureKioskActivitySchema } from "./services/kiosk-activity.service.js";
 const app = express(),
   cfg = config();
 const BASE_PATH = "/dispenser";
@@ -60,6 +61,7 @@ app.get(`${BASE_PATH}/{*splat}`, (req, res, next) =>
 app.use(errorHandler);
 await ensureAdminRequestPermissionsSchema();
 await ensureRequestReviewSchema();
+await ensureKioskActivitySchema();
 app.listen(cfg.port, cfg.listenHost, () =>
   console.log(
     `Credentials API listening on http://${cfg.listenHost}:${cfg.port}`,

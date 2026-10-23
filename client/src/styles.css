@@ -3610,7 +3610,7 @@ button {
 
 /* Kiosk device management. */
 .kiosk-admin-summary {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .kiosk-admin-panel {
@@ -3766,7 +3766,7 @@ button {
 
 @media (max-width: 760px) {
   .kiosk-admin-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .kiosk-admin-summary article {
@@ -7448,6 +7448,25 @@ body,
   font-weight: 700;
 }
 
+.kiosk-monitor-table {
+  min-width: 900px;
+}
+.kiosk-monitor-table th:first-child {
+  width: 24%;
+}
+.kiosk-monitor-table th:nth-child(2) {
+  width: 25%;
+}
+.kiosk-monitor-table th:nth-child(3) {
+  width: 13%;
+}
+.kiosk-monitor-table th:nth-child(4) {
+  width: 18%;
+}
+.kiosk-monitor-table th:last-child {
+  width: 20%;
+}
+
 .kiosk-monitor-table tbody tr {
   cursor: pointer;
   transition:
@@ -7495,6 +7514,39 @@ body,
 .kiosk-connection.offline i {
   background: #d75c4d;
   box-shadow: 0 0 0 3px #ffebe7;
+}
+
+.kiosk-usage {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.kiosk-usage > span {
+  padding: 4px 9px;
+  border: 1px solid #dce4e0;
+  border-radius: 6px;
+  background: #f2f5f3;
+  color: #5b6f65;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.kiosk-usage[data-status="IN_USE"] > span {
+  border-color: #ead29a;
+  background: #fff5da;
+  color: #825b0c;
+}
+.kiosk-usage[data-status="IDLE"] > span {
+  border-color: #c8e3d7;
+  background: #eff8f3;
+  color: #2e6952;
+}
+.kiosk-usage small {
+  color: #627c70;
+  font-size: 0.7rem;
+  white-space: nowrap;
 }
 
 .kiosk-no-results {
@@ -8459,8 +8511,15 @@ body,
   background: #edf6f0;
   color: #08714d;
 }
-.transaction-export-toolbar > .records-table-field {
-  width: min(100%, 360px);
+.transaction-table-filters {
+  display: flex;
+  flex: 1 1 560px;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+.transaction-table-filters > .records-table-field {
+  flex: 1 1 240px;
 }
 .transaction-export-actions {
   display: flex;

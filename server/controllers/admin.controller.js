@@ -184,7 +184,23 @@ export async function dashboard(req, res) {
 }
 
 export async function listTransactions(req, res) {
+  const search = req.query.search ?? "";
+  if (typeof search !== "string" || search.length > 200)
+    throw Object.assign(new Error("Search must be 200 characters or fewer."), {
+      status: 400,
+    });
+  const term = search.trim().replace(/\s+/g, " ");
   const period = await transactionPeriod(req.query);
+  let where = transactionWhere;
+  const values = [period?.id || 0];
+  if (term) {
+    // Treat LIKE wildcards as literal characters in student IDs and kiosk names.
+    const pattern = `%${term.replace(/[!%_]/g, "!$&")}%`;
+    where += ` AND (s.student_id LIKE ? ESCAPE '!'
+      OR CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, '')) LIKE ? ESCAPE '!'
+      OR t.kiosk_code LIKE ? ESCAPE '!')`;
+    values.push(pattern, pattern, pattern);
+  }
   // Keep the array response compatible with older clients during deployment.
   if (req.query.page !== undefined) {
     const requestedPage = Number(req.query.page);
@@ -196,8 +212,8 @@ export async function listTransactions(req, res) {
       `SELECT COUNT(*) AS total,
         COALESCE(SUM(DATE(t.created_at)=CURRENT_DATE()), 0) AS today,
         COUNT(DISTINCT t.student_id) AS studentsServed
-       FROM credential_transactions t WHERE ${transactionWhere}`,
-      [period?.id || 0],
+       FROM credential_transactions t${term ? " LEFT JOIN students s ON s.id=t.student_id" : ""} WHERE ${where}`,
+      values,
     );
     const total = Number(summary.total);
     const pages = Math.max(1, Math.ceil(total / limit));
@@ -208,9 +224,9 @@ export async function listTransactions(req, res) {
         : 1,
     );
     const [rows] = await pool.query(
-      `${transactionSelect} WHERE ${transactionWhere}
+      `${transactionSelect} WHERE ${where}
        ORDER BY t.created_at DESC, t.id DESC LIMIT ? OFFSET ?`,
-      [period?.id || 0, limit, (page - 1) * limit],
+      [...values, limit, (page - 1) * limit],
     );
     return res.set("Cache-Control", "no-store").json({
       rows,
@@ -223,9 +239,9 @@ export async function listTransactions(req, res) {
     });
   }
   const [rows] = await pool.query(
-    `${transactionSelect} WHERE ${transactionWhere}
+    `${transactionSelect} WHERE ${where}
      ORDER BY t.created_at DESC, t.id DESC LIMIT 1000`,
-    [period?.id || 0],
+    values,
   );
   res.set("Cache-Control", "no-store").json(rows);
 }

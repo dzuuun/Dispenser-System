@@ -190,6 +190,9 @@ CREATE TABLE kiosks (
   current_page VARCHAR(500) NULL,
   mac_address VARCHAR(32) NULL,
   operating_system VARCHAR(160) NULL,
+  activity_state VARCHAR(24) NULL,
+  activity_reported_at DATETIME NULL,
+  last_interaction_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX kiosk_heartbeat (is_active, last_seen)

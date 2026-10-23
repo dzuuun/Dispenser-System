@@ -10,6 +10,7 @@ the compiled client and API beneath `/dispenser` from one application port.
 - Student kiosk verification using student ID, course, last name, and birth date.
 - Secure display of SATP, Schoology, Kumosoft, institutional-email, and WiFi-voucher credentials.
 - Administrator portal for students, courses, vouchers, bulk imports, credential requests, kiosk monitoring, module controls, and transaction history.
+- Live kiosk usage: **In use** while someone enters details or views credentials, **Idle** after 30 seconds without interaction, and **Unknown** when recent activity reports are unavailable. The Kiosks page refreshes every three seconds. Activity reports contain only the screen state and elapsed idle time, without student details or passwords. Existing databases receive the activity columns automatically when the API starts; reload open kiosk tabs after deploying the updated client.
 - XLSX validation and import for students, courses, accounts, and vouchers.
 - WiFi voucher assignment, release, activation, and semester clearing.
 - Super Admin audit logging for sensitive changes.

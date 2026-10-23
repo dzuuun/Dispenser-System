@@ -61,7 +61,7 @@ async function setup(t, { count = 1031, noCurrent = false } = {}) {
       ];
     if (sql.includes("FROM credential_transactions t")) {
       if (sql.includes("LIMIT ? OFFSET ?"))
-        return [rows.slice(values[2], values[2] + values[1])];
+        return [rows.slice(values.at(-1), values.at(-1) + values.at(-2))];
       if (sql.includes("LIMIT 1000")) return [rows.slice(0, 1000)];
       return [rows];
     }
@@ -168,6 +168,75 @@ test("historical table pagination and summaries use the selected transaction per
   assert.deepEqual(listing.values, [3, 10, 10]);
   assert.match(summary.sql, /t.academic_period_id=\?/);
   assert.doesNotMatch(listing.sql, /s.academic_period_id/);
+});
+
+test("search applies the same bound name, student ID, and kiosk filter before counting and pagination", async (t) => {
+  const { get, calls } = await setup(t, { count: 31 });
+  for (const term of ["Test Student", "0012345", "KIOSK-01", "Pe\u00f1a"]) {
+    const start = calls.length;
+    const response = await get(
+      `/transactions?academicPeriodId=3&page=2&limit=10&search=${encodeURIComponent(term)}`,
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.page, 2);
+    assert.equal(body.pages, 4);
+    assert.equal(body.rows[0].id, 11);
+    assert.equal(body.total, 31);
+    assert.equal(body.studentsServed, 1);
+    const queries = calls.slice(start);
+    const summary = queries.find(({ sql }) => sql.includes("COUNT(*) AS total"));
+    const listing = queries.find(({ sql }) => sql.includes("LIMIT ? OFFSET ?"));
+    assert.deepEqual(summary.values, [3, `%${term}%`, `%${term}%`, `%${term}%`]);
+    assert.deepEqual(listing.values, [...summary.values, 10, 10]);
+    for (const { sql } of [summary, listing]) {
+      assert.match(sql, /LEFT JOIN students s ON s.id=t.student_id/);
+      assert.match(sql, /WHERE t.academic_period_id=\? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1 AND \(/);
+      assert.match(sql, /s.student_id LIKE \? ESCAPE '!'/);
+      assert.match(sql, /CONCAT_WS\(' ', NULLIF\(s.first_name, ''\), NULLIF\(s.middle_name, ''\), NULLIF\(s.last_name, ''\)\) LIKE \? ESCAPE '!'/);
+      assert.match(sql, /OR t.kiosk_code LIKE \? ESCAPE '!'/);
+      assert.doesNotMatch(sql, /s.academic_period_id/);
+      assert.ok(!sql.includes(term), "Search text must remain a bound SQL value");
+    }
+  }
+});
+
+test("search normalizes whitespace and treats wildcard and SQL characters literally", async (t) => {
+  const { get, calls } = await setup(t, { count: 0 });
+  const term = "  KIOSK_100%!  ' OR 1=1 --  ";
+  const response = await get(
+    `/transactions?page=99&limit=10&search=${encodeURIComponent(term)}`,
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.page, 1);
+  assert.equal(body.pages, 1);
+  assert.equal(body.total, 0);
+  assert.deepEqual(body.rows, []);
+  const summary = calls.find(({ sql }) => sql.includes("COUNT(*) AS total"));
+  const pattern = "%KIOSK!_100!%!! ' OR 1=1 --%";
+  assert.deepEqual(summary.values, [8, pattern, pattern, pattern]);
+  assert.deepEqual(calls.at(-1).values, [8, pattern, pattern, pattern, 10, 0]);
+  assert.ok(calls.every(({ sql }) => !sql.includes("OR 1=1")));
+});
+
+test("clearing search restores the unfiltered period query", async (t) => {
+  const { get, calls } = await setup(t);
+  const response = await get("/transactions?page=1&search=%20%20%20");
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).total, 1031);
+  const summary = calls.find(({ sql }) => sql.includes("COUNT(*) AS total"));
+  assert.deepEqual(summary.values, [8]);
+  assert.doesNotMatch(summary.sql, /JOIN|LIKE/);
+});
+
+test("invalid search parameters are rejected before any database query", async (t) => {
+  const { get, calls } = await setup(t);
+  for (const search of ["a".repeat(201), "one&search=two"]) {
+    const response = await get(`/transactions?page=1&search=${search}`);
+    assert.equal(response.status, 400);
+  }
+  assert.equal(calls.length, 0);
 });
 
 test("export defaults to current period and retains headers for an empty period", async (t) => {

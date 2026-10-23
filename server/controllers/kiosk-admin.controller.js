@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { kioskActivityReport, withKioskUsage } from "../services/kiosk-activity.service.js";
 
 const ONLINE_WINDOW_MINUTES = 5;
 const browserName = (userAgent = "") => {
@@ -18,6 +19,9 @@ const validId = (value) => Number.isInteger(Number(value)) && Number(value) > 0;
 const kioskFields = `id, kiosk_code, kiosk_name, location, is_active, last_seen,
   ip_address, hostname, uptime_seconds, browser_status, current_page,
   mac_address, operating_system, created_at, updated_at,
+  activity_state, activity_reported_at, last_interaction_at,
+  (activity_reported_at >= DATE_SUB(NOW(), INTERVAL 20 SECOND)) activity_is_fresh,
+  (last_interaction_at > DATE_SUB(NOW(), INTERVAL 30 SECOND)) has_recent_interaction,
   (is_active=1 AND last_seen >= DATE_SUB(NOW(), INTERVAL ${ONLINE_WINDOW_MINUTES} MINUTE)) is_online`;
 
 export async function listKiosks(_req, res) {
@@ -27,7 +31,7 @@ export async function listKiosks(_req, res) {
       WHERE is_active=1
       ORDER BY is_online DESC, last_seen DESC, kiosk_name ASC`,
   );
-  res.set("Cache-Control", "no-store").json(rows);
+  res.set("Cache-Control", "no-store").json(rows.map(withKioskUsage));
 }
 
 export async function getKiosk(req, res) {
@@ -43,7 +47,7 @@ export async function getKiosk(req, res) {
        FROM kiosk_commands WHERE kiosk_id=? ORDER BY id DESC LIMIT 8`,
     [req.params.id],
   );
-  res.set("Cache-Control", "no-store").json({ kiosk, commands });
+  res.set("Cache-Control", "no-store").json({ kiosk: withKioskUsage(kiosk), commands });
 }
 
 const actions = {
@@ -75,6 +79,7 @@ export async function queueKioskAction(req, res) {
 }
 
 export async function kioskHeartbeat(req, res) {
+  const activity = kioskActivityReport(req.body?.activity);
   const uptime = Number(req.body?.uptimeSeconds);
   const page =
     String(req.body?.currentPage || "")
@@ -100,7 +105,9 @@ export async function kioskHeartbeat(req, res) {
   await pool.execute(
     `UPDATE kiosks SET last_seen=NOW(), ip_address=?, hostname=COALESCE(?, hostname),
        uptime_seconds=?, browser_status=?, current_page=?, operating_system=?,
-       kiosk_name=COALESCE(?, kiosk_name), location=COALESCE(?, location) WHERE id=?`,
+       kiosk_name=COALESCE(?, kiosk_name), location=COALESCE(?, location),
+       activity_state=?, activity_reported_at=NOW(),
+       last_interaction_at=TIMESTAMPADD(MICROSECOND, ?, NOW()) WHERE id=?`,
     [
       observedIp(req),
       hostname,
@@ -110,6 +117,8 @@ export async function kioskHeartbeat(req, res) {
       operatingSystem,
       name,
       location,
+      activity.state,
+      activity.interactionOffsetUs,
       req.kioskId,
     ],
   );
