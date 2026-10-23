@@ -81,13 +81,15 @@ async function setup(t) {
         );
   t.mock.method(pool, "query", async (sql, values = []) => {
     calls.push({ sql, values });
-    if (sql.includes("COUNT(*) count FROM password_reset_requests"))
+    if (sql.startsWith("SELECT COUNT(*) count,"))
       return [
         [
           {
             count: selectRows(sql, values).filter(
               (row) => row.status === "PENDING",
             ).length,
+            latestPendingId: String(Math.max(0, ...selectRows(sql, values)
+              .filter((row) => row.status === "PENDING").map((row) => row.id))),
           },
         ],
       ];
@@ -221,7 +223,7 @@ test("request list, resolved entries, credentials, and sidebar count are scoped 
   );
   assert.doesNotMatch(JSON.stringify(list.body), /KUMOSOFT-test-secret/);
   const count = await send("/admin/password-reset-requests/pending-count");
-  assert.deepEqual(count.body, { count: 1 });
+  assert.deepEqual(count.body, { count: 1, latestPendingId: "1" });
   assert.ok(
     calls
       .filter(({ sql }) => sql.includes("FROM password_reset_requests pr"))
@@ -229,6 +231,21 @@ test("request list, resolved entries, credentials, and sidebar count are scoped 
         sql.includes("pr.credential_type=? AND pr.request_kind=?"),
       ),
   );
+});
+
+test("tab alerts detect new permitted requests even when the pending count is unchanged", async (t) => {
+  const { send, rows, calls } = await setup(t);
+  rows.push({ id: 99, credential_type: "KUMOSOFT", request_kind: "PASSWORD_RESET", status: "PENDING" });
+  const before = await send("/admin/password-reset-requests/pending-count");
+  assert.deepEqual(before.body, { count: 1, latestPendingId: "1" });
+  rows[0].status = "COMPLETED";
+  rows.push({ id: 6, credential_type: "EMAIL", request_kind: "PASSWORD_RESET", status: "PENDING" });
+  const after = await send("/admin/password-reset-requests/pending-count");
+  assert.deepEqual(after.body, { count: 1, latestPendingId: "6" });
+  const counter = calls.find(({ sql }) => sql.startsWith("SELECT COUNT(*) count,"));
+  assert.match(counter.sql, /MAX\(pr.id\)/);
+  assert.match(counter.sql, /pr.status='PENDING'/);
+  assert.deepEqual(counter.values, ["EMAIL", "PASSWORD_RESET"]);
 });
 
 test("direct completion attempts cannot cross system or request-kind permissions", async (t) => {
@@ -279,7 +296,7 @@ test("permission revocation and account deactivation affect existing tokens imme
   assert.deepEqual((await send("/admin/password-reset-requests")).body, []);
   assert.deepEqual(
     (await send("/admin/password-reset-requests/pending-count")).body,
-    { count: 0 },
+    { count: 0, latestPendingId: "0" },
   );
   assert.equal(
     (await send("/admin/password-reset-requests/1/complete", "PATCH", {}))

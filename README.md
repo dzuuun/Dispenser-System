@@ -63,6 +63,10 @@ For local API development with automatic server restart, run:
 npm run dev
 ```
 
+The development server uses Node.js's built-in watch mode to restart after source changes.
+
+After pulling dependency changes, use `npm ci` from the repository root to install the versions in `package-lock.json`. Run `npm audit` to check advisories. Review dependency updates individually; `npm audit fix --force` can select incompatible versions outside the declared ranges.
+
 ## Configuration
 
 Copy `.env.example` instead of committing a real `.env` file.

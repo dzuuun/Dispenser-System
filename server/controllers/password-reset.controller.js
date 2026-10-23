@@ -24,10 +24,14 @@ const passwordResetTypes = {
 export async function pendingCredentialRequestCount(req, res) {
   const filter = requestPermissionFilter(req.admin?.requestPermissions || []);
   const [[row]] = await pool.query(
-    `SELECT COUNT(*) count FROM password_reset_requests pr WHERE pr.status='PENDING' AND ${filter.sql}`,
+    `SELECT COUNT(*) count, CAST(COALESCE(MAX(pr.id), 0) AS CHAR) latestPendingId
+     FROM password_reset_requests pr WHERE pr.status='PENDING' AND ${filter.sql}`,
     filter.values,
   );
-  res.set("Cache-Control", "no-store").json({ count: Number(row.count) });
+  res.set("Cache-Control", "no-store").json({
+    count: Number(row.count),
+    latestPendingId: String(row.latestPendingId || "0"),
+  });
 }
 
 export async function listPasswordResetRequests(req, res) {

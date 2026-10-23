@@ -8,6 +8,7 @@ import "material-symbols/rounded.css";
 import "./styles.css";
 import ndmuLogo from "./assets/ndmu-logo.png";
 import { generateRandomPassword } from "./password-generator.js";
+import { createPendingRequestTitle } from "./pending-request-title.js";
 import {
   REQUEST_PERMISSION_GROUPS,
   REQUEST_PERMISSION_KEYS,
@@ -767,8 +768,30 @@ function AdminShell({ children, path, onLogout, token, admin }) {
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [activePeriod, setActivePeriod] = useState(null);
   const pendingCountRequestInFlight = useRef(false);
+  const pendingRequestTitle = useRef(null);
+  const currentAdminPath = useRef(path);
+  currentAdminPath.current = path;
   const dismissingSidebarClick = useRef(false);
   const sidebarOpen = sidebarPinned || sidebarPreview;
+  const isViewingRequestQueue = () =>
+    currentAdminPath.current === "/admin/password-resets" &&
+    document.visibilityState === "visible" && document.hasFocus();
+  useEffect(() => {
+    const title = createPendingRequestTitle({ document });
+    pendingRequestTitle.current = title;
+    const acknowledge = () => { if (isViewingRequestQueue()) title.acknowledge(); };
+    window.addEventListener("focus", acknowledge);
+    document.addEventListener("visibilitychange", acknowledge);
+    return () => {
+      window.removeEventListener("focus", acknowledge);
+      document.removeEventListener("visibilitychange", acknowledge);
+      pendingRequestTitle.current = null;
+      title.dispose();
+    };
+  }, []);
+  useEffect(() => {
+    if (isViewingRequestQueue()) pendingRequestTitle.current?.acknowledge();
+  }, [path]);
   useEffect(() => {
     let active = true;
     const loadPendingCount = async () => {
@@ -779,7 +802,10 @@ function AdminShell({ children, path, onLogout, token, admin }) {
           "/admin/password-reset-requests/pending-count",
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        if (active) setPendingRequestCount(Number(result.count) || 0);
+        if (active) {
+          setPendingRequestCount(Number(result.count) || 0);
+          pendingRequestTitle.current?.update(result, isViewingRequestQueue());
+        }
       } catch {
         // Keep the last known badge count if a short refresh fails.
       } finally {
