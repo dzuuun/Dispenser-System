@@ -126,6 +126,8 @@ async function setup(t) {
       rolledBack++;
     },
     execute: async (sql, values) => {
+      if (sql.startsWith("SELECT r.")) return [[{admin_user_id:1,review_token:'a'.repeat(64),is_live:1}]];
+      if (sql.startsWith('DELETE FROM credential_request_reviews')) return [{affectedRows:1}];
       if (sql.startsWith("SELECT student_id, credential_type, request_kind"))
         return [
           [
@@ -136,7 +138,7 @@ async function setup(t) {
         ];
       if (sql.startsWith("UPDATE password_reset_requests")) {
         writes.push({ sql, values });
-        rows.find((row) => row.id === values[1]).status = "COMPLETED";
+        rows.find((row) => row.id === values[1]).status = sql.includes("REJECTED") ? "REJECTED" : "COMPLETED";
         return [{ affectedRows: 1 }];
       }
       if (sql.startsWith("SELECT a.id, a.is_active"))
@@ -171,6 +173,7 @@ async function setup(t) {
     { expiresIn: "5m" },
   );
   const send = async (path, method = "GET", body) => {
+    if (/\/(?:complete|reject)$/.test(path)) body = {...body, reviewToken:'a'.repeat(64)};
     const response = await fetch(
       `http://127.0.0.1:${server.address().port}${path}`,
       {

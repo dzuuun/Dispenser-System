@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { clearRequestReview, requireRequestReview } from "../services/request-review.service.js";
 import {
   canHandleRequest,
   requestPermissionFilter,
@@ -34,6 +35,7 @@ export async function listPasswordResetRequests(req, res) {
   const [rows] = await pool.query(
     `SELECT pr.id, pr.credential_type, pr.request_kind, pr.request_reason, pr.status, pr.kiosk_code,
             pr.requested_at, pr.resolved_at,
+            reviewer.full_name reviewing_by_name, review.expires_at reviewing_until,
             s.student_id school_id, s.first_name, s.middle_name, s.last_name,
             c.code course_code, au.full_name resolved_by_name,
             CASE pr.credential_type
@@ -65,6 +67,9 @@ export async function listPasswordResetRequests(req, res) {
        JOIN students s ON s.id=pr.student_id
        JOIN courses c ON c.id=s.course_id
        LEFT JOIN admin_users au ON au.id=pr.resolved_by
+       LEFT JOIN credential_request_reviews review ON review.request_id=pr.id
+         AND pr.status='PENDING' AND review.expires_at>NOW()
+       LEFT JOIN admin_users reviewer ON reviewer.id=review.admin_user_id
        LEFT JOIN satp_accounts satp ON satp.student_id=s.id
        LEFT JOIN schoology_accounts schoology ON schoology.student_id=s.id
        LEFT JOIN kumosoft_accounts kumosoft ON kumosoft.student_id=s.id
@@ -124,6 +129,7 @@ export async function completePasswordResetRequest(req, res) {
         message: "You do not have permission to handle this request.",
       });
     }
+    await requireRequestReview(connection, req);
     if (replacePassword) {
       if (
         request.request_kind !== "PASSWORD_RESET" ||
@@ -265,6 +271,7 @@ export async function completePasswordResetRequest(req, res) {
         .status(404)
         .json({ message: "Pending credential request not found." });
     }
+    await clearRequestReview(connection, id);
     await connection.commit();
     const message =
       request.request_kind === "ACCOUNT_CREATION"
@@ -301,18 +308,31 @@ export async function rejectVoucherRequest(req, res) {
     return res.status(403).json({
       message: "You do not have permission to handle voucher requests.",
     });
-  const [result] = await pool.execute(
-    `UPDATE password_reset_requests
-        SET status='REJECTED', resolved_at=NOW(), resolved_by=?
-      WHERE id=? AND status='PENDING' AND credential_type='VOUCHER' AND request_kind='VOUCHER_REQUEST'`,
-    [req.admin.sub, id],
-  );
-  if (!result.affectedRows)
-    return res
-      .status(404)
-      .json({ message: "Pending voucher request not found." });
-  res.json({
-    message:
-      "Voucher request rejected. The student's current voucher was not changed.",
-  });
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[request]] = await connection.execute(
+      "SELECT student_id, credential_type, request_kind FROM password_reset_requests WHERE id=? AND status='PENDING' FOR UPDATE",
+      [id],
+    );
+    if (!request || request.credential_type !== "VOUCHER" || request.request_kind !== "VOUCHER_REQUEST")
+      throw Object.assign(new Error("Pending voucher request not found."), { status: 404 });
+    await requireRequestReview(connection, req);
+    const [result] = await connection.execute(
+      `UPDATE password_reset_requests
+          SET status='REJECTED', resolved_at=NOW(), resolved_by=?
+        WHERE id=? AND status='PENDING' AND credential_type='VOUCHER' AND request_kind='VOUCHER_REQUEST'`,
+      [req.admin.sub, id],
+    );
+    if (!result.affectedRows)
+      throw Object.assign(new Error("Pending voucher request not found."), { status: 404 });
+    await clearRequestReview(connection, id);
+    await connection.commit();
+    res.json({ message: "Voucher request rejected. The student's current voucher was not changed." });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }

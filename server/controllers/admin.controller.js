@@ -127,7 +127,8 @@ export async function dashboard(req, res) {
     [courses],
   ] = await Promise.all([
     pool.execute(
-      "SELECT COUNT(*) total FROM students WHERE is_active=1 AND academic_period_id=?",
+      `SELECT COUNT(*) total, COALESCE(SUM(voucher_id IS NULL), 0) withoutVoucher
+       FROM students WHERE is_active=1 AND academic_period_id=?`,
       [periodId],
     ),
     pool.query(
@@ -171,6 +172,7 @@ export async function dashboard(req, res) {
         Number(vouchers[0].available || 0) + Number(vouchers[0].assigned || 0),
       available: Number(vouchers[0].available || 0),
       assigned: Number(vouchers[0].assigned || 0),
+      studentsWithoutVoucher: Number(students[0].withoutVoucher || 0),
     },
     kiosks: {
       total: Number(kiosks[0].total || 0),

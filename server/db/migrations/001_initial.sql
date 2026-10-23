@@ -18,3 +18,12 @@ CREATE TABLE kiosk_reminders (id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, pla
 INSERT INTO kiosk_reminders (placement, title, message, sort_order) VALUES ('BANNER', 'Use your correct Course, Last Name, and Birthday.', 'Your information must match the records.', 10), ('GUIDELINE', 'For enrolled NDMU students only.', 'Credential and voucher access is exclusive to enrolled students.', 20), ('GUIDELINE', 'One voucher per student.', 'Please use your assigned voucher responsibly.', 30), ('GUIDELINE', 'Keep your credentials private.', 'Do not share passwords or voucher codes with anyone.', 40), ('GUIDELINE', 'Need help?', 'Submit a password reset request or proceed to the ICT/MIS Office.', 50), ('TIP', 'Double-check your information.', 'Confirm your course, last name, and birthday before submitting.', 60);
 CREATE TABLE credential_module_controls (module_key ENUM('VOUCHER', 'SATP', 'SCHOOLOGY', 'KUMOSOFT', 'EMAIL', 'PASSWORD_RESET_REQUEST', 'KIOSK') PRIMARY KEY, is_visible BOOLEAN NOT NULL DEFAULT TRUE, is_maintenance BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
 INSERT INTO credential_module_controls (module_key) VALUES ('VOUCHER'), ('SATP'), ('SCHOOLOGY'), ('KUMOSOFT'), ('EMAIL'), ('PASSWORD_RESET_REQUEST'), ('KIOSK');
+
+CREATE TABLE IF NOT EXISTS credential_request_reviews (
+  request_id BIGINT UNSIGNED PRIMARY KEY,
+  admin_user_id BIGINT UNSIGNED NOT NULL,
+  review_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME NOT NULL,
+  FOREIGN KEY (request_id) REFERENCES password_reset_requests(id) ON DELETE CASCADE,
+  FOREIGN KEY (admin_user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+);

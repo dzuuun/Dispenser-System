@@ -2205,7 +2205,8 @@ button {
   max-width: none;
   min-width: 0;
   margin: 0;
-  line-height: 1.3;
+  padding: 2px 8px;
+  line-height: 1.25;
 }
 
 .credential-summary-actions {
@@ -3396,6 +3397,46 @@ button {
   min-height: 34px;
   padding: 7px 11px;
   font-size: 0.78rem;
+}
+.voucher-stock-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.voucher-stock-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 12px;
+  border: 1px solid #dce6e0;
+  border-radius: 9px;
+  background: #f4f7f5;
+  color: #587164;
+}
+.voucher-stock-status.green {
+  border-color: #c9e1d3;
+  background: #edf7f0;
+  color: #086144;
+}
+.voucher-stock-status.danger {
+  border-color: #f0d1cb;
+  background: #fff2ef;
+  color: #a43d39;
+}
+.voucher-stock-status .app-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.voucher-stock-status b,
+.voucher-stock-status span:not(.app-icon) {
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.voucher-stock-status span:not(.app-icon) {
+  margin-top: 3px;
+  font-size: 0.72rem;
 }
 .voucher-stock-figure strong {
   display: block;
@@ -6301,6 +6342,18 @@ strong {
   color: #7890a0;
 }
 
+.request-review-action {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+}
+.request-review-action small {
+  max-width: 220px;
+  color: #71877b;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
 .reset-request-modal {
   width: min(calc(100vw - 48px), 560px);
 }
@@ -6723,7 +6776,7 @@ strong {
   }
 }
 
-@media (min-width: 761px) and (max-height: 780px) {
+@media (min-width: 761px) and (max-height: 950px) {
   .kiosk-results .credentials-summary-heading h1 {
     font-size: 1.4rem;
   }
@@ -6951,7 +7004,7 @@ body,
   font-size: 0.9rem;
 }
 
-@media (min-width: 761px) and (max-height: 780px) {
+@media (min-width: 761px) and (max-height: 950px) {
   .credential-card-body > p,
   .credential-summary-card .credential-password {
     font-size: 0.88rem;
@@ -8217,7 +8270,7 @@ body,
   flex-wrap: wrap;
 }
 
-@media (min-width: 761px) and (max-width: 1100px) and (max-height: 780px) {
+@media (min-width: 761px) and (max-width: 1100px) and (max-height: 950px) {
   .kiosk-results .credential-request-row .kiosk-request-button {
     padding-right: 8px;
     padding-left: 8px;
@@ -8231,7 +8284,7 @@ body,
   }
 }
 
-@media (min-width: 761px) and (max-height: 780px) {
+@media (min-width: 761px) and (max-height: 950px) {
   .kiosk-results .credential-summary-panel {
     gap: 16px;
     min-height: 0;

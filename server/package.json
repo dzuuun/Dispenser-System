@@ -27,6 +27,7 @@
     "migrate-course-academic-levels": "node db/migrate-course-academic-levels.js",
     "migrate-security-hardening": "node db/migrate-security-hardening.js",
     "migrate-admin-request-permissions": "node db/migrate-admin-request-permissions.js",
+    "migrate-request-reviews": "node db/migrate-request-reviews.js",
     "rebuild-db": "set ALLOW_DB_REBUILD=true&& node db/rebuild-development.js"
   },
   "dependencies": {

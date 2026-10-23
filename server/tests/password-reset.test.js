@@ -9,6 +9,7 @@ import {
 import { completePasswordResetRequest } from "../controllers/password-reset.controller.js";
 
 after(() => pool.end());
+const reviewToken = "a".repeat(64);
 
 function setup(t, options = {}) {
   const stored = {
@@ -33,6 +34,8 @@ function setup(t, options = {}) {
     },
     release() {},
     async execute(sql, values) {
+      if (sql.startsWith("SELECT r.")) return [[{admin_user_id:1,review_token:reviewToken,is_live:1}]];
+      if (sql.startsWith('DELETE FROM credential_request_reviews')) return [{affectedRows:1}];
       if (sql.startsWith("SELECT student_id, credential_type, request_kind"))
         return [
           options.pending === false
@@ -77,7 +80,7 @@ function setup(t, options = {}) {
   const req = {
     params: { id: "1" },
     admin: { sub: 1, requestPermissions: [...REQUEST_PERMISSION_KEYS] },
-    body: {},
+    body: { reviewToken },
   };
   const res = {
     statusCode: 200,
@@ -104,7 +107,7 @@ for (const type of ["EMAIL", "KUMOSOFT", "SCHOOLOGY"]) {
 
   test(`${type}: replacement is encrypted and saved with request completion`, async (t) => {
     const { req, res, stored } = setup(t, { type });
-    req.body = { replacePassword: true, password: " New test password " };
+    req.body = { reviewToken, replacePassword: true, password: " New test password " };
     await completePasswordResetRequest(req, res);
     assert.equal(res.statusCode, 200);
     assert.equal(decryptPassword(stored.account), req.body.password);
@@ -116,7 +119,7 @@ for (const type of ["EMAIL", "KUMOSOFT", "SCHOOLOGY"]) {
   for (const password of [undefined, "", "   ", 123]) {
     test(`${type}: invalid replacement (${JSON.stringify(password)}) cannot complete the request`, async (t) => {
       const { req, res, stored } = setup(t, { type });
-      req.body = { replacePassword: true, password };
+      req.body = { reviewToken, replacePassword: true, password };
       await completePasswordResetRequest(req, res);
       assert.equal(res.statusCode, 400);
       assert.equal(decryptPassword(stored.account), "Original test password");
@@ -125,7 +128,7 @@ for (const type of ["EMAIL", "KUMOSOFT", "SCHOOLOGY"]) {
   }
   test(`${type}: a completion failure rolls back the replacement password`, async (t) => {
     const { req, res, stored } = setup(t, { type, failCompletion: true });
-    req.body = { replacePassword: true, password: "New test password" };
+    req.body = { reviewToken, replacePassword: true, password: "New test password" };
     await assert.rejects(
       completePasswordResetRequest(req, res),
       /Simulated completion failure/,
@@ -140,7 +143,7 @@ for (const type of ["EMAIL", "KUMOSOFT", "SCHOOLOGY"]) {
   ]) {
     test(`${type}: unavailable account or changed request leaves the password unchanged: ${JSON.stringify(options)}`, async (t) => {
       const { req, res, stored } = setup(t, { type, ...options });
-      req.body = { replacePassword: true, password: "New test password" };
+      req.body = { reviewToken, replacePassword: true, password: "New test password" };
       await completePasswordResetRequest(req, res);
       assert.equal(res.statusCode, 404);
       assert.equal(decryptPassword(stored.account), "Original test password");
@@ -160,7 +163,7 @@ for (const options of [
 ]) {
   test(`replacement rejects unavailable or unsupported requests: ${JSON.stringify(options)}`, async (t) => {
     const { req, res, stored } = setup(t, options);
-    req.body = { replacePassword: true, password: "New test password" };
+    req.body = { reviewToken, replacePassword: true, password: "New test password" };
     await completePasswordResetRequest(req, res);
     assert.equal(res.statusCode, options.status);
     assert.equal(decryptPassword(stored.account), "Original test password");

@@ -299,3 +299,12 @@ INSERT INTO kiosk_reminders (placement, title, message, sort_order) VALUES
   ('GUIDELINE', 'Keep your credentials private.', 'Do not share passwords or voucher codes with anyone.', 40),
   ('GUIDELINE', 'Need help?', 'Submit a password reset request or proceed to the ICT/MIS Office.', 50),
   ('TIP', 'Double-check your information.', 'Confirm your course, last name, and birthday before submitting.', 60);
+
+CREATE TABLE IF NOT EXISTS credential_request_reviews (
+  request_id BIGINT UNSIGNED PRIMARY KEY,
+  admin_user_id BIGINT UNSIGNED NOT NULL,
+  review_token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME NOT NULL,
+  FOREIGN KEY (request_id) REFERENCES password_reset_requests(id) ON DELETE CASCADE,
+  FOREIGN KEY (admin_user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+);

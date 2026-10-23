@@ -1138,6 +1138,39 @@ function Dashboard({ token }) {
   const vouchers = data?.vouchers || { available: 0, assigned: 0 };
   const kiosks = data?.kiosks || { online: 0, total: 0 };
   const voucherTotal = vouchers.total || vouchers.available + vouchers.assigned;
+  const studentsWithoutVoucher = Number(vouchers.studentsWithoutVoucher || 0);
+  const voucherBalance = vouchers.available - studentsWithoutVoucher;
+  const voucherComparison = !data?.academicPeriod
+    ? {
+        tone: "neutral",
+        title: "No current academic period",
+        detail: "Activate an academic period to compare students and stock.",
+      }
+    : !data.activeStudents
+      ? {
+          tone: "neutral",
+          title: "No active students",
+          detail: "No students need vouchers in the current academic period.",
+        }
+      : !studentsWithoutVoucher
+        ? {
+            tone: "green",
+            title: "All students have vouchers",
+            detail: `${vouchers.available} voucher${vouchers.available === 1 ? " remains" : "s remain"} available.`,
+          }
+        : voucherBalance < 0
+          ? {
+              tone: "danger",
+              title: `Short by ${-voucherBalance} voucher${voucherBalance === -1 ? "" : "s"}`,
+              detail: "More stock is needed to cover students without vouchers.",
+            }
+          : {
+              tone: "green",
+              title: voucherBalance
+                ? `${voucherBalance} extra voucher${voucherBalance === 1 ? "" : "s"}`
+                : "Enough vouchers for every student",
+              detail: "Available stock covers all students still needing a voucher.",
+            };
   const assignedRate = voucherTotal
     ? Math.round((vouchers.assigned / voucherTotal) * 100)
     : 0;
@@ -1241,9 +1274,33 @@ function Dashboard({ token }) {
                   Manage
                 </Button>
               </header>
-              <div className="voucher-stock-figure">
-                <strong>{vouchers.available}</strong>
-                <span>available for automatic assignment</span>
+              <div className="voucher-stock-comparison">
+                <div className="voucher-stock-figure">
+                  <strong>{vouchers.available}</strong>
+                  <span>Available vouchers</span>
+                </div>
+                <div className="voucher-stock-figure">
+                  <strong>{studentsWithoutVoucher}</strong>
+                  <span>Students without vouchers</span>
+                </div>
+              </div>
+              <div
+                className={`voucher-stock-status ${voucherComparison.tone}`}
+                role="status"
+              >
+                <AppIcon
+                  name={
+                    voucherComparison.tone === "danger"
+                      ? "warning"
+                      : voucherComparison.tone === "green"
+                        ? "check_circle"
+                        : "info"
+                  }
+                />
+                <div>
+                  <b>{voucherComparison.title}</b>
+                  <span>{voucherComparison.detail}</span>
+                </div>
               </div>
               <div className="voucher-stock-bar">
                 <i style={{ width: `${assignedRate}%` }} />
@@ -1253,7 +1310,9 @@ function Dashboard({ token }) {
                 <span>{assignedRate}% in use</span>
               </div>
               <p className="dashboard-panel-note">
-                Released and inactive vouchers are excluded from active stock.
+                Counts cover active students and vouchers in the current academic
+                period. Released and inactive vouchers are excluded from available
+                stock.
               </p>
             </article>
             <article className="panel dashboard-coverage-panel">
@@ -7925,6 +7984,22 @@ function RemindersPage({ token }) {
   );
 }
 
+async function sendRequestReview(id, action, reviewToken, token, keepalive = false) {
+  const path = `/admin/password-reset-requests/${id}/review${action === "acquire" ? "" : `/${action}`}`;
+  const options = {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ reviewToken }),
+  };
+  const response = keepalive
+    ? await fetch(`${API}${path}`, { ...options, credentials: "same-origin", keepalive: true })
+    : await adminFetch(path, options);
+  const data = response.status === 204 ? null : await response.json();
+  if (!response.ok)
+    throw Object.assign(new Error(data?.message || "Unable to update the request review."), { status: response.status });
+  return data;
+}
+
 function PasswordResetRequestsPage({ token }) {
   const [requests, setRequests] = useState([]),
     [selected, setSelected] = useState(null),
@@ -7932,6 +8007,7 @@ function PasswordResetRequestsPage({ token }) {
     [refreshError, setRefreshError] = useState(""),
     [toast, setToast] = useState(""),
     [saving, setSaving] = useState(false),
+    [openingReview, setOpeningReview] = useState(null),
     [queueFilter, setQueueFilter] = useState("PENDING"),
     [page, setPage] = useState(1),
     [passwordResetForm, setPasswordResetForm] = useState({
@@ -7950,9 +8026,76 @@ function PasswordResetRequestsPage({ token }) {
       document.body.style.overflow = previousOverflow;
     };
   }, [selected]);
+  useEffect(() => {
+    if (!selected || saving) return;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selected?.id, saving]);
   const refreshRequests = useRef(null);
+  const mounted = useRef(true);
+  const openingReviewRef = useRef(false);
+  const reviewAuthToken = useRef(token);
+  reviewAuthToken.current = token;
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const headers = { Authorization: `Bearer ${token}` };
   const load = () => refreshRequests.current?.();
+  useEffect(() => {
+    if (!selected?.reviewToken) return;
+    const session = { id: selected.id, token: selected.reviewToken };
+    let active = true;
+    let renewing = false;
+    let expiryTimer;
+    const expire = () => {
+      if (!active) return;
+      setSelected(null);
+      setError("Your review session ended. Review the request again before continuing.");
+      load();
+    };
+    const resetExpiry = (leaseMs) => {
+      clearTimeout(expiryTimer);
+      expiryTimer = setTimeout(expire, leaseMs);
+    };
+    const renew = async () => {
+      if (!active || renewing) return;
+      renewing = true;
+      const startedAt = performance.now();
+      try {
+        const result = await sendRequestReview(session.id, "renew", session.token, reviewAuthToken.current);
+        if (active) resetExpiry(Math.max(0, result.leaseMs - (performance.now() - startedAt)));
+      } catch (err) {
+        if ([401, 403, 404, 409].includes(err.status)) expire();
+        // Network failures are allowed only until the last confirmed lease ends.
+      } finally {
+        renewing = false;
+      }
+    };
+    const release = (keepalive) => sendRequestReview(session.id, "release", session.token, reviewAuthToken.current, keepalive).catch(() => {});
+    const pageHide = () => {
+      void release(true);
+      setSelected(null);
+    };
+    const visibilityChange = () => { if (document.visibilityState === "visible") void renew(); };
+    resetExpiry(selected.leaseMs);
+    const timer = setInterval(renew, 20000);
+    window.addEventListener("focus", renew);
+    window.addEventListener("pagehide", pageHide);
+    document.addEventListener("visibilitychange", visibilityChange);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      clearTimeout(expiryTimer);
+      window.removeEventListener("focus", renew);
+      window.removeEventListener("pagehide", pageHide);
+      document.removeEventListener("visibilitychange", visibilityChange);
+      void release(!mounted.current).finally(() => { if (mounted.current) load(); });
+    };
+  }, [selected?.id, selected?.reviewToken]);
   useEffect(() => {
     const controller = new AbortController();
     let loading = false;
@@ -8019,16 +8162,17 @@ function PasswordResetRequestsPage({ token }) {
         {
           method: "PATCH",
           headers: { ...headers, "Content-Type": "application/json" },
-          body: JSON.stringify(
-            selected.request_kind === "ACCOUNT_CREATION"
+          body: JSON.stringify({
+            reviewToken: selected.reviewToken,
+            ...(selected.request_kind === "ACCOUNT_CREATION"
               ? accountRequestForm
               : canReplacePassword && passwordResetForm.replacePassword
                 ? {
                     replacePassword: true,
                     password: passwordResetForm.password,
                   }
-                : {},
-          ),
+                : {}),
+          }),
         },
       );
       setSelected(null);
@@ -8047,7 +8191,11 @@ function PasswordResetRequestsPage({ token }) {
     try {
       const response = await request(
         `/admin/password-reset-requests/${selected.id}/reject`,
-        { method: "PATCH", headers },
+        {
+          method: "PATCH",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ reviewToken: selected.reviewToken }),
+        },
       );
       setSelected(null);
       setToast(response.message);
@@ -8084,12 +8232,42 @@ function PasswordResetRequestsPage({ token }) {
     setQueueFilter(filter);
     setPage(1);
   };
-  const reviewRequest = (item) => {
+  const reviewRequest = async (item) => {
+    if (openingReviewRef.current) return;
     setError("");
     setToast("");
     setAccountRequestForm({ emailAddress: "", password: "" });
     setPasswordResetForm({ replacePassword: false, password: "" });
-    setSelected(item);
+    if (item.status !== "PENDING") {
+      setSelected(item);
+      return;
+    }
+    openingReviewRef.current = true;
+    setOpeningReview(item.id);
+    let reviewToken;
+    try {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      reviewToken = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      const startedAt = performance.now();
+      const review = await sendRequestReview(item.id, "acquire", reviewToken, reviewAuthToken.current);
+      if (!mounted.current) {
+        void sendRequestReview(item.id, "release", reviewToken, reviewAuthToken.current, true).catch(() => {});
+        return;
+      }
+      setSelected({ ...item, reviewToken, leaseMs: Math.max(0, review.leaseMs - (performance.now() - startedAt)) });
+      load();
+    } catch (err) {
+      if (mounted.current) {
+        setError(err.message);
+        load();
+      }
+      // The acquisition may have succeeded even when its response was lost.
+      if (reviewToken) void sendRequestReview(item.id, "release", reviewToken, reviewAuthToken.current, true).catch(() => {});
+    } finally {
+      openingReviewRef.current = false;
+      if (mounted.current) setOpeningReview(null);
+    }
   };
   useEffect(() => {
     setSelected((current) => {
@@ -8355,12 +8533,16 @@ function PasswordResetRequestsPage({ token }) {
                     </td>
                     <td>
                       {item.status === "PENDING" ? (
-                        <Button
-                          variant="secondary"
-                          onClick={() => reviewRequest(item)}
-                        >
-                          Review request
-                        </Button>
+                        <div className="request-review-action">
+                          <Button
+                            variant="secondary"
+                            disabled={Boolean(item.reviewing_until) || openingReview !== null}
+                            onClick={() => reviewRequest(item)}
+                          >
+                            {openingReview === item.id ? "Opening..." : item.reviewing_until ? "Being reviewed" : "Review request"}
+                          </Button>
+                          {item.reviewing_until && <small>Reviewing: {item.reviewing_by_name || "Another administrator"}</small>}
+                        </div>
                       ) : (
                         <div className="resolved-request-action">
                           <Button
@@ -8424,7 +8606,7 @@ function PasswordResetRequestsPage({ token }) {
           <div
             className="modal-backdrop credential-request-overlay"
             onMouseDown={(event) => {
-              if (event.target === event.currentTarget) setSelected(null);
+              if (!saving && event.target === event.currentTarget) setSelected(null);
             }}
           >
             <section
@@ -8464,6 +8646,7 @@ function PasswordResetRequestsPage({ token }) {
                 </div>
                 <button
                   className="modal-close"
+                  disabled={saving}
                   onClick={() => setSelected(null)}
                   aria-label="Close"
                 >
@@ -8624,6 +8807,7 @@ function PasswordResetRequestsPage({ token }) {
                   <>
                     <Button
                       variant="secondary"
+                      disabled={saving}
                       onClick={() => setSelected(null)}
                     >
                       Cancel
@@ -9091,7 +9275,7 @@ function AdminUsersPage({ token }) {
                       {editor.id ? "New password (optional)" : "Password"}
                     </span>
                     <input
-                      type="password"
+                      type="text"
                       required={!editor.id}
                       minLength={editor.id && !form.password ? undefined : 12}
                       autoComplete="new-password"

@@ -103,6 +103,8 @@ Production startup rejects missing or placeholder database, JWT, encryption, and
 
 In **Transactions**, choose an **Academic period** to view current or historical records, then select **Export Excel** to download every transaction in that period, across all pages. Previous periods remain available even when inactive. Exported timestamps use Philippine time (UTC+08:00).
 
+Opening **Review request** reserves that pending request for the administrator and browser tab that opened it. Other administrators see **Being reviewed** and the reviewer's name on the next queue refresh. Closing the dialog, leaving the page, completing, or rejecting releases the reservation. An open dialog renews its reservation every 20 seconds; if the browser disconnects or crashes, it becomes available again after 90 seconds without renewal. Completion and rejection require a valid review reservation. The review-lock table is created automatically when the API starts; it can also be created with `npm run migrate-request-reviews -w server`.
+
 Most state-changing administrator functions require the **Super Admin** role, including imports, credential-request processing, voucher operations, module controls, kiosk commands, and administrator management.
 
 ### SQL Server student import
