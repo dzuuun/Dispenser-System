@@ -6342,6 +6342,59 @@ strong {
   color: #7890a0;
 }
 
+.request-account-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border: 1px solid #d7e2e8;
+  border-radius: 6px;
+  background: #f2f6f8;
+  color: #3e5871;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.request-account-badge[data-account="EMAIL"] {
+  border-color: #c5dbf5;
+  background: #edf5ff;
+  color: #245b91;
+}
+
+.request-account-badge[data-account="KUMOSOFT"] {
+  border-color: #ded0f3;
+  background: #f5effc;
+  color: #70449b;
+}
+
+.request-account-badge[data-account="SCHOOLOGY"] {
+  border-color: #bce3da;
+  background: #eaf8f3;
+  color: #146653;
+}
+
+.request-account-badge[data-account="SATP"] {
+  border-color: #ead9ac;
+  background: #fff8e7;
+  color: #805c12;
+}
+
+.request-account-badge[data-account="VOUCHER"] {
+  border-color: #f0cdb5;
+  background: #fff1e8;
+  color: #994b20;
+}
+
+.reset-account-username[data-request-kind="ACCOUNT_CREATION"] {
+  color: #17654e;
+  font-weight: 600;
+}
+
+.reset-account-username[data-request-kind="VOUCHER_REQUEST"] {
+  color: #99501e;
+  font-weight: 600;
+}
+
 .request-review-action {
   display: grid;
   justify-items: end;

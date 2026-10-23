@@ -236,16 +236,19 @@ These steps target **Windows Server** with Node.js 20+, Git, MySQL, and IIS with
 
 ### Updating a PM2 deployment
 
-Back up the database before schema or bulk-data changes. Then pull the new source, install dependencies, rebuild the client, and restart the managed process:
+Back up the database before schema or bulk-data changes. Pull the new source, stop the managed process, install dependencies, rebuild the client, and restart it. On Windows, stop the app before `npm ci` so native modules such as `bcrypt.node` can be replaced:
 
 ```powershell
 Set-Location -LiteralPath "C:\Apps\ndmu-credentials-dispenser"
 git pull
+pm2 stop ndmu-credentials-dispenser
 npm ci --omit=dev
 npm run build
 pm2 restart ndmu-credentials-dispenser
 pm2 save
 ```
+
+Continue to the build and restart only after installation succeeds. If Windows still reports `EPERM` for a native module, close any other `npm start` or `npm run dev` session for this project and retry installation.
 
 Use `pm2 logs ndmu-credentials-dispenser` to troubleshoot and `pm2 monit` for live process monitoring. If `.env` values change, restart the process after saving the file. After a Node.js upgrade, reinstall or update PM2 and restart the Windows service so it uses the current Node runtime.
 

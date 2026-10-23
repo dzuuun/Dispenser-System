@@ -8503,12 +8503,18 @@ function PasswordResetRequestsPage({ token }) {
                       </span>
                     </td>
                     <td>
-                      <b>
+                      <b
+                        className="request-account-badge"
+                        data-account={item.credential_type}
+                      >
                         {item.credential_type === "VOUCHER"
                           ? "WiFi Voucher"
                           : item.credential_type}
                       </b>
-                      <small className="reset-account-username">
+                      <small
+                        className="reset-account-username"
+                        data-request-kind={item.request_kind}
+                      >
                         {item.request_kind === "ACCOUNT_CREATION"
                           ? "Account creation"
                           : item.request_kind === "VOUCHER_REQUEST"

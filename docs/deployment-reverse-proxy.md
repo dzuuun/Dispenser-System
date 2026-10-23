@@ -70,13 +70,17 @@ the browser displays a blank page, confirm that requests under
 
 ## Updating
 
-For application changes, rebuild and restart Node:
+For application changes, stop the app before reinstalling dependencies, then rebuild and restart Node. Windows cannot replace a native module such as `bcrypt.node` while a running process has it loaded:
 
 ```powershell
 Set-Location -LiteralPath "C:\path\to\Dispenser System"
+pm2 stop ndmu-credentials-dispenser
+npm ci
 npm run build
 pm2 restart ndmu-credentials-dispenser
 ```
+
+Run the build and restart only after `npm ci` succeeds. Close any other development or server terminal for this project if a native module remains locked.
 
 For proxy-rule changes, update the IIS site's `web.config` and restart the IIS
 site or run this from an elevated PowerShell window:
