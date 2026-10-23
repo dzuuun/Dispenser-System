@@ -35,7 +35,29 @@ export async function pendingCredentialRequestCount(req, res) {
 }
 
 export async function listPasswordResetRequests(req, res) {
+  const search = req.query?.search ?? "";
+  if (typeof search !== "string" || search.length > 200)
+    return res.status(400).json({ message: "Search must be 200 characters or fewer." });
+  const term = search.trim().replace(/\s+/g, " ");
   const filter = requestPermissionFilter(req.admin?.requestPermissions || []);
+  const searchFields = [
+    "s.student_id",
+    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+    "c.code",
+    "pr.credential_type",
+    "REPLACE(pr.request_kind, '_', ' ')",
+    `CASE pr.credential_type
+      WHEN 'SATP' THEN satp.username
+      WHEN 'SCHOOLOGY' THEN schoology.username
+      WHEN 'KUMOSOFT' THEN kumosoft.username
+      WHEN 'EMAIL' THEN email.email_address
+      WHEN 'VOUCHER' THEN voucher.voucher_code
+    END`,
+  ];
+  const searchWhere = term
+    ? ` AND (${searchFields.map((field) => `${field} LIKE ? ESCAPE '!'`).join(" OR ")})`
+    : "";
+  const pattern = `%${term.replace(/[!%_]/g, "!$&")}%`;
   const [rows] = await pool.query(
     `SELECT pr.id, pr.credential_type, pr.request_kind, pr.request_reason, pr.status, pr.kiosk_code,
             pr.requested_at, pr.resolved_at,
@@ -79,10 +101,10 @@ export async function listPasswordResetRequests(req, res) {
        LEFT JOIN kumosoft_accounts kumosoft ON kumosoft.student_id=s.id
        LEFT JOIN institutional_email_accounts email ON email.student_id=s.id
        LEFT JOIN wifi_vouchers voucher ON voucher.id=s.voucher_id
-      WHERE ${filter.sql}
+      WHERE ${filter.sql}${searchWhere}
       ORDER BY (pr.status='PENDING') DESC, pr.requested_at DESC
       LIMIT 500`,
-    filter.values,
+    [...filter.values, ...(term ? searchFields.map(() => pattern) : [])],
   );
 
   res.set("Cache-Control", "no-store").json(

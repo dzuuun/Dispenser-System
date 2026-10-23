@@ -7964,6 +7964,9 @@ async function sendRequestReview(id, action, reviewToken, token, keepalive = fal
 
 function PasswordResetRequestsPage({ token }) {
   const [requests, setRequests] = useState([]),
+    [search, setSearch] = useState(""),
+    [appliedSearch, setAppliedSearch] = useState(""),
+    [loadingRequests, setLoadingRequests] = useState(true),
     [selected, setSelected] = useState(null),
     [error, setError] = useState(""),
     [refreshError, setRefreshError] = useState(""),
@@ -8007,6 +8010,15 @@ function PasswordResetRequestsPage({ token }) {
   }, []);
   const headers = { Authorization: `Bearer ${token}` };
   const load = () => refreshRequests.current?.();
+  useEffect(() => {
+    const term = search.trim().replace(/\s+/g, " ");
+    if (term === appliedSearch) return;
+    const timer = setTimeout(() => {
+      setAppliedSearch(term);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, appliedSearch]);
   useEffect(() => {
     if (!selected?.reviewToken) return;
     const session = { id: selected.id, token: selected.reviewToken };
@@ -8063,6 +8075,7 @@ function PasswordResetRequestsPage({ token }) {
     let loading = false;
     let queuedRefresh = false;
     let lastSnapshot = "";
+    setLoadingRequests(true);
     const refresh = async (force = false) => {
       if (
         controller.signal.aborted ||
@@ -8075,7 +8088,7 @@ function PasswordResetRequestsPage({ token }) {
       }
       loading = true;
       try {
-        const next = await request("/admin/password-reset-requests", {
+        const next = await request(`/admin/password-reset-requests${appliedSearch ? `?search=${encodeURIComponent(appliedSearch)}` : ""}`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
@@ -8090,6 +8103,7 @@ function PasswordResetRequestsPage({ token }) {
         if (!controller.signal.aborted) setRefreshError(err.message);
       } finally {
         loading = false;
+        if (!controller.signal.aborted) setLoadingRequests(false);
         if (queuedRefresh && !controller.signal.aborted) {
           queuedRefresh = false;
           refresh(true);
@@ -8109,7 +8123,7 @@ function PasswordResetRequestsPage({ token }) {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [token]);
+  }, [token, appliedSearch]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4000);
@@ -8328,11 +8342,11 @@ function PasswordResetRequestsPage({ token }) {
       />
       <section className="student-summary reset-request-summary">
         <article>
-          <span>Pending requests</span>
+          <span>{appliedSearch ? "Matching pending requests" : "Pending requests"}</span>
           <strong>{pending}</strong>
         </article>
         <article>
-          <span>Password resets</span>
+          <span>{appliedSearch ? "Matching password resets" : "Password resets"}</span>
           <strong>
             {
               requests.filter(
@@ -8344,7 +8358,7 @@ function PasswordResetRequestsPage({ token }) {
           </strong>
         </article>
         <article>
-          <span>Account requests</span>
+          <span>{appliedSearch ? "Matching account requests" : "Account requests"}</span>
           <strong>
             {
               requests.filter(
@@ -8356,7 +8370,7 @@ function PasswordResetRequestsPage({ token }) {
           </strong>
         </article>
         <article>
-          <span>Voucher requests</span>
+          <span>{appliedSearch ? "Matching voucher requests" : "Voucher requests"}</span>
           <strong>
             {
               requests.filter(
@@ -8404,7 +8418,25 @@ function PasswordResetRequestsPage({ token }) {
               All <span>{requests.length}</span>
             </button>
           </div>
-          <small>Pending first · Newest first</small>
+          <div className="request-queue-tools">
+            <label className="records-table-field records-table-search">
+              <span>Search requests</span>
+              <span className="records-table-search-input">
+                <AppIcon name="search" size={18} />
+                <input
+                  type="search"
+                  aria-label="Search credential requests"
+                  placeholder="Student name, ID, course, or account"
+                  maxLength={200}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </span>
+            </label>
+            <small role={loadingRequests ? "status" : undefined}>
+              {loadingRequests ? "Loading requests..." : "Pending first · Newest first"}
+            </small>
+          </div>
         </div>
         {filteredRequests.length ? (
           <div className="reset-request-table-wrap">
@@ -8560,9 +8592,11 @@ function PasswordResetRequestsPage({ token }) {
           </div>
         ) : (
           <Empty
-            title={`No ${queueFilter === "ALL" ? "credential" : queueFilter.toLowerCase()} requests`}
+            title={appliedSearch ? "No matching requests" : `No ${queueFilter === "ALL" ? "credential" : queueFilter.toLowerCase()} requests`}
             detail={
-              queueFilter === "PENDING"
+              appliedSearch
+                ? "Try another name, ID, course, or account, or change the queue filter."
+                : queueFilter === "PENDING"
                 ? "There are no requests waiting for administrator action."
                 : "No requests match this queue filter."
             }
