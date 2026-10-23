@@ -6969,7 +6969,7 @@ function Kiosk() {
                           </span>
                         </button>
                       )}
-                      {outcome && (
+                      {outcome && !pending && (
                         <p
                           className={`credential-request-outcome ${outcome.status.toLowerCase()}`}
                         >
