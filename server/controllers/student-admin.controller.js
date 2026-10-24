@@ -8,7 +8,46 @@ import {
   requireCurrentAcademicPeriod,
 } from "../services/academic-period.service.js";
 
+const studentAccountTypes = [
+  {
+    type: "EMAIL",
+    label: "Email",
+    table: "institutional_email_accounts",
+    alias: "email_account",
+  },
+  {
+    type: "KUMOSOFT",
+    label: "Kumosoft",
+    table: "kumosoft_accounts",
+    alias: "kumosoft_account",
+  },
+  {
+    type: "SCHOOLOGY",
+    label: "Schoology",
+    table: "schoology_accounts",
+    alias: "schoology_account",
+  },
+  { type: "SATP", label: "SATP", table: "satp_accounts", alias: "satp_account" },
+];
+// Each account table has a unique student_id, so these joins preserve paging/counts.
+const studentAccountJoins = studentAccountTypes
+  .map(
+    ({ table, alias }) =>
+      `LEFT JOIN ${table} ${alias} ON ${alias}.student_id=s.id`,
+  )
+  .join(" ");
+
 export async function listStudents(req, res) {
+  const missingAccount = req.query.missingAccount ?? "";
+  if (
+    typeof missingAccount !== "string" ||
+    (missingAccount !== "" &&
+      missingAccount !== "NONE" &&
+      !studentAccountTypes.some(({ type }) => type === missingAccount))
+  )
+    throw Object.assign(new Error("Choose a valid missing account filter."), {
+      status: 400,
+    });
   const search = tableSearch(req.query["search[value]"] ?? req.query.search, [
     "s.student_id",
     "s.kumosoft_id",
@@ -16,6 +55,11 @@ export async function listStudents(req, res) {
     "c.code",
     "c.name",
     "CASE WHEN s.is_active=1 THEN 'Active' ELSE 'Inactive' END",
+    ...studentAccountTypes.map(
+      ({ label, alias }) =>
+        `CASE WHEN ${alias}.student_id IS NOT NULL THEN CONCAT('${label}', IF(${alias}.is_active=0, ' (inactive)', '')) ELSE '' END`,
+    ),
+    `CASE WHEN ${studentAccountTypes.map(({ alias }) => `${alias}.student_id IS NULL`).join(" AND ")} THEN 'No linked accounts' ELSE '' END`,
   ]);
   const currentPeriod = await currentAcademicPeriod();
   // Supports both the regular API and DataTables server-side paging requests.
@@ -43,6 +87,12 @@ export async function listStudents(req, res) {
   }
   if (status === "active") filters.push("s.is_active=1");
   if (status === "inactive") filters.push("s.is_active=0");
+  for (const { type, table } of studentAccountTypes) {
+    if (missingAccount === type || missingAccount === "NONE")
+      filters.push(
+        `NOT EXISTS (SELECT 1 FROM ${table} missing_account WHERE missing_account.student_id=s.id)`,
+      );
+  }
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   const orderBy =
     {
@@ -57,13 +107,25 @@ export async function listStudents(req, res) {
       ? "DESC"
       : "ASC";
   const [[count]] = await pool.execute(
-    `SELECT COUNT(*) total, SUM(s.is_active=1) active_total FROM students s${search.term ? " JOIN courses c ON c.id=s.course_id" : ""} ${where}`,
+    `SELECT COUNT(*) total, SUM(s.is_active=1) active_total FROM students s${search.term ? ` JOIN courses c ON c.id=s.course_id ${studentAccountJoins}` : ""} ${where}`,
     values,
   );
-  const [rows] = await pool.execute(
-    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, s.is_active, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id ${where} ORDER BY ${orderBy} ${direction} LIMIT ? OFFSET ?`,
+  const [records] = await pool.execute(
+    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, s.is_active, c.code course_code, c.name course_name,
+      ${studentAccountTypes.map(({ alias }) => `${alias}.is_active AS ${alias}_active`).join(", ")}
+     FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins} ${where} ORDER BY ${orderBy} ${direction} LIMIT ? OFFSET ?`,
     [...values, limit, (page - 1) * limit],
   );
+  const rows = records.map((record) => {
+    const student = { ...record, linkedAccounts: [] };
+    for (const { type, alias } of studentAccountTypes) {
+      const field = `${alias}_active`;
+      if (record[field] != null)
+        student.linkedAccounts.push({ type, isActive: Boolean(record[field]) });
+      delete student[field];
+    }
+    return student;
+  });
   const response = {
     rows,
     page,

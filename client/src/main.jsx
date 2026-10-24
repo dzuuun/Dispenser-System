@@ -10470,6 +10470,12 @@ function App() {
   );
 }
 function StudentsPage({ token }) {
+  const accountLabels = {
+    EMAIL: "Email",
+    KUMOSOFT: "Kumosoft",
+    SCHOOLOGY: "Schoology",
+    SATP: "SATP",
+  };
   const [students, setStudents] = useState([]),
     [studentTotal, setStudentTotal] = useState(0),
     [activeStudentTotal, setActiveStudentTotal] = useState(0),
@@ -10484,34 +10490,45 @@ function StudentsPage({ token }) {
     [limit, setLimit] = useState(25),
     [search, setSearch] = useState(""),
     [status, setStatus] = useState("active"),
+    [missingAccount, setMissingAccount] = useState(""),
     [sort, setSort] = useState("name"),
     [direction, setDirection] = useState("asc"),
     [refresh, setRefresh] = useState(0);
-  const load = () => {
+  const load = (signal) => {
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
       limit: String(limit),
       status,
       search,
+      missingAccount,
       sort,
       direction,
     });
     request(`/admin/students?${params}`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     })
       .then((data) => {
+        if (signal.aborted) return;
         setStudents(data.rows);
         setStudentTotal(data.total);
         setActiveStudentTotal(data.activeTotal);
         setPages(data.pages);
+        setError("");
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!signal.aborted) setError(e.message);
+      })
+      .finally(() => {
+        if (!signal.aborted) setLoading(false);
+      });
   };
   useEffect(() => {
-    load();
-  }, [page, limit, search, status, sort, direction, refresh]);
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
+  }, [page, limit, search, status, missingAccount, sort, direction, refresh, token]);
   const changeSort = (column) => {
     if (sort === column)
       setDirection((current) => (current === "asc" ? "desc" : "asc"));
@@ -10579,6 +10596,23 @@ function StudentsPage({ token }) {
                 <option value="inactive">Inactive</option>
               </select>
             </label>
+            <label className="records-table-field">
+              <span>Missing account</span>
+              <select
+                aria-label="Filter students by missing account"
+                value={missingAccount}
+                onChange={(event) => {
+                  setMissingAccount(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">All students</option>
+                {Object.entries(accountLabels).map(([type, label]) => (
+                  <option key={type} value={type}>{label}</option>
+                ))}
+                <option value="NONE">No linked accounts</option>
+              </select>
+            </label>
             <InactiveRecordsToggle
               visible={status !== "active"}
               onChange={(visible) => {
@@ -10616,6 +10650,7 @@ function StudentsPage({ token }) {
                 <th>
                   <button onClick={() => changeSort("course")}>Course</button>
                 </th>
+                <th>Linked accounts</th>
                 <th>
                   <button onClick={() => changeSort("status")}>Status</button>
                 </th>
@@ -10650,6 +10685,26 @@ function StudentsPage({ token }) {
                     <small>{student.course_name}</small>
                   </td>
                   <td>
+                    {student.linkedAccounts?.length ? (
+                      <div className="student-linked-accounts">
+                        {student.linkedAccounts.map((account) => (
+                          <span
+                            key={account.type}
+                            className="request-account-badge student-linked-account"
+                            data-account={account.type}
+                            data-inactive={!account.isActive}
+                            title={`${accountLabels[account.type] || account.type} account linked${account.isActive ? "" : " but inactive"}`}
+                          >
+                            {accountLabels[account.type] || account.type}
+                            {!account.isActive && " (inactive)"}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="muted-cell">No linked accounts</span>
+                    )}
+                  </td>
+                  <td>
                     <Status tone={student.is_active ? "green" : "danger"}>
                       {student.is_active ? "Active" : "Inactive"}
                     </Status>
@@ -10671,7 +10726,7 @@ function StudentsPage({ token }) {
               ))}
               {!students.length && (
                 <tr>
-                  <td colSpan="4">
+                  <td colSpan="5">
                     {loading
                       ? "Loading students..."
                       : "No students match your filters."}

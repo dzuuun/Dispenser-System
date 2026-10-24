@@ -8759,17 +8759,34 @@ body,
 .records-data-table .student-list-pagination > div {
   flex-wrap: wrap;
 }
+.students-data-table .student-list-table {
+  min-width: 950px;
+}
 .students-data-table .student-list-table th:nth-child(1) {
-  width: 36%;
+  width: 28%;
 }
 .students-data-table .student-list-table th:nth-child(2) {
-  width: 34%;
+  width: 26%;
 }
 .students-data-table .student-list-table th:nth-child(3) {
-  width: 12%;
+  width: 24%;
 }
 .students-data-table .student-list-table th:nth-child(4) {
-  width: 18%;
+  width: 9%;
+}
+.students-data-table .student-list-table th:nth-child(5) {
+  width: 13%;
+}
+.student-linked-accounts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.student-linked-account[data-inactive="true"] {
+  border-color: #efc7c7;
+  background: #fff0f0;
+  color: #b83838;
 }
 .vouchers-data-table .student-list-table {
   min-width: 900px;
