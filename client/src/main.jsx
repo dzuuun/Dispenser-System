@@ -10421,7 +10421,7 @@ function VouchersPage({ token }) {
       {releaseTarget && (
         <ConfirmModal
           title="Release voucher"
-          message={`Release ${releaseTarget.voucher_code}? It will be removed from the assigned student and permanently excluded from automatic stock.`}
+          message={`Release ${releaseTarget.voucher_code}? Its student will automatically receive a different available voucher. The old code will be marked inactive and permanently excluded from stock. If no replacement is available, the current assignment will be kept.`}
           confirmLabel="Release voucher"
           onConfirm={release}
           onClose={() => setReleaseTarget(null)}
@@ -10530,13 +10530,27 @@ function StudentsPage({ token }) {
     const controller = new AbortController();
     load(controller.signal);
     return () => controller.abort();
-  }, [page, limit, search, status, missingAccount, sort, direction, refresh, token]);
+  }, [
+    page,
+    limit,
+    search,
+    status,
+    missingAccount,
+    sort,
+    direction,
+    refresh,
+    token,
+  ]);
   const exportWorkbook = async () => {
     setExporting(true);
     setExportError("");
     try {
       const params = new URLSearchParams({
-        search, status, missingAccount, sort, direction,
+        search,
+        status,
+        missingAccount,
+        sort,
+        direction,
       });
       const response = await adminFetch(`/admin/students/export?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -10551,8 +10565,10 @@ function StudentsPage({ token }) {
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
       link.href = url;
-      link.download = response.headers.get("Content-Disposition")
-        ?.match(/filename="([^"]+)"/)?.[1] || "students-linked-accounts.xlsx";
+      link.download =
+        response.headers
+          .get("Content-Disposition")
+          ?.match(/filename="([^"]+)"/)?.[1] || "students-linked-accounts.xlsx";
       document.body.append(link);
       link.click();
       link.remove();
@@ -10597,7 +10613,11 @@ function StudentsPage({ token }) {
         description="Select a student to view or update their profile and linked credentials."
         actions={
           <>
-            <Button variant="secondary" onClick={exportWorkbook} disabled={exporting || loading}>
+            <Button
+              variant="secondary"
+              onClick={exportWorkbook}
+              disabled={exporting || loading}
+            >
               <AppIcon name="download" />{" "}
               <span title="Export all students matching the current filters, across all pages.">
                 {exporting ? "Exporting..." : "Export Excel"}
@@ -10623,7 +10643,11 @@ function StudentsPage({ token }) {
       </section>
       <section className="panel student-panel students-data-table records-data-table">
         {error && <p className="error">{error}</p>}
-        {exportError && <p className="error" role="alert">{exportError}</p>}
+        {exportError && (
+          <p className="error" role="alert">
+            {exportError}
+          </p>
+        )}
         <div className="records-table-toolbar">
           <div className="records-table-filters">
             <label className="records-table-field">
@@ -10653,7 +10677,9 @@ function StudentsPage({ token }) {
               >
                 <option value="">All students</option>
                 {Object.entries(accountLabels).map(([type, label]) => (
-                  <option key={type} value={type}>{label}</option>
+                  <option key={type} value={type}>
+                    {label}
+                  </option>
                 ))}
                 <option value="NONE">No linked accounts</option>
               </select>

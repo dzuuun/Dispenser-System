@@ -212,7 +212,7 @@ export async function credentials(req, res) {
       maintenance: false,
     };
     const [[existing]] = await conn.execute(
-      "SELECT w.voucher_code FROM students s JOIN wifi_vouchers w ON w.id=s.voucher_id WHERE s.id=?",
+      "SELECT w.voucher_code FROM students s JOIN wifi_vouchers w ON w.id=s.voucher_id AND w.academic_period_id=s.academic_period_id AND w.is_active=1 AND w.is_released=0 WHERE s.id=? FOR UPDATE",
       [session.sub],
     );
     let voucher = existing?.voucher_code;
@@ -222,6 +222,14 @@ export async function credentials(req, res) {
         [session.sub],
       );
       if (available) {
+        // Retire a stale released/inactive voucher before replacing its link.
+        await conn.execute(
+          `UPDATE wifi_vouchers w JOIN students s ON s.voucher_id=w.id
+           SET w.is_active=0, w.is_assigned=0, w.is_released=1,
+               w.released_at=COALESCE(w.released_at, NOW())
+           WHERE s.id=? AND (w.is_released=1 OR w.is_active=0 OR w.academic_period_id<>s.academic_period_id)`,
+          [session.sub],
+        );
         await conn.execute("UPDATE students SET voucher_id=? WHERE id=?", [
           available.id,
           session.sub,
@@ -331,7 +339,7 @@ export async function revealCredentials(req, res) {
       [session.sub, session.sub, session.sub, session.sub],
     );
     const [[voucher]] = await pool.execute(
-      "SELECT w.voucher_code FROM students s LEFT JOIN wifi_vouchers w ON w.id=s.voucher_id WHERE s.id=?",
+      "SELECT w.voucher_code FROM students s LEFT JOIN wifi_vouchers w ON w.id=s.voucher_id AND w.academic_period_id=s.academic_period_id AND w.is_active=1 AND w.is_released=0 WHERE s.id=?",
       [session.sub],
     );
     const revealedCredentials = rows

@@ -10,7 +10,10 @@ import {
 
 after(() => pool.end());
 
-async function setup(t, { count = 1031, noCurrent = false, fail = false } = {}) {
+async function setup(
+  t,
+  { count = 1031, noCurrent = false, fail = false } = {},
+) {
   const rows = Array.from({ length: count }, (_, index) => ({
     id: index + 1,
     student_id: `00${index + 123}`,
@@ -30,14 +33,20 @@ async function setup(t, { count = 1031, noCurrent = false, fail = false } = {}) 
   const query = async (sql, values = []) => {
     calls.push({ sql, values });
     if (sql.includes("FROM academic_periods"))
-      return [noCurrent ? [] : [{ id: 7, school_year: "2026-2027", semester: "First semester" }]];
+      return [
+        noCurrent
+          ? []
+          : [{ id: 7, school_year: "2026-2027", semester: "First semester" }],
+      ];
     if (fail) throw new Error("Test export failure");
     if (sql.startsWith("SELECT COUNT(*)"))
       return [[{ total: rows.length, active_total: 1 }]];
     if (sql.startsWith("SELECT s.id"))
-      return [sql.includes("LIMIT ? OFFSET ?")
-        ? rows.slice(values.at(-1), values.at(-1) + values.at(-2))
-        : rows];
+      return [
+        sql.includes("LIMIT ? OFFSET ?")
+          ? rows.slice(values.at(-1), values.at(-1) + values.at(-2))
+          : rows,
+      ];
     throw new Error(sql);
   };
   t.mock.method(pool, "query", query);
@@ -45,19 +54,33 @@ async function setup(t, { count = 1031, noCurrent = false, fail = false } = {}) 
   const app = express();
   app.get("/students/export", exportStudentAccounts);
   app.get("/students", listStudents);
-  app.use((error, req, res, next) => res.status(error.status || 500).json({ message: error.message }));
+  app.use((error, req, res, next) =>
+    res.status(error.status || 500).json({ message: error.message }),
+  );
   const server = await new Promise((resolve) => {
     const instance = app.listen(0, "127.0.0.1", () => resolve(instance));
   });
   t.after(async () => {
     server.closeAllConnections();
-    await new Promise(resolve => server.close(resolve));
+    await new Promise((resolve) => server.close(resolve));
   });
-  const get = (route) => fetch(`http://127.0.0.1:${server.address().port}${route}`);
+  const get = (route) =>
+    fetch(`http://127.0.0.1:${server.address().port}${route}`);
   return { rows, calls, get };
 }
 
-const headers = ["School ID", "Kumosoft ID", "Student name", "Course code", "Course name", "Student status", "Email", "Kumosoft", "Schoology", "SATP"];
+const headers = [
+  "School ID",
+  "Kumosoft ID",
+  "Student name",
+  "Course code",
+  "Course name",
+  "Student status",
+  "Email",
+  "Kumosoft",
+  "Schoology",
+  "SATP",
+];
 
 test("student workbook exports all matching rows with Yes/No account links and preserves IDs as text", async (t) => {
   const { rows, calls, get } = await setup(t);
@@ -65,41 +88,77 @@ test("student workbook exports all matching rows with Yes/No account links and p
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.match(response.headers.get("content-type"), /spreadsheetml.sheet/);
-  assert.match(response.headers.get("content-disposition"), /students-linked-accounts-2026-2027-First-semester-7.xlsx/);
+  assert.match(
+    response.headers.get("content-disposition"),
+    /students-linked-accounts-2026-2027-First-semester-7.xlsx/,
+  );
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
   const sheet = workbook.getWorksheet("Student linked accounts");
   assert.equal(sheet.rowCount, rows.length + 1);
   assert.deepEqual(sheet.getRow(1).values.slice(1), headers);
   assert.deepEqual(sheet.getRow(2).values.slice(1), [
-    "00123", "K-0001", "Test Student", "BSIT", "Information Technology", "Active", "Yes", "Yes", "No", "Yes",
+    "00123",
+    "K-0001",
+    "Test Student",
+    "BSIT",
+    "Information Technology",
+    "Active",
+    "Yes",
+    "Yes",
+    "No",
+    "Yes",
   ]);
   assert.equal(sheet.getRow(2).getCell(1).type, ExcelJS.ValueType.String);
   assert.deepEqual(sheet.getRow(3).values.slice(1), [
-    "00124", "", "=SUM(1,2)", "BSIT", "Information Technology", "Inactive", "No", "No", "No", "No",
+    "00124",
+    "",
+    "=SUM(1,2)",
+    "BSIT",
+    "Information Technology",
+    "Inactive",
+    "No",
+    "No",
+    "No",
+    "No",
   ]);
   assert.equal(sheet.getRow(3).getCell(3).type, ExcelJS.ValueType.String);
-  assert.equal(sheet.getRow(rows.length + 1).getCell(1).text, rows.at(-1).student_id);
+  assert.equal(
+    sheet.getRow(rows.length + 1).getCell(1).text,
+    rows.at(-1).student_id,
+  );
   assert.equal(sheet.views[0].state, "frozen");
   assert.equal(sheet.views[0].ySplit, 1);
   assert.equal(sheet.autoFilter, "A1:J1");
   const exported = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
   assert.deepEqual(exported.values, [7]);
-  assert.doesNotMatch(exported.sql, /LIMIT|OFFSET|encrypted_password|password_iv|password_auth_tag|birth_date/i);
+  assert.doesNotMatch(
+    exported.sql,
+    /LIMIT|OFFSET|encrypted_password|password_iv|password_auth_tag|birth_date/i,
+  );
 });
 
 test("export and table share search, missing account, status, academic period and sort filters", async (t) => {
   const { calls, get } = await setup(t, { count: 2 });
-  const query = "search=BSIT&status=inactive&missingAccount=EMAIL&sort=course&direction=desc";
+  const query =
+    "search=BSIT&status=inactive&missingAccount=EMAIL&sort=course&direction=desc";
   assert.equal((await get(`/students?${query}&page=2&limit=10`)).status, 200);
   assert.equal((await get(`/students/export?${query}`)).status, 200);
-  const [listing, exported] = calls.filter(({ sql }) => sql.startsWith("SELECT s.id"));
+  const [listing, exported] = calls.filter(({ sql }) =>
+    sql.startsWith("SELECT s.id"),
+  );
   assert.equal(listing.sql.replace(" LIMIT ? OFFSET ?", ""), exported.sql);
   assert.deepEqual(listing.values.slice(0, -2), exported.values);
   assert.deepEqual(exported.values, [7, ...Array(11).fill("%BSIT%")]);
   assert.match(exported.sql, /AND s\.is_active=0/);
-  assert.match(exported.sql, /NOT EXISTS \(SELECT 1 FROM institutional_email_accounts/);
-  assert.match(exported.sql, /ORDER BY c\.code, s\.last_name, s\.first_name DESC$/);
+  assert.match(
+    exported.sql,
+    /NOT EXISTS \(SELECT 1 FROM institutional_email_accounts/,
+  );
+  assert.match(
+    exported.sql,
+    /ORDER BY c\.code, s\.last_name, s\.first_name DESC$/,
+  );
 });
 
 test("empty student export retains column headings and worksheet filters", async (t) => {
@@ -115,7 +174,11 @@ test("empty student export retains column headings and worksheet filters", async
 
 test("invalid export filters fail before querying the database", async (t) => {
   const { calls, get } = await setup(t);
-  for (const query of ["missingAccount=BAD", "missingAccount=EMAIL&missingAccount=SATP", `search=${"x".repeat(201)}`])
+  for (const query of [
+    "missingAccount=BAD",
+    "missingAccount=EMAIL&missingAccount=SATP",
+    `search=${"x".repeat(201)}`,
+  ])
     assert.equal((await get(`/students/export?${query}`)).status, 400);
   assert.equal(calls.length, 0);
 });
@@ -124,7 +187,10 @@ test("export reports a missing current period instead of exporting another perio
   const { calls, get } = await setup(t, { noCurrent: true });
   const response = await get("/students/export");
   assert.equal(response.status, 409);
-  assert.match((await response.json()).message, /active school year and semester/);
+  assert.match(
+    (await response.json()).message,
+    /active school year and semester/,
+  );
   assert.ok(calls.every(({ sql }) => sql.includes("FROM academic_periods")));
 });
 

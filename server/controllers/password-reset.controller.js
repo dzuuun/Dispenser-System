@@ -283,7 +283,7 @@ export async function completePasswordResetRequest(req, res) {
       }
       if (student?.voucher_id)
         await connection.execute(
-          "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, assigned_at=NULL, released_at=NOW() WHERE id=?",
+          "UPDATE wifi_vouchers SET is_active=0, is_assigned=0, is_released=1, assigned_at=NULL, released_at=NOW() WHERE id=?",
           [student.voucher_id],
         );
       await connection.execute("UPDATE students SET voucher_id=? WHERE id=?", [

@@ -264,24 +264,67 @@ export async function releaseVoucher(req, res) {
   try {
     await connection.beginTransaction();
     const period = await requireCurrentAcademicPeriod(connection);
+    // Match the student-first lock order used when assigning/replacing vouchers.
+    const [students] = await connection.execute(
+      "SELECT id FROM students WHERE voucher_id=? AND academic_period_id=? ORDER BY id FOR UPDATE",
+      [id, period.id],
+    );
     const [[voucher]] = await connection.execute(
-      "SELECT id FROM wifi_vouchers WHERE id=? AND academic_period_id=? FOR UPDATE",
+      "SELECT id, is_assigned, is_released FROM wifi_vouchers WHERE id=? AND academic_period_id=? FOR UPDATE",
       [id, period.id],
     );
-    if (!voucher)
+    if (!voucher) {
+      await connection.rollback();
       return res.status(404).json({ message: "Voucher not found." });
+    }
+    let available = [];
+    if (students.length) {
+      [available] = await connection.query(
+        `SELECT w.id, w.voucher_code FROM wifi_vouchers w
+         WHERE w.academic_period_id=? AND w.id<>?
+           AND w.is_active=1 AND w.is_assigned=0 AND w.is_released=0
+           AND NOT EXISTS (SELECT 1 FROM students s WHERE s.voucher_id=w.id)
+         ORDER BY w.id LIMIT ? FOR UPDATE`,
+        [period.id, id, students.length],
+      );
+      if (available.length < students.length) {
+        await connection.rollback();
+        return res.status(409).json({
+          message:
+            "Not enough available WiFi vouchers to assign replacements. Add voucher stock before releasing this voucher. The current assignment was kept.",
+        });
+      }
+    }
     await connection.execute(
-      "UPDATE students SET voucher_id=NULL WHERE voucher_id=? AND academic_period_id=?",
-      [id, period.id],
+      "UPDATE wifi_vouchers SET is_active=IF(?, 0, is_active), is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
+      [students.length > 0 || voucher.is_assigned ? 1 : 0, id],
     );
-    await connection.execute(
-      "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
-      [id],
-    );
+    const replacements = [];
+    for (const [index, student] of students.entries()) {
+      const replacement = available[index];
+      await connection.execute(
+        "UPDATE wifi_vouchers SET is_assigned=1, is_released=0, assigned_at=NOW(), released_at=NULL WHERE id=?",
+        [replacement.id],
+      );
+      await connection.execute("UPDATE students SET voucher_id=? WHERE id=?", [
+        replacement.id,
+        student.id,
+      ]);
+      replacements.push({
+        studentId: student.id,
+        voucherCode: replacement.voucher_code,
+      });
+    }
     await connection.commit();
     res.json({
       id,
-      message: "Voucher permanently released from active stock.",
+      reassigned: replacements.length,
+      replacements,
+      message: replacements.length
+        ? `Voucher released. ${replacements.length === 1 ? "A replacement voucher was assigned to the student" : `Replacement vouchers were assigned to ${replacements.length} students`}.`
+        : voucher.is_released
+          ? "Voucher was already released."
+          : "Voucher permanently released from active stock.",
     });
   } catch (error) {
     await connection.rollback();

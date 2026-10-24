@@ -28,7 +28,12 @@ const studentAccountTypes = [
     table: "schoology_accounts",
     alias: "schoology_account",
   },
-  { type: "SATP", label: "SATP", table: "satp_accounts", alias: "satp_account" },
+  {
+    type: "SATP",
+    label: "SATP",
+    table: "satp_accounts",
+    alias: "satp_account",
+  },
 ];
 // Each account table has a unique student_id, so these joins preserve paging/counts.
 const studentAccountJoins = studentAccountTypes
@@ -90,9 +95,7 @@ function studentListQuery(query) {
     }[String(query.sort || "name")] ||
     "s.last_name, s.first_name, s.student_id";
   const direction =
-    String(query.direction || "asc").toLowerCase() === "desc"
-      ? "DESC"
-      : "ASC";
+    String(query.direction || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
   return { search, where, values, orderBy, direction };
 }
 
@@ -102,7 +105,11 @@ const studentListSelect = `SELECT s.id, s.student_id, s.kumosoft_id, s.first_nam
 
 export async function listStudents(req, res) {
   const {
-    search, where, values: filterValues, orderBy, direction,
+    search,
+    where,
+    values: filterValues,
+    orderBy,
+    direction,
   } = studentListQuery(req.query);
   const currentPeriod = await currentAcademicPeriod();
   const values = [currentPeriod?.id || 0, ...filterValues];
@@ -174,7 +181,9 @@ export async function exportStudentAccounts(req, res) {
     { header: "Course name", key: "courseName", width: 55 },
     { header: "Student status", key: "status", width: 18 },
     ...studentAccountTypes.map(({ type, label }) => ({
-      header: label, key: type, width: 16,
+      header: label,
+      key: type,
+      width: 16,
     })),
   ];
   for (const student of students)
@@ -182,25 +191,33 @@ export async function exportStudentAccounts(req, res) {
       schoolId: String(student.student_id ?? ""),
       kumosoftId: String(student.kumosoft_id ?? ""),
       name: [student.first_name, student.middle_name, student.last_name]
-        .filter(Boolean).join(" "),
+        .filter(Boolean)
+        .join(" "),
       courseCode: student.course_code || "",
       courseName: student.course_name || "",
       status: student.is_active ? "Active" : "Inactive",
-      ...Object.fromEntries(studentAccountTypes.map(({ type, alias }) => [
-        type, student[`${alias}_active`] != null ? "Yes" : "No",
-      ])),
+      ...Object.fromEntries(
+        studentAccountTypes.map(({ type, alias }) => [
+          type,
+          student[`${alias}_active`] != null ? "Yes" : "No",
+        ]),
+      ),
     });
   sheet.getRow(1).font = { bold: true };
   sheet.views = [{ state: "frozen", ySplit: 1 }];
   sheet.autoFilter = { from: "A1", to: "J1" };
   const label = `${period.school_year}-${period.semester}`.replace(
-    /[^a-zA-Z0-9-]+/g, "-",
+    /[^a-zA-Z0-9-]+/g,
+    "-",
   );
-  res.set({
-    "Cache-Control": "no-store",
-    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "Content-Disposition": `attachment; filename="students-linked-accounts-${label}-${period.id}.xlsx"`,
-  }).send(Buffer.from(await workbook.xlsx.writeBuffer()));
+  res
+    .set({
+      "Cache-Control": "no-store",
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="students-linked-accounts-${label}-${period.id}.xlsx"`,
+    })
+    .send(Buffer.from(await workbook.xlsx.writeBuffer()));
 }
 
 export async function getStudent(req, res) {
@@ -541,7 +558,7 @@ export async function updateStudent(req, res) {
       );
       if (current?.voucher_id)
         await connection.execute(
-          "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
+          "UPDATE wifi_vouchers SET is_active=0, is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
           [current.voucher_id],
         );
     } else if (assignNextVoucher) {
@@ -561,7 +578,7 @@ export async function updateStudent(req, res) {
       );
       if (current?.voucher_id)
         await connection.execute(
-          "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
+          "UPDATE wifi_vouchers SET is_active=0, is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
           [current.voucher_id],
         );
       await connection.execute("UPDATE students SET voucher_id=? WHERE id=?", [
@@ -605,7 +622,7 @@ export async function updateStudent(req, res) {
       );
       if (current?.voucher_id && current.voucher_id !== voucher.id)
         await connection.execute(
-          "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
+          "UPDATE wifi_vouchers SET is_active=0, is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
           [current.voucher_id],
         );
       await connection.execute("UPDATE students SET voucher_id=? WHERE id=?", [
@@ -643,19 +660,23 @@ export async function generateStudentVoucher(req, res) {
       "SELECT id, voucher_id FROM students WHERE id=? FOR UPDATE",
       [id],
     );
-    if (!student)
+    if (!student) {
+      await connection.rollback();
       return res.status(404).json({ message: "Student record not found." });
+    }
     const [[voucher]] = await connection.query(
       "SELECT id, voucher_code FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 LIMIT 1 FOR UPDATE",
       [id],
     );
-    if (!voucher)
+    if (!voucher) {
+      await connection.rollback();
       return res.status(400).json({
         message: "No available WiFi vouchers remain for the current period.",
       });
+    }
     if (student.voucher_id)
       await connection.execute(
-        "UPDATE wifi_vouchers SET is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
+        "UPDATE wifi_vouchers SET is_active=0, is_assigned=0, is_released=1, released_at=NOW() WHERE id=?",
         [student.voucher_id],
       );
     await connection.execute("UPDATE students SET voucher_id=? WHERE id=?", [
