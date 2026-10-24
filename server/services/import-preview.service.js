@@ -1,5 +1,12 @@
 const PAGE_SIZE = 250;
 
+// Preview values are plain text. Never pass password values to this helper.
+export function importChange(field, before, after) {
+  const previous = String(before ?? "");
+  const next = String(after ?? "");
+  return previous === next ? null : { field, before: previous, after: next };
+}
+
 // Each category is paged independently; inspecting a page never limits import.
 export function importPreview(groups, query = {}) {
   const category = query.category ?? "";

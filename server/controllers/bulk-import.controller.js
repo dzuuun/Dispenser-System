@@ -9,6 +9,7 @@ import { requireCurrentAcademicPeriod } from "../services/academic-period.servic
 import {
   importPreview,
   importErrorPreview,
+  importChange,
 } from "../services/import-preview.service.js";
 import {
   decryptPassword,
@@ -307,6 +308,7 @@ export async function reviewStudentRows(
     updateExistingBirthdays = true,
     detectUnchanged = false,
     academicPeriodId,
+    academicPeriodLabel,
   } = {},
 ) {
   const [courses] = await executor.query(
@@ -316,7 +318,15 @@ export async function reviewStudentRows(
     courses.map((course) => [course.code.toUpperCase(), course.id]),
   );
   const [existingRows] = await executor.query(
-    `SELECT id, student_id, kumosoft_id${detectUnchanged ? ", first_name, middle_name, last_name, birth_date, course_id, academic_period_id, is_active" : updateExistingBirthdays ? "" : ", birth_date"} FROM students`,
+    detectUnchanged
+      ? `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name,
+                s.last_name, s.birth_date, s.course_id, s.academic_period_id, s.is_active,
+                c.code AS course_code,
+                CONCAT_WS(' · ', ap.school_year, ap.semester) AS academic_period_label
+           FROM students s
+           LEFT JOIN courses c ON c.id=s.course_id
+           LEFT JOIN academic_periods ap ON ap.id=s.academic_period_id`
+      : `SELECT id, student_id, kumosoft_id${updateExistingBirthdays ? "" : ", birth_date"} FROM students`,
   );
   const existing = new Map(
     existingRows.map((student) => [student.student_id, student.id]),
@@ -392,19 +402,44 @@ export async function reviewStudentRows(
     seen.add(schoolId);
     if (kumosoftId) seenKumosoftIds.add(kumosoftId);
     const current = existingDetails.get(schoolId);
-    const unchanged =
-      detectUnchanged &&
-      current &&
-      current.first_name === firstName &&
-      (current.middle_name || null) === (middleName || null) &&
-      current.last_name === lastName &&
-      (current.kumosoft_id || null) ===
-        (kumosoftId || current.kumosoft_id || null) &&
-      (!updateExistingBirthdays ||
-        existingBirthdays.get(schoolId) === birthDate) &&
-      Number(current.course_id) === Number(courseMap.get(courseCode)) &&
-      Number(current.academic_period_id) === Number(academicPeriodId) &&
-      Number(current.is_active) === 1;
+    const changes =
+      current && detectUnchanged
+        ? [
+            importChange("First name", current.first_name, firstName),
+            importChange("Middle name", current.middle_name, middleName),
+            importChange("Last name", current.last_name, lastName),
+            importChange(
+              "Kumosoft ID",
+              current.kumosoft_id,
+              kumosoftId || current.kumosoft_id,
+            ),
+            updateExistingBirthdays &&
+              importChange(
+                "Birthday",
+                existingBirthdays.get(schoolId),
+                birthDate,
+              ),
+            Number(current.course_id) !== Number(courseMap.get(courseCode)) &&
+              importChange(
+                "Course",
+                current.course_code ||
+                  (current.course_id ? `Course #${current.course_id}` : ""),
+                courseCode,
+              ),
+            Number(current.academic_period_id) !== Number(academicPeriodId) &&
+              importChange(
+                "Academic period",
+                current.academic_period_label ||
+                  (current.academic_period_id
+                    ? `Period #${current.academic_period_id}`
+                    : ""),
+                academicPeriodLabel || `Period #${academicPeriodId}`,
+              ),
+            Number(current.is_active) !== 1 &&
+              importChange("Status", "Inactive", "Active"),
+          ].filter(Boolean)
+        : [];
+    const unchanged = detectUnchanged && current && changes.length === 0;
     items.push({
       row: rowNumber,
       schoolId,
@@ -417,6 +452,7 @@ export async function reviewStudentRows(
       courseCode,
       status: current ? (unchanged ? "unchanged" : "update") : "new",
       id: existing.get(schoolId),
+      changes,
     });
   });
   return { items, errors };
@@ -453,6 +489,10 @@ async function reviewStudentDeactivation(rows, executor = pool) {
       schoolId,
       status:
         Number(existing.get(schoolId).is_active) === 0 ? "unchanged" : "new",
+      changes:
+        Number(existing.get(schoolId).is_active) === 0
+          ? []
+          : [importChange("Status", "Active", "Inactive")],
     });
   });
   return { items, errors };
@@ -599,14 +639,34 @@ async function reviewAccounts(rows, config, executor = pool, type) {
     const account = studentId
       ? existing.get(Number(studentId))
       : pendingBySchoolId.get(schoolId);
-    const unchanged =
-      account &&
-      account.account_name === login &&
-      (!studentId || Number(account.is_active) === 1) &&
-      (!studentId ||
-        !config.requiresKumosoftId ||
-        studentDetails.get(schoolId).kumosoft_id === kumosoftId) &&
-      sameImportedPassword(account, password);
+    const changes = account
+      ? [
+          importChange(
+            config.column === "email_address"
+              ? "Email address"
+              : config.requiresKumosoftId
+                ? "Kumosoft ID"
+                : "Username",
+            account.account_name,
+            login,
+          ),
+          !sameImportedPassword(account, password) && {
+            field: "Password",
+            message: password ? "Will be replaced." : "Will be cleared.",
+          },
+          studentId &&
+            Number(account.is_active) !== 1 &&
+            importChange("Status", "Inactive", "Active"),
+          studentId &&
+            config.requiresKumosoftId &&
+            importChange(
+              "Student Kumosoft ID",
+              studentDetails.get(schoolId).kumosoft_id,
+              kumosoftId,
+            ),
+        ].filter(Boolean)
+      : [];
+    const unchanged = account && changes.length === 0;
     items.push({
       row: rowNumber,
       schoolId,
@@ -620,6 +680,7 @@ async function reviewAccounts(rows, config, executor = pool, type) {
             ? kumosoftId
             : schoolId,
       status: !account ? "new" : unchanged ? "unchanged" : "update",
+      changes,
     });
   });
   return { items, errors };
@@ -630,11 +691,16 @@ async function review(type, file, executor = pool) {
   if (!config)
     throw Object.assign(new Error("Unsupported import type."), { status: 404 });
   const rows = await readRows(file);
+  const period =
+    type === "students" ? await requireCurrentAcademicPeriod(executor) : null;
   const result =
     type === "students"
       ? await reviewStudentRows(rows, executor, {
           detectUnchanged: true,
-          academicPeriodId: (await requireCurrentAcademicPeriod(executor)).id,
+          academicPeriodId: period.id,
+          academicPeriodLabel:
+            [period.school_year, period.semester].filter(Boolean).join(" · ") ||
+            undefined,
         })
       : type === "student-deactivate"
         ? await reviewStudentDeactivation(rows, executor)
@@ -700,6 +766,7 @@ export async function validateDataImport(req, res) {
       const isStudent = req.params.type === "students";
       groups[item.status].push({
         row: item.row,
+        changes: item.changes,
         label: isStudent
           ? `${item.schoolId} — ${[item.lastName, item.firstName, item.middleName].filter(Boolean).join(", ")} (${item.courseCode})`
           : [item.schoolId, item.login !== item.schoolId && item.login]

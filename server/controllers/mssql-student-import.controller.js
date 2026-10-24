@@ -135,6 +135,7 @@ const previewRecords = (result) =>
         .filter(Boolean)
         .join(", "),
       courseCode: item.courseCode,
+      changes: item.changes,
       message:
         item.status === "new"
           ? "Student will be created."
@@ -243,6 +244,7 @@ export async function previewMssqlStudentImport(req, res, next) {
       ...options,
       detectUnchanged: true,
       academicPeriodId: period.id,
+      academicPeriodLabel: `${period.schoolYear} · ${period.term}`,
     });
     const offset = previewOffset(req.query.offset);
     const category = String(req.query.category || "");
@@ -287,6 +289,7 @@ export async function importMssqlStudents(req, res, next) {
       ...options,
       detectUnchanged: true,
       academicPeriodId: period.id,
+      academicPeriodLabel: `${period.schoolYear} · ${period.term}`,
     });
     if (!result.items.length) {
       await connection.rollback();

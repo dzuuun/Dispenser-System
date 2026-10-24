@@ -4901,7 +4901,10 @@ function ImportValidationGroups({
             {rows.length ? (
               <div className="mssql-validation-rows">
                 {rows.map((row) => (
-                  <article key={`${kind}-${row.row}`}>
+                  <article
+                    key={`${kind}-${row.row}`}
+                    className={row.changes?.length ? "has-changes" : undefined}
+                  >
                     <small>Row {row.row}</small>
                     <span>
                       {row.label ??
@@ -4909,8 +4912,31 @@ function ImportValidationGroups({
                           ? `${row.schoolId} — ${row.name} (${row.courseCode})`
                           : row.message)}
                     </span>
-                    {(row.label || row.schoolId) && row.message && (
-                      <em>{row.message}</em>
+                    {row.changes?.length ? (
+                      <ul
+                        className="import-field-changes"
+                        aria-label="Changes to this record"
+                      >
+                        {row.changes.map((change) => (
+                          <li key={change.field}>
+                            <b>{change.field}</b>
+                            {change.message ? (
+                              <span>{change.message}</span>
+                            ) : (
+                              <span>
+                                <span className="import-previous-value">
+                                  {change.before || "(empty)"}
+                                </span>{" "}
+                                <span aria-label="changes to">→</span>{" "}
+                                <strong>{change.after || "(empty)"}</strong>
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      (row.label || row.schoolId) &&
+                      row.message && <em>{row.message}</em>
                     )}
                   </article>
                 ))}
@@ -5135,7 +5161,8 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
               <p className="mssql-validation-copy">
                 Review the grouped rows before importing. Each list initially
                 shows up to 250 rows; loading more is optional and does not
-                affect the import. Rows with errors will be skipped.
+                affect the import. Rows with errors will be skipped. Changed
+                fields show saved → imported values.
               </p>
               <ImportValidationGroups
                 groups={validation.groups}
@@ -5467,7 +5494,8 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
               <p className="mssql-validation-copy">
                 Review all detected rows before updating enrollment records.
                 Each list initially shows up to 250 rows; loading more rows is
-                optional and does not affect the import.
+                optional and does not affect the import. Changed fields show
+                saved → imported values.
               </p>
               <ImportValidationGroups
                 groups={preview.groups}

@@ -2,6 +2,7 @@ import { pool } from "../config/db.js";
 import {
   importPreview,
   importErrorPreview,
+  importChange,
 } from "../services/import-preview.service.js";
 import {
   inferAcademicLevel,
@@ -210,7 +211,23 @@ async function classifyImport(file, executor = pool) {
       : record.name === item.name && record.academic_level === academicLevel
         ? "unchanged"
         : "update";
-    return { ...item, academicLevel, status, id: record?.id };
+    const levelLabel = (value) =>
+      ({
+        COLLEGE: "College",
+        GRADUATE_SCHOOL: "Graduate school",
+        OTHER: "Other",
+      })[value] || value;
+    const changes = record
+      ? [
+          importChange("Course name", record.name, item.name),
+          importChange(
+            "Academic level",
+            levelLabel(record.academic_level),
+            levelLabel(academicLevel),
+          ),
+        ].filter(Boolean)
+      : [];
+    return { ...item, academicLevel, status, id: record?.id, changes };
   });
   const counts = items.reduce(
     (total, item) => ({ ...total, [item.status]: total[item.status] + 1 }),
@@ -231,6 +248,7 @@ export async function validateCourseImport(req, res) {
     for (const item of result.items)
       groups[item.status].push({
         row: item.row,
+        changes: item.changes,
         label: `${item.code} — ${item.name}`,
         message:
           item.status === "new"

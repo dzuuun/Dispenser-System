@@ -94,6 +94,19 @@ for (const [type, table] of Object.entries(importAccountTypes)) {
       preview.body.groups.unchanged.records.map((r) => r.row),
       [2, 5],
     );
+    for (const record of preview.body.groups.update.records) {
+      assert.deepEqual(record.changes, [
+        { field: "Password", message: "Will be replaced." },
+      ]);
+    }
+    assert.ok(
+      preview.body.groups.unchanged.records.every(
+        (r) => r.changes.length === 0,
+      ),
+    );
+    assert.ok(
+      preview.body.groups.new.records.every((r) => r.changes.length === 0),
+    );
     for (const field of [
       "same-secret",
       oldAccount.encrypted_password,
@@ -324,6 +337,13 @@ test("course imports keep identical courses and count actual name or level chang
     { CourseCode: "NEW", CourseName: "New course", AcademicLevel: "OTHER" },
   ];
   const preview = await invoke(validateCourseImport, "courses", rows);
+  assert.deepEqual(preview.body.groups.update.records[0].changes, [
+    { field: "Course name", before: "Before", after: "After" },
+    { field: "Academic level", before: "College", after: "Graduate school" },
+  ]);
+  assert.deepEqual(preview.body.groups.update.records[1].changes, [
+    { field: "Course name", before: "UPPER", after: "upper" },
+  ]);
   assert.deepEqual(
     [preview.body.new, preview.body.update, preview.body.unchanged],
     [1, 2, 1],
@@ -408,4 +428,113 @@ test("unchanged account preview pages preserve totals without exposing stored pa
   assert.equal(more.body.page.records.length, 13);
   assert.equal(more.body.page.recordTotal, 263);
   assert.ok(!JSON.stringify(more.body).includes("same-secret"));
+});
+
+test("student previews describe every changed field with its saved and imported values", async (t) => {
+  const store = database(t);
+  Object.assign(store.state.students[0], {
+    middle_name: "Middle",
+    academic_period_id: 6,
+    is_active: 0,
+  });
+  const row = {
+    ...studentRow("A"),
+    FirstName: "New",
+    LastName: "After",
+    KumosoftID: "NEW-A",
+    BirthDate: "2006-03-04",
+    CourseCode: "CHANGE",
+  };
+  const preview = await invoke(validateDataImport, "students", [
+    row,
+    studentRow("C"),
+    studentRow("D"),
+  ]);
+  const changes = [
+    { field: "First name", before: "Test", after: "New" },
+    { field: "Middle name", before: "Middle", after: "" },
+    { field: "Last name", before: "Student", after: "After" },
+    { field: "Kumosoft ID", before: "K-A", after: "NEW-A" },
+    { field: "Birthday", before: "2005-01-01", after: "2006-03-04" },
+    { field: "Course", before: "BSIT", after: "CHANGE" },
+    {
+      field: "Academic period",
+      before: "2025-2026 · Second semester",
+      after: "2026-2027 · First semester",
+    },
+    { field: "Status", before: "Inactive", after: "Active" },
+  ];
+  assert.deepEqual(preview.body.groups.update.records[0].changes, changes);
+  assert.deepEqual(preview.body.groups.unchanged.records[0].changes, []);
+  assert.deepEqual(preview.body.groups.new.records[0].changes, []);
+  const page = await invoke(validateDataImport, "students", [row], {
+    category: "update",
+    offset: "0",
+  });
+  assert.deepEqual(page.body.page.records[0].changes, changes);
+  assert.ok(
+    store.calls.every(({ sql }) => sql.startsWith("SELECT")),
+    "Review must stay read-only",
+  );
+});
+
+test("account previews identify login, reactivation, and Kumosoft profile changes without inventing a password change", async (t) => {
+  const store = database(t);
+  store.state.accounts.institutional_email_accounts[0].is_active = 0;
+  const email = await invoke(validateDataImport, "email", [
+    { ...accountRow("email", "A"), EmailAddress: "new@example.edu" },
+  ]);
+  assert.deepEqual(email.body.groups.update.records[0].changes, [
+    {
+      field: "Email address",
+      before: "a@example.edu",
+      after: "new@example.edu",
+    },
+    { field: "Status", before: "Inactive", after: "Active" },
+  ]);
+  store.state.students[0].kumosoft_id = "OLD-A";
+  const kumosoft = await invoke(validateDataImport, "kumosoft", [
+    accountRow("kumosoft", "A", ""),
+  ]);
+  assert.deepEqual(kumosoft.body.groups.update.records[0].changes, [
+    { field: "Password", message: "Will be cleared." },
+    { field: "Student Kumosoft ID", before: "OLD-A", after: "K-A" },
+  ]);
+  for (const result of [email, kumosoft]) {
+    assert.ok(!JSON.stringify(result.body).includes("same-secret"));
+    assert.ok(!JSON.stringify(result.body).includes("encrypted_password"));
+  }
+});
+
+test("changed account details remain available on later preview pages without exposing either password", async (t) => {
+  const store = database(t),
+    rows = [];
+  for (let index = 0; index < 253; index++) {
+    const id = index + 10,
+      schoolId = `UPDATE${index}`;
+    store.state.students.push({ id, student_id: schoolId });
+    store.state.accounts.schoology_accounts.push({
+      student_id: id,
+      account_name: schoolId,
+      is_active: 1,
+      ...encryptPassword("old-private-password"),
+    });
+    rows.push(accountRow("schoology", schoolId, "new-private-password"));
+  }
+  const preview = await invoke(validateDataImport, "schoology", rows);
+  assert.equal(preview.body.update, 253);
+  assert.equal(preview.body.groups.update.hasMore, true);
+  const page = await invoke(validateDataImport, "schoology", rows, {
+    category: "update",
+    offset: "250",
+  });
+  assert.equal(page.body.page.records.length, 3);
+  for (const record of page.body.page.records)
+    assert.deepEqual(record.changes, [
+      { field: "Password", message: "Will be replaced." },
+    ]);
+  for (const result of [preview, page]) {
+    assert.ok(!JSON.stringify(result.body).includes("old-private-password"));
+    assert.ok(!JSON.stringify(result.body).includes("new-private-password"));
+  }
 });

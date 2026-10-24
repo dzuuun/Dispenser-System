@@ -97,7 +97,10 @@ function setup(t, options = {}) {
       ];
     if (query.includes("FROM courses WHERE is_active=1"))
       return [[{ id: 1, code: "BSIT" }]];
-    if (query.startsWith("SELECT id, student_id, kumosoft_id"))
+    if (
+      query.startsWith("SELECT id, student_id, kumosoft_id") ||
+      query.startsWith("SELECT s.id, s.student_id, s.kumosoft_id")
+    )
       return [structuredClone(students)];
     if (query.startsWith("SELECT student_id FROM students WHERE is_active=1"))
       return [
@@ -503,6 +506,9 @@ test("birthday-only differences count as updates only when birthday updates are 
     query: { updateExistingBirthdays: "true" },
   });
   assert.deepEqual([replacing.body.update, replacing.body.unchanged], [1, 1]);
+  assert.deepEqual(replacing.body.groups.update.records[0].changes, [
+    { field: "Birthday", before: "2005-02-03", after: "1999-01-01" },
+  ]);
   await store.invoke(importMssqlStudents, {
     body: { updateExistingBirthdays: true },
   });
@@ -510,6 +516,43 @@ test("birthday-only differences count as updates only when birthday updates are 
     query: { updateExistingBirthdays: "true" },
   });
   assert.deepEqual([repeated.body.update, repeated.body.unchanged], [0, 2]);
+});
+
+test("MSSQL changed-field previews respect the birthday switch and describe period and enrollment changes", async (t) => {
+  const store = setup(t);
+  matchExistingStudents(store);
+  Object.assign(store.students[0], {
+    middle_name: "Remove me",
+    course_id: 2,
+    course_code: "OLDCOURSE",
+    academic_period_id: 6,
+    academic_period_label: "2025-2026 · Second semester",
+    is_active: 0,
+  });
+  const preview = await store.invoke(previewMssqlStudentImport);
+  const expected = [
+    { field: "Middle name", before: "Remove me", after: "" },
+    { field: "Course", before: "OLDCOURSE", after: "BSIT" },
+    {
+      field: "Academic period",
+      before: "2025-2026 · Second semester",
+      after: "2026-2027 · First semester",
+    },
+    { field: "Status", before: "Inactive", after: "Active" },
+  ];
+  assert.deepEqual(preview.body.groups.update.records[0].changes, expected);
+  const page = await store.invoke(previewMssqlStudentImport, {
+    query: { category: "update", offset: "0" },
+  });
+  assert.deepEqual(page.body.page.records[0].changes, expected);
+  const enabled = await store.invoke(previewMssqlStudentImport, {
+    query: { updateExistingBirthdays: "true" },
+  });
+  assert.deepEqual(
+    enabled.body.groups.update.records[0].changes.map((change) => change.field),
+    ["Middle name", "Birthday", "Course", "Academic period", "Status"],
+  );
+  assert.ok(store.calls.every(({ sql }) => sql.startsWith("SELECT")));
 });
 
 test("unchanged rows paginate separately without changing counts or limiting synchronization", async (t) => {

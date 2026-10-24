@@ -102,7 +102,19 @@ export function createImportStore(options = {}) {
         ),
       ];
     if (text.startsWith("SELECT") && text.includes("FROM students"))
-      return [structuredClone(data.students)];
+      return [
+        structuredClone(
+          data.students.map((student) => ({
+            ...student,
+            course_code: data.courses.find((c) => c.id === student.course_id)
+              ?.code,
+            academic_period_label:
+              student.academic_period_id === 7
+                ? "2026-2027 · First semester"
+                : "2025-2026 · Second semester",
+          })),
+        ),
+      ];
     if (
       text.startsWith("SELECT") &&
       text.includes("FROM pending_account_imports")
