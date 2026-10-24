@@ -57,7 +57,7 @@ test("dashboard returns populated reveal rows as an array instead of discarding 
   const query = calls.find(({ sql }) => sql.includes("FROM credential_transactions"));
   assert.deepEqual(query.values, [7]);
   assert.match(query.sql, /t\.academic_period_id=\? AND t\.transaction_type='VIEW_CREDENTIALS' AND t\.success=1/);
-  assert.match(query.sql, /ORDER BY t\.created_at DESC, t\.id DESC LIMIT 8/);
+  assert.match(query.sql, /ORDER BY t\.created_at DESC, t\.id DESC LIMIT 5/);
 });
 
 test("a single reveal also remains a one-item array", async (t) => {

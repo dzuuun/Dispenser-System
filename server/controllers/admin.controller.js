@@ -145,7 +145,7 @@ export async function dashboard(req, res) {
            FROM credential_transactions t
            LEFT JOIN students s ON s.id=t.student_id
           WHERE t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1
-          ORDER BY t.created_at DESC, t.id DESC LIMIT 8`,
+          ORDER BY t.created_at DESC, t.id DESC LIMIT 5`,
       [periodId],
     ),
     pool.query(
