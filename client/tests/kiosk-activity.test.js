@@ -4,7 +4,12 @@ import { createKioskActivityTracker } from "../src/kiosk-activity.js";
 
 function setup() {
   let now = 1000;
-  return { tracker: createKioskActivityTracker(() => now), advance: (ms) => { now += ms; } };
+  return {
+    tracker: createKioskActivityTracker(() => now),
+    advance: (ms) => {
+      now += ms;
+    },
+  };
 }
 
 test("an open kiosk starts idle until someone interacts", () => {
@@ -12,7 +17,10 @@ test("an open kiosk starts idle until someone interacts", () => {
   advance(60_000);
   assert.deepEqual(tracker.snapshot(), { state: "IDLE", idleMs: null });
   assert.equal(tracker.interact(), true);
-  assert.deepEqual(tracker.snapshot(), { state: "ENTERING_DETAILS", idleMs: 0 });
+  assert.deepEqual(tracker.snapshot(), {
+    state: "ENTERING_DETAILS",
+    idleMs: 0,
+  });
 });
 
 test("typing keeps the kiosk in use and 30 seconds without interaction becomes idle", () => {
@@ -31,7 +39,10 @@ test("typing keeps the kiosk in use and 30 seconds without interaction becomes i
 test("opening credentials starts activity without every result update resetting the idle timeout", () => {
   const { tracker, advance } = setup();
   tracker.setViewing(true);
-  assert.deepEqual(tracker.snapshot(), { state: "VIEWING_CREDENTIALS", idleMs: 0 });
+  assert.deepEqual(tracker.snapshot(), {
+    state: "VIEWING_CREDENTIALS",
+    idleMs: 0,
+  });
   advance(20_000);
   tracker.setViewing(true);
   advance(10_000);

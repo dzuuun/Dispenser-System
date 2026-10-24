@@ -5,11 +5,14 @@ import { dashboard } from "../controllers/admin.controller.js";
 
 after(() => pool.end());
 
-async function loadDashboard(t, {
-  period = { id: 7, school_year: "2026-2027", semester: "First semester" },
-  students = { total: 356, withoutVoucher: "120" },
-  vouchers = { available: "90", assigned: "400" },
-} = {}) {
+async function loadDashboard(
+  t,
+  {
+    period = { id: 7, school_year: "2026-2027", semester: "First semester" },
+    students = { total: 356, withoutVoucher: "120" },
+    vouchers = { available: "90", assigned: "400" },
+  } = {},
+) {
   const calls = [];
   const run = async (sql, values = []) => {
     calls.push({ sql, values });
@@ -26,7 +29,14 @@ async function loadDashboard(t, {
   t.mock.method(pool, "query", run);
   t.mock.method(pool, "execute", run);
   let body;
-  await dashboard({ admin: { requestPermissions: [] } }, { json: (data) => { body = data; } });
+  await dashboard(
+    { admin: { requestPermissions: [] } },
+    {
+      json: (data) => {
+        body = data;
+      },
+    },
+  );
   return { body, calls };
 }
 
@@ -37,12 +47,22 @@ test("dashboard counts students without a voucher directly instead of subtractin
   assert.equal(body.vouchers.studentsWithoutVoucher, 120);
   assert.equal(body.vouchers.available, 90);
   assert.equal(body.vouchers.assigned, 400);
-  const studentQuery = calls.find(({ sql }) => sql.includes("FROM students WHERE"));
-  assert.match(studentQuery.sql, /COALESCE\(SUM\(voucher_id IS NULL\), 0\) withoutVoucher/);
+  const studentQuery = calls.find(({ sql }) =>
+    sql.includes("FROM students WHERE"),
+  );
+  assert.match(
+    studentQuery.sql,
+    /COALESCE\(SUM\(voucher_id IS NULL\), 0\) withoutVoucher/,
+  );
   assert.match(studentQuery.sql, /WHERE is_active=1 AND academic_period_id=\?/);
   assert.deepEqual(studentQuery.values, [7]);
-  const stockQuery = calls.find(({ sql }) => sql.includes("FROM wifi_vouchers WHERE"));
-  assert.match(stockQuery.sql, /is_active=1 AND is_assigned=0 AND is_released=0/);
+  const stockQuery = calls.find(({ sql }) =>
+    sql.includes("FROM wifi_vouchers WHERE"),
+  );
+  assert.match(
+    stockQuery.sql,
+    /is_active=1 AND is_assigned=0 AND is_released=0/,
+  );
   assert.deepEqual(stockQuery.values, [7]);
 });
 
@@ -74,6 +94,10 @@ test("a missing current period cannot include students or vouchers from historic
   assert.equal(body.academicPeriod, null);
   assert.equal(body.vouchers.studentsWithoutVoucher, 0);
   assert.equal(body.vouchers.available, 0);
-  const scoped = calls.filter(({ sql }) => sql.includes("FROM students WHERE") || sql.includes("FROM wifi_vouchers WHERE"));
+  const scoped = calls.filter(
+    ({ sql }) =>
+      sql.includes("FROM students WHERE") ||
+      sql.includes("FROM wifi_vouchers WHERE"),
+  );
   assert.ok(scoped.every(({ values }) => values[0] === 0));
 });

@@ -22,10 +22,16 @@ const getCookie = (req, name) =>
     .find((value) => value.startsWith(`${name}=`))
     ?.slice(name.length + 1) || "";
 const setRefreshCookie = (req, res, token) =>
-  res.cookie(refreshCookie, token,
-    sessionCookieOptions(req, "/dispenser/api/auth", 7 * 24 * 60 * 60 * 1000));
+  res.cookie(
+    refreshCookie,
+    token,
+    sessionCookieOptions(req, "/dispenser/api/auth", 7 * 24 * 60 * 60 * 1000),
+  );
 const clearRefreshCookie = (req, res) =>
-  res.clearCookie(refreshCookie, sessionCookieOptions(req, "/dispenser/api/auth"));
+  res.clearCookie(
+    refreshCookie,
+    sessionCookieOptions(req, "/dispenser/api/auth"),
+  );
 const issue = async (admin, req, res) => {
   const sessionId = crypto.randomUUID();
   const refreshToken = jwt.sign(

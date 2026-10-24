@@ -11,7 +11,9 @@ export function kioskActivityReport(value) {
     (value.state !== "IDLE" &&
       (!Number.isFinite(value.idleMs) || value.idleMs < 0))
   ) {
-    throw Object.assign(new Error("Invalid kiosk activity report."), { status: 400 });
+    throw Object.assign(new Error("Invalid kiosk activity report."), {
+      status: 400,
+    });
   }
   if (value.state === "IDLE" || value.idleMs >= 30_000)
     return { state: "IDLE", interactionOffsetUs: null };
@@ -45,7 +47,9 @@ export async function ensureKioskActivitySchema(executor = pool) {
   ]) {
     if (existing.has(name)) continue;
     try {
-      await executor.query(`ALTER TABLE kiosks ADD COLUMN ${name} ${type} NULL`);
+      await executor.query(
+        `ALTER TABLE kiosks ADD COLUMN ${name} ${type} NULL`,
+      );
     } catch (error) {
       if (error.code !== "ER_DUP_FIELDNAME") throw error;
     }

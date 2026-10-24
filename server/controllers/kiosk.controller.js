@@ -7,6 +7,7 @@ import { decryptPassword } from "../services/encryption.service.js";
 import { transaction } from "../services/audit.service.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
 import { isSatpEligible } from "../services/course-level.service.js";
+import { credentialRequestOptions } from "../../shared/credential-request-controls.mjs";
 const verification = z.object({
   studentId: z.string().trim().min(1).max(40),
   lastName: z.string().trim().min(1).max(100),
@@ -30,7 +31,7 @@ function normalizeNameForVerification(value) {
 
 async function moduleControls(executor = pool) {
   const [rows] = await executor.query(
-    "SELECT module_key, is_visible, is_maintenance FROM credential_module_controls",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
   );
   return new Map(
     rows.map((row) => [
@@ -38,6 +39,7 @@ async function moduleControls(executor = pool) {
       {
         visible: Boolean(row.is_visible),
         maintenance: Boolean(row.is_maintenance),
+        ...credentialRequestOptions(row.module_key, row),
       },
     ]),
   );
@@ -349,7 +351,8 @@ export async function revealCredentials(req, res) {
           username: row.username,
           password,
           hasPassword: Boolean(password),
-          checkForNewPassword: Boolean(password) && Array.from(password).length < 2,
+          checkForNewPassword:
+            Boolean(password) && Array.from(password).length < 2,
         };
       });
     // A student explicitly confirmed Show All. Record that security-sensitive
@@ -392,12 +395,11 @@ export async function requestPasswordReset(req, res) {
   if (!table)
     return res.status(400).json({ message: "Select a valid account." });
   const controls = await moduleControls();
-  const resetRequestControl = controls.get("PASSWORD_RESET_REQUEST");
-  if (resetRequestControl && !resetRequestControl.visible)
-    return res
-      .status(503)
-      .json({ message: "Password reset requests are currently unavailable." });
   const control = controls.get(credentialType);
+  if (control && !control.passwordResets)
+    return res.status(503).json({
+      message: `${credentialType} password reset requests are currently unavailable.`,
+    });
   if (control && (!control.visible || control.maintenance))
     return res
       .status(503)
@@ -540,6 +542,10 @@ export async function requestAccount(req, res) {
     return res.status(400).json({ message: "Select a valid account." });
   const controls = await moduleControls();
   const control = controls.get(credentialType);
+  if (credentialType !== "SATP" && control && !control.accountRequests)
+    return res.status(503).json({
+      message: `${credentialType} new-account requests are currently unavailable.`,
+    });
   if (control && (!control.visible || control.maintenance))
     return res
       .status(503)

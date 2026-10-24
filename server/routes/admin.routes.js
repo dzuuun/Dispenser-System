@@ -2,7 +2,11 @@ import { Router } from "express";
 import multer from "multer";
 import { requireAdmin, requireRoles } from "../middleware/auth.middleware.js";
 import { auditAdminMutation } from "../services/audit.service.js";
-import { acquireRequestReview, renewRequestReview, releaseRequestReview } from "../controllers/request-review.controller.js";
+import {
+  acquireRequestReview,
+  renewRequestReview,
+  releaseRequestReview,
+} from "../controllers/request-review.controller.js";
 import {
   dashboard,
   listTransactions,
@@ -132,8 +136,14 @@ adminRouter.get(
 );
 adminRouter.get("/password-reset-requests", listPasswordResetRequests);
 adminRouter.post("/password-reset-requests/:id/review", acquireRequestReview);
-adminRouter.post("/password-reset-requests/:id/review/renew", renewRequestReview);
-adminRouter.post("/password-reset-requests/:id/review/release", releaseRequestReview);
+adminRouter.post(
+  "/password-reset-requests/:id/review/renew",
+  renewRequestReview,
+);
+adminRouter.post(
+  "/password-reset-requests/:id/review/release",
+  releaseRequestReview,
+);
 adminRouter.get(
   "/password-reset-requests/pending-count",
   pendingCredentialRequestCount,

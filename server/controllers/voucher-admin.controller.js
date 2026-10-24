@@ -1,5 +1,12 @@
 import { pool } from "../config/db.js";
-import { importPreview, importErrorPreview } from "../services/import-preview.service.js";
+import {
+  importPreview,
+  importErrorPreview,
+} from "../services/import-preview.service.js";
+import {
+  tableSearch,
+  dateSearchFields,
+} from "../services/table-search.service.js";
 import {
   readWorkbookRows,
   workbookBase64,
@@ -48,7 +55,14 @@ export async function listVouchers(req, res) {
       100,
       Math.max(10, Math.trunc(Number(req.query.length) || 25)),
     );
-    const search = String(req.query["search[value]"] || "").trim();
+    const search = tableSearch(req.query["search[value]"] ?? req.query.search, [
+      "w.voucher_code",
+      "s.student_id",
+      "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+      "CASE WHEN s.student_id IS NULL THEN 'Not assigned' ELSE '' END",
+      "CASE WHEN w.is_active=0 THEN 'Inactive' WHEN w.is_assigned=1 THEN 'Assigned' WHEN w.is_released=1 THEN 'Released' ELSE 'Available' END",
+      ...dateSearchFields("w.assigned_at"),
+    ]);
     const where = ["w.academic_period_id=?"];
     const values = [periodId];
     const status = String(req.query.status || "all");
@@ -57,11 +71,9 @@ export async function listVouchers(req, res) {
       where.push("w.is_active=?");
       values.push(status === "active" ? 1 : 0);
     }
-    if (search) {
-      where.push(
-        "(w.voucher_code LIKE ? OR s.student_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)",
-      );
-      values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    if (search.sql) {
+      where.push(search.sql);
+      values.push(...search.values);
     }
     const sortColumns = {
       code: "w.voucher_code",
@@ -80,9 +92,9 @@ export async function listVouchers(req, res) {
     );
     // Only join students when the search includes student fields.
     const countQuery =
-      search || filterStatus
+      search.term || filterStatus
         ? pool.execute(
-            `SELECT COUNT(*) AS count FROM wifi_vouchers w${search ? " LEFT JOIN students s ON s.voucher_id=w.id" : ""} WHERE ${where.join(" AND ")}`,
+            `SELECT COUNT(*) AS count FROM wifi_vouchers w${search.term ? " LEFT JOIN students s ON s.voucher_id=w.id" : ""} WHERE ${where.join(" AND ")}`,
             values,
           )
         : Promise.resolve(null);
@@ -192,11 +204,22 @@ async function reviewVoucherImport(file) {
 
 export async function validateVoucherImport(req, res) {
   const review = await reviewVoucherImport(req.file);
-  const preview = importPreview({
-    new: review.validRows.map((item) => ({ row: item.row, label: item.code, message: "Voucher will be added." })),
-    duplicate: review.duplicates.map((item) => ({ row: item.row, label: item.code, message: "Existing or duplicate voucher will be skipped." })),
-    error: importErrorPreview(review.errors),
-  }, req.query);
+  const preview = importPreview(
+    {
+      new: review.validRows.map((item) => ({
+        row: item.row,
+        label: item.code,
+        message: "Voucher will be added.",
+      })),
+      duplicate: review.duplicates.map((item) => ({
+        row: item.row,
+        label: item.code,
+        message: "Existing or duplicate voucher will be skipped.",
+      })),
+      error: importErrorPreview(review.errors),
+    },
+    req.query,
+  );
   if (preview.category) return res.json(preview);
   res.json({
     ...preview,

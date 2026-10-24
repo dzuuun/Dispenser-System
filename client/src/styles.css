@@ -2163,6 +2163,10 @@ button {
   color: #092e25;
 }
 
+.credential-card-body > .credential-google-sign-in {
+  display: block;
+}
+
 .credential-summary-card .credential-password code {
   min-width: 0;
   padding: 0;
@@ -2645,6 +2649,11 @@ button {
 
 .system-modal--informational {
   width: min(calc(100vw - 48px), 540px) !important;
+}
+
+.password-reset-info-modal {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
 }
 
 .password-reset-info-list {
@@ -6596,7 +6605,60 @@ strong {
 
 .module-control-table {
   width: 100%;
+  min-width: 1020px;
   border-collapse: collapse;
+}
+
+.module-request-toggle {
+  display: inline-grid;
+  grid-template-columns: 38px 80px;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #08714d;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.module-request-toggle > i {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 20px;
+  background: #08714d;
+}
+.module-request-toggle > i::after {
+  position: absolute;
+  top: 3px;
+  left: 19px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+}
+.module-request-toggle[aria-checked="false"] {
+  color: #b83d3d;
+}
+.module-request-toggle[aria-checked="false"] > i {
+  background: #bf4b4b;
+}
+.module-request-toggle[aria-checked="false"] > i::after {
+  left: 3px;
+}
+.module-request-toggle:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.module-request-toggle:focus-visible {
+  outline: 2px solid #08714d;
+  outline-offset: 3px;
 }
 
 .module-control-table th,

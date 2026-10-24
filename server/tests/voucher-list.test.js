@@ -60,13 +60,34 @@ test("voucher status filter combines with student search using bound values", as
   const rows = calls.find(({ sql }) => sql.startsWith("SELECT w.id"));
   assert.match(count.sql, /LEFT JOIN students/);
   assert.match(count.sql, /w.is_active=\?/);
+  assert.deepEqual(count.values, [7, 1, ...Array(12).fill("%Demo%")]);
+  assert.deepEqual(rows.values, [...count.values, 25, 0]);
+});
+
+test("voucher search includes every displayed data column and binds literal wildcard characters", async (t) => {
+  const { calls } = await list(t, { "search[value]": " Available_100%! " });
+  const count = calls.find(({ sql }) =>
+    sql.startsWith("SELECT COUNT(*) AS count"),
+  );
+  const rows = calls.find(({ sql }) => sql.startsWith("SELECT w.id"));
+  for (const { sql } of [count, rows]) {
+    assert.match(sql, /w\.voucher_code LIKE \? ESCAPE '!'/);
+    assert.match(sql, /s\.student_id LIKE \? ESCAPE '!'/);
+    assert.match(sql, /NULLIF\(s\.middle_name, ''\)/);
+    assert.match(sql, /THEN 'Not assigned'/);
+    assert.match(
+      sql,
+      /THEN 'Inactive'.*THEN 'Assigned'.*THEN 'Released' ELSE 'Available'/,
+    );
+    assert.match(
+      sql,
+      /DATE_FORMAT\(w\.assigned_at, '%c\/%e\/%Y, %l:%i:%s %p'\)/,
+    );
+    assert.ok(!sql.includes("Available_100%!"));
+  }
   assert.deepEqual(count.values, [
     7,
-    1,
-    "%Demo%",
-    "%Demo%",
-    "%Demo%",
-    "%Demo%",
+    ...Array(12).fill("%Available!_100!%!!%"),
   ]);
   assert.deepEqual(rows.values, [...count.values, 25, 0]);
 });

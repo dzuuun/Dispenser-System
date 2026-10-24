@@ -114,7 +114,19 @@ function setup(t, academicLevel = "COLLEGE", rows = accountRows) {
   return { req, res, writes };
 }
 
-for (const password of [null, "", "-", "a", "ab", "abc", "long-password", "éñ", "éñ中", "😀a", "😀ab"]) {
+for (const password of [
+  null,
+  "",
+  "-",
+  "a",
+  "ab",
+  "abc",
+  "long-password",
+  "éñ",
+  "éñ中",
+  "😀a",
+  "😀ab",
+]) {
   test(`hidden credentials apply the two-character reset threshold: ${JSON.stringify(password)}`, async (t) => {
     const rows = ["EMAIL", "KUMOSOFT", "SCHOOLOGY"].map((type) => ({
       credential_type: type,
@@ -125,16 +137,31 @@ for (const password of [null, "", "-", "a", "ab", "abc", "long-password", "éñ"
     const { req, res } = setup(t, "COLLEGE", rows);
     await credentials(req, res);
     assert.equal(res.statusCode, 200);
-    for (const row of res.body.credentials.filter((item) => item.type !== "SATP")) {
+    for (const row of res.body.credentials.filter(
+      (item) => item.type !== "SATP",
+    )) {
       assert.equal(row.hasPassword, Boolean(password));
-      assert.equal(row.checkForNewPassword, Boolean(password) && Array.from(password).length < 2);
-      assert.deepEqual(Object.keys(row).sort(), ["checkForNewPassword", "hasPassword", "maintenance", "type", "unavailable", "username"]);
+      assert.equal(
+        row.checkForNewPassword,
+        Boolean(password) && Array.from(password).length < 2,
+      );
+      assert.deepEqual(Object.keys(row).sort(), [
+        "checkForNewPassword",
+        "hasPassword",
+        "maintenance",
+        "type",
+        "unavailable",
+        "username",
+      ]);
     }
     await revealCredentials(req, res);
     assert.equal(res.statusCode, 200);
     for (const row of res.body.credentials) {
       assert.equal(row.password, password || null);
-      assert.equal(row.checkForNewPassword, Boolean(password) && Array.from(password).length < 2);
+      assert.equal(
+        row.checkForNewPassword,
+        Boolean(password) && Array.from(password).length < 2,
+      );
     }
   });
 }

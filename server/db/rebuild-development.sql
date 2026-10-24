@@ -289,11 +289,13 @@ CREATE TABLE credential_module_controls (
   module_key ENUM('VOUCHER', 'SATP', 'SCHOOLOGY', 'KUMOSOFT', 'EMAIL', 'PASSWORD_RESET_REQUEST', 'KIOSK') PRIMARY KEY,
   is_visible BOOLEAN NOT NULL DEFAULT TRUE,
   is_maintenance BOOLEAN NOT NULL DEFAULT FALSE,
+  accept_password_resets BOOLEAN NOT NULL DEFAULT TRUE,
+  accept_account_requests BOOLEAN NOT NULL DEFAULT TRUE,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 INSERT INTO credential_module_controls (module_key) VALUES
-  ('VOUCHER'), ('SATP'), ('SCHOOLOGY'), ('KUMOSOFT'), ('EMAIL'), ('PASSWORD_RESET_REQUEST'), ('KIOSK');
+  ('VOUCHER'), ('SATP'), ('SCHOOLOGY'), ('KUMOSOFT'), ('EMAIL'), ('KIOSK');
 
 INSERT INTO kiosk_reminders (placement, title, message, sort_order) VALUES
   ('BANNER', 'Use your correct Course, Last Name, and Birthday.', 'Your information must match the records.', 10),

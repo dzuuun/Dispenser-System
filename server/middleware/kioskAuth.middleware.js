@@ -54,8 +54,11 @@ export async function createKioskSession(req, res, next) {
       cfg.accessSecret,
       { expiresIn: "12h" },
     );
-    res.cookie("ndmu_kiosk", token,
-      sessionCookieOptions(req, "/dispenser/api/kiosk", 12 * 60 * 60 * 1000));
+    res.cookie(
+      "ndmu_kiosk",
+      token,
+      sessionCookieOptions(req, "/dispenser/api/kiosk", 12 * 60 * 60 * 1000),
+    );
     res.status(204).end();
   } catch (error) {
     next(error);

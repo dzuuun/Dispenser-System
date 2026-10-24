@@ -18,6 +18,7 @@
     "migrate-password-reset-requests": "node db/migrate-password-reset-requests.js",
     "migrate-kiosk-reminders": "node db/migrate-kiosk-reminders.js",
     "migrate-credential-controls": "node db/migrate-credential-controls.js",
+    "migrate-credential-request-controls": "node db/migrate-credential-request-controls.js",
     "migrate-account-requests": "node db/migrate-account-requests.js",
     "migrate-voucher-requests": "node db/migrate-voucher-requests.js",
     "migrate-kiosk-management": "node db/migrate-kiosk-management.js",

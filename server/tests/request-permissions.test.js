@@ -88,8 +88,14 @@ async function setup(t) {
             count: selectRows(sql, values).filter(
               (row) => row.status === "PENDING",
             ).length,
-            latestPendingId: String(Math.max(0, ...selectRows(sql, values)
-              .filter((row) => row.status === "PENDING").map((row) => row.id))),
+            latestPendingId: String(
+              Math.max(
+                0,
+                ...selectRows(sql, values)
+                  .filter((row) => row.status === "PENDING")
+                  .map((row) => row.id),
+              ),
+            ),
           },
         ],
       ];
@@ -128,8 +134,12 @@ async function setup(t) {
       rolledBack++;
     },
     execute: async (sql, values) => {
-      if (sql.startsWith("SELECT r.")) return [[{admin_user_id:1,review_token:'a'.repeat(64),is_live:1}]];
-      if (sql.startsWith('DELETE FROM credential_request_reviews')) return [{affectedRows:1}];
+      if (sql.startsWith("SELECT r."))
+        return [
+          [{ admin_user_id: 1, review_token: "a".repeat(64), is_live: 1 }],
+        ];
+      if (sql.startsWith("DELETE FROM credential_request_reviews"))
+        return [{ affectedRows: 1 }];
       if (sql.startsWith("SELECT student_id, credential_type, request_kind"))
         return [
           [
@@ -140,7 +150,11 @@ async function setup(t) {
         ];
       if (sql.startsWith("UPDATE password_reset_requests")) {
         writes.push({ sql, values });
-        rows.find((row) => row.id === values[1]).status = sql.includes("REJECTED") ? "REJECTED" : "COMPLETED";
+        rows.find((row) => row.id === values[1]).status = sql.includes(
+          "REJECTED",
+        )
+          ? "REJECTED"
+          : "COMPLETED";
         return [{ affectedRows: 1 }];
       }
       if (sql.startsWith("SELECT a.id, a.is_active"))
@@ -175,7 +189,8 @@ async function setup(t) {
     { expiresIn: "5m" },
   );
   const send = async (path, method = "GET", body) => {
-    if (/\/(?:complete|reject)$/.test(path)) body = {...body, reviewToken:'a'.repeat(64)};
+    if (/\/(?:complete|reject)$/.test(path))
+      body = { ...body, reviewToken: "a".repeat(64) };
     const response = await fetch(
       `http://127.0.0.1:${server.address().port}${path}`,
       {
@@ -235,14 +250,26 @@ test("request list, resolved entries, credentials, and sidebar count are scoped 
 
 test("tab alerts detect new permitted requests even when the pending count is unchanged", async (t) => {
   const { send, rows, calls } = await setup(t);
-  rows.push({ id: 99, credential_type: "KUMOSOFT", request_kind: "PASSWORD_RESET", status: "PENDING" });
+  rows.push({
+    id: 99,
+    credential_type: "KUMOSOFT",
+    request_kind: "PASSWORD_RESET",
+    status: "PENDING",
+  });
   const before = await send("/admin/password-reset-requests/pending-count");
   assert.deepEqual(before.body, { count: 1, latestPendingId: "1" });
   rows[0].status = "COMPLETED";
-  rows.push({ id: 6, credential_type: "EMAIL", request_kind: "PASSWORD_RESET", status: "PENDING" });
+  rows.push({
+    id: 6,
+    credential_type: "EMAIL",
+    request_kind: "PASSWORD_RESET",
+    status: "PENDING",
+  });
   const after = await send("/admin/password-reset-requests/pending-count");
   assert.deepEqual(after.body, { count: 1, latestPendingId: "6" });
-  const counter = calls.find(({ sql }) => sql.startsWith("SELECT COUNT(*) count,"));
+  const counter = calls.find(({ sql }) =>
+    sql.startsWith("SELECT COUNT(*) count,"),
+  );
   assert.match(counter.sql, /MAX\(pr.id\)/);
   assert.match(counter.sql, /pr.status='PENDING'/);
   assert.deepEqual(counter.values, ["EMAIL", "PASSWORD_RESET"]);

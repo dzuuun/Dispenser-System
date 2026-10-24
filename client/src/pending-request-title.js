@@ -14,8 +14,12 @@ export function createPendingRequestTitle({
 
   const paint = () => {
     document.title = flashing
-      ? showCount ? `(${count}) Pending requests` : originalTitle
-      : count ? `(${count}) ${originalTitle}` : originalTitle;
+      ? showCount
+        ? `(${count}) Pending requests`
+        : originalTitle
+      : count
+        ? `(${count}) ${originalTitle}`
+        : originalTitle;
   };
   const stop = () => {
     flashing = false;
@@ -29,7 +33,9 @@ export function createPendingRequestTitle({
       count = Number.isSafeInteger(next) && next > 0 ? next : 0;
       const rawId = String(snapshot.latestPendingId ?? "0");
       const latestId = /^\d+$/.test(rawId) ? BigInt(rawId) : 0n;
-      const isNew = previousCount !== null && (count > previousCount || latestId > highestId);
+      const isNew =
+        previousCount !== null &&
+        (count > previousCount || latestId > highestId);
       previousCount = count;
       if (latestId > highestId) highestId = latestId;
       if (!count || acknowledged) {
@@ -37,10 +43,11 @@ export function createPendingRequestTitle({
       } else if (isNew) {
         flashing = true;
         showCount = true;
-        if (timer === null) timer = setInterval(() => {
-          showCount = !showCount;
-          paint();
-        }, 1000);
+        if (timer === null)
+          timer = setInterval(() => {
+            showCount = !showCount;
+            paint();
+          }, 1000);
       }
       paint();
     },

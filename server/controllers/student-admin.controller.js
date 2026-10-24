@@ -2,12 +2,21 @@ import { pool } from "../config/db.js";
 import { decryptPassword } from "../services/encryption.service.js";
 import { encryptPassword } from "../services/encryption.service.js";
 import { auditAdminAction } from "../services/audit.service.js";
+import { tableSearch } from "../services/table-search.service.js";
 import {
   currentAcademicPeriod,
   requireCurrentAcademicPeriod,
 } from "../services/academic-period.service.js";
 
 export async function listStudents(req, res) {
+  const search = tableSearch(req.query["search[value]"] ?? req.query.search, [
+    "s.student_id",
+    "s.kumosoft_id",
+    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+    "c.code",
+    "c.name",
+    "CASE WHEN s.is_active=1 THEN 'Active' ELSE 'Inactive' END",
+  ]);
   const currentPeriod = await currentAcademicPeriod();
   // Supports both the regular API and DataTables server-side paging requests.
   const draw = Number(req.query.draw) || null;
@@ -21,21 +30,16 @@ export async function listStudents(req, res) {
       ? Math.floor((Number(req.query.start) || 0) / limit) + 1
       : Number(req.query.page) || 1,
   );
-  const search = String(
-    req.query["search[value]"] || req.query.search || "",
-  ).trim();
   const status = String(req.query.status || "all");
   const filters = ["s.academic_period_id=?"],
     values = [];
   values.push(currentPeriod?.id || 0);
-  if (search) {
-    const q = `%${search}%`;
-    const numericSearch = /^\d+$/.test(search);
-    filters.push(
-      `(s.student_id LIKE ? OR s.kumosoft_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?${numericSearch ? " OR s.id=?" : ""})`,
-    );
-    values.push(q, q, q, q, q);
-    if (numericSearch) values.push(Number(search));
+  if (search.sql) {
+    const numericId =
+      /^\d+$/.test(search.term) && Number.isSafeInteger(Number(search.term));
+    filters.push(numericId ? `(${search.sql} OR s.id=?)` : search.sql);
+    values.push(...search.values);
+    if (numericId) values.push(Number(search.term));
   }
   if (status === "active") filters.push("s.is_active=1");
   if (status === "inactive") filters.push("s.is_active=0");
@@ -53,7 +57,7 @@ export async function listStudents(req, res) {
       ? "DESC"
       : "ASC";
   const [[count]] = await pool.execute(
-    `SELECT COUNT(*) total, SUM(s.is_active=1) active_total FROM students s ${where}`,
+    `SELECT COUNT(*) total, SUM(s.is_active=1) active_total FROM students s${search.term ? " JOIN courses c ON c.id=s.course_id" : ""} ${where}`,
     values,
   );
   const [rows] = await pool.execute(
@@ -286,7 +290,9 @@ export async function updateStudent(req, res) {
   const assignNextVoucher = req.body.assignNextVoucher === true,
     unassignVoucher = req.body.unassignVoucher === true;
   if (emailAddress && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress))
-    return res.status(400).json({ message: "Enter a valid institutional email address." });
+    return res
+      .status(400)
+      .json({ message: "Enter a valid institutional email address." });
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -379,12 +385,15 @@ export async function updateStudent(req, res) {
         "SELECT email_address FROM institutional_email_accounts WHERE student_id=? FOR UPDATE",
         [id],
       );
-      const login = hasEmailAddress ? emailAddress : existingEmail?.email_address;
+      const login = hasEmailAddress
+        ? emailAddress
+        : existingEmail?.email_address;
       if (login || emailPassword.trim()) {
         if (!existingEmail && (!login || !emailPassword.trim())) {
           await connection.rollback();
           return res.status(400).json({
-            message: "Provide an institutional email address and password when adding a new email account.",
+            message:
+              "Provide an institutional email address and password when adding a new email account.",
           });
         }
         if (existingEmail && hasEmailAddress) {
@@ -393,7 +402,12 @@ export async function updateStudent(req, res) {
             [login, id],
           );
         }
-        await saveAccount("institutional_email_accounts", "emailPassword", true, login);
+        await saveAccount(
+          "institutional_email_accounts",
+          "emailPassword",
+          true,
+          login,
+        );
       }
     }
     if (unassignVoucher) {
@@ -488,9 +502,10 @@ export async function updateStudent(req, res) {
   } catch (error) {
     await connection.rollback();
     if (error.code === "ER_DUP_ENTRY")
-      return res
-        .status(409)
-        .json({ message: "That School ID, Kumosoft ID, or institutional email is already in use." });
+      return res.status(409).json({
+        message:
+          "That School ID, Kumosoft ID, or institutional email is already in use.",
+      });
     throw error;
   } finally {
     connection.release();

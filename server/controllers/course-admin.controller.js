@@ -1,5 +1,8 @@
 import { pool } from "../config/db.js";
-import { importPreview, importErrorPreview } from "../services/import-preview.service.js";
+import {
+  importPreview,
+  importErrorPreview,
+} from "../services/import-preview.service.js";
 import {
   inferAcademicLevel,
   normalizeAcademicLevel,
@@ -218,13 +221,23 @@ async function classifyImport(file, executor = pool) {
 export async function validateCourseImport(req, res) {
   try {
     const result = await classifyImport(req.file);
-    const groups = { new: [], update: [], unchanged: [], error: importErrorPreview(result.errors) };
-    for (const item of result.items) groups[item.status].push({
-      row: item.row,
-      label: `${item.code} — ${item.name}`,
-      message: item.status === "new" ? "Course will be created."
-        : item.status === "update" ? "Course will be updated." : "No changes required.",
-    });
+    const groups = {
+      new: [],
+      update: [],
+      unchanged: [],
+      error: importErrorPreview(result.errors),
+    };
+    for (const item of result.items)
+      groups[item.status].push({
+        row: item.row,
+        label: `${item.code} — ${item.name}`,
+        message:
+          item.status === "new"
+            ? "Course will be created."
+            : item.status === "update"
+              ? "Course will be updated."
+              : "No changes required.",
+      });
     const preview = importPreview(groups, req.query);
     if (preview.category) return res.json(preview);
     res.json({

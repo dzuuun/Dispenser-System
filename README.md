@@ -10,6 +10,7 @@ the compiled client and API beneath `/dispenser` from one application port.
 - Student kiosk verification using student ID, course, last name, and birth date.
 - Secure display of SATP, Schoology, Kumosoft, institutional-email, and WiFi-voucher credentials.
 - Administrator portal for students, courses, vouchers, bulk imports, credential requests, kiosk monitoring, module controls, and transaction history.
+- Credential controls provide separate password-reset and new-account request switches for Email, Kumosoft, and Schoology. SATP has no request switches or kiosk request buttons. Pausing requests preserves pending requests for administrators to finish; the API enforces the settings immediately, and open kiosks pick up changes during their 15-second control refresh. The two settings columns are added automatically when the API starts; upgrading an older database copies its previous password-reset setting into the individual switches once. The retired master switch is no longer displayed or enforced.
 - Live kiosk usage: **In use** while someone enters details or views credentials, **Idle** after 30 seconds without interaction, and **Unknown** when recent activity reports are unavailable. The Kiosks page refreshes every three seconds. Activity reports contain only the screen state and elapsed idle time, without student details or passwords. Existing databases receive the activity columns automatically when the API starts; reload open kiosk tabs after deploying the updated client.
 - XLSX validation and import for students, courses, accounts, and vouchers.
 - WiFi voucher assignment, release, activation, and semester clearing.
@@ -252,6 +253,8 @@ pm2 save
 ```
 
 Continue to the build and restart only after installation succeeds. If Windows still reports `EPERM` for a native module, close any other `npm start` or `npm run dev` session for this project and retry installation.
+
+The request-control migration runs automatically when the API starts. To apply it explicitly to an existing database before restarting, run `npm run migrate-credential-request-controls -w server` from the project directory. It adds missing request-control columns, carries over the old password-reset setting once, and preserves existing settings on subsequent runs. It uses the database connection in `.env` and requires permission to alter `credential_module_controls`.
 
 Use `pm2 logs ndmu-credentials-dispenser` to troubleshoot and `pm2 monit` for live process monitoring. If `.env` values change, restart the process after saving the file. After a Node.js upgrade, reinstall or update PM2 and restart the Windows service so it uses the current Node runtime.
 

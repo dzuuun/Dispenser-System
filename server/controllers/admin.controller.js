@@ -2,6 +2,10 @@ import { pool } from "../config/db.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
 import { requestPermissionFilter } from "../../shared/request-permissions.mjs";
 import ExcelJS from "exceljs";
+import {
+  tableSearch,
+  dateSearchFields,
+} from "../services/table-search.service.js";
 
 const transactionWhere =
   "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
@@ -47,12 +51,10 @@ export async function transactionAcademicPeriods(req, res) {
 export async function exportTransactions(req, res) {
   const period = await transactionPeriod(req.query);
   if (!period)
-    return res
-      .status(404)
-      .json({
-        message:
-          "No current academic period is available. Choose another period.",
-      });
+    return res.status(404).json({
+      message:
+        "No current academic period is available. Choose another period.",
+    });
   // Export the entire period, regardless of the table's page or page size.
   const [rows] = await pool.execute(
     `${transactionSelect} WHERE ${transactionWhere} ORDER BY t.created_at DESC, t.id DESC`,
@@ -186,22 +188,21 @@ export async function dashboard(req, res) {
 }
 
 export async function listTransactions(req, res) {
-  const search = req.query.search ?? "";
-  if (typeof search !== "string" || search.length > 200)
-    throw Object.assign(new Error("Search must be 200 characters or fewer."), {
-      status: 400,
-    });
-  const term = search.trim().replace(/\s+/g, " ");
+  const search = tableSearch(req.query.search, [
+    "s.student_id",
+    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+    "c.code",
+    "CASE WHEN s.student_id IS NULL THEN 'Unknown student' ELSE '' END",
+    "t.kiosk_code",
+    "'Revealed'",
+    ...dateSearchFields("t.created_at"),
+  ]);
   const period = await transactionPeriod(req.query);
   let where = transactionWhere;
   const values = [period?.id || 0];
-  if (term) {
-    // Treat LIKE wildcards as literal characters in student IDs and kiosk names.
-    const pattern = `%${term.replace(/[!%_]/g, "!$&")}%`;
-    where += ` AND (s.student_id LIKE ? ESCAPE '!'
-      OR CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, '')) LIKE ? ESCAPE '!'
-      OR t.kiosk_code LIKE ? ESCAPE '!')`;
-    values.push(pattern, pattern, pattern);
+  if (search.sql) {
+    where += ` AND ${search.sql}`;
+    values.push(...search.values);
   }
   // Keep the array response compatible with older clients during deployment.
   if (req.query.page !== undefined) {
@@ -214,7 +215,7 @@ export async function listTransactions(req, res) {
       `SELECT COUNT(*) AS total,
         COALESCE(SUM(DATE(t.created_at)=CURRENT_DATE()), 0) AS today,
         COUNT(DISTINCT t.student_id) AS studentsServed
-       FROM credential_transactions t${term ? " LEFT JOIN students s ON s.id=t.student_id" : ""} WHERE ${where}`,
+       FROM credential_transactions t${search.term ? " LEFT JOIN students s ON s.id=t.student_id LEFT JOIN courses c ON c.id=s.course_id" : ""} WHERE ${where}`,
       values,
     );
     const total = Number(summary.total);

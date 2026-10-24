@@ -12,6 +12,16 @@ import { createPendingRequestTitle } from "./pending-request-title.js";
 import { createKioskActivityTracker } from "./kiosk-activity.js";
 import { createAdminApi } from "./admin-api.js";
 import {
+  dateSearchText,
+  matchesTableSearch,
+  kioskSearchValues,
+} from "./table-search.js";
+import {
+  ACCOUNT_REQUEST_MODULES,
+  PASSWORD_RESET_MODULES,
+  credentialRequestOptions,
+} from "../../shared/credential-request-controls.mjs";
+import {
   DEFAULT_PASSWORD_RESET_FOLLOW_UP,
   NEW_PASSWORD_RESET_FOLLOW_UP,
   passwordResetGuidance,
@@ -26,7 +36,8 @@ const APP_BASE = import.meta.env.BASE_URL.replace(/\/$/, "") || "";
 const API = `${APP_BASE}/api`;
 const adminApi = createAdminApi({
   baseUrl: API,
-  onToken: (token) => dispatchEvent(new CustomEvent("admin-token-refreshed", { detail: token })),
+  onToken: (token) =>
+    dispatchEvent(new CustomEvent("admin-token-refreshed", { detail: token })),
   onExpired: () => dispatchEvent(new Event("admin-session-expired")),
 });
 const adminFetch = (path, options) => adminApi.fetch(path, options);
@@ -43,7 +54,10 @@ const kioskIdentity = {
 async function request(path, options = {}) {
   const res = await adminFetch(path, options);
   const data = res.status === 204 ? null : await res.json();
-  if (!res.ok) throw Object.assign(new Error(data?.message || "Unable to continue."), { status: res.status });
+  if (!res.ok)
+    throw Object.assign(new Error(data?.message || "Unable to continue."), {
+      status: res.status,
+    });
   return data;
 }
 
@@ -143,6 +157,7 @@ function RecordsTableControls({
             type="search"
             aria-label={searchLabel}
             placeholder={searchPlaceholder}
+            maxLength={200}
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
           />
@@ -308,14 +323,19 @@ function ConfirmModal({
   );
 }
 
-function PasswordResetInfoModal({
+const ACCOUNT_REQUEST_FOLLOW_UP =
+  "Return to this kiosk after at least two business hours to check your new account credentials.";
+
+function CredentialRequestInfoModal({
   accountTitle,
+  requestKind,
   hasDefaultPassword,
   checkForNewPassword,
   submitting,
   onSubmit,
   onClose,
 }) {
+  const creatingAccount = requestKind === "ACCOUNT_CREATION";
   const useDefaultPassword = hasDefaultPassword && !checkForNewPassword;
   return (
     <div
@@ -323,14 +343,24 @@ function PasswordResetInfoModal({
       onMouseDown={submitting ? undefined : onClose}
     >
       <section
-        className="system-modal system-modal--informational password-reset-info-modal"
+        className={`system-modal system-modal--informational password-reset-info-modal${creatingAccount ? " account-request-info-modal" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="credential-request-info-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <p className="eyebrow">PASSWORD RESET REQUEST</p>
-        <h2>Reset your {accountTitle} password?</h2>
+        <p className="eyebrow">
+          {creatingAccount ? "ACCOUNT REQUEST" : "PASSWORD RESET REQUEST"}
+        </p>
+        <h2 id="credential-request-info-title">
+          {creatingAccount
+            ? `Request your ${accountTitle} account?`
+            : `Reset your ${accountTitle} password?`}
+        </h2>
         <p>
-          This sends a request to the ICT/MIS administrator. Your password will
-          not change immediately.
+          {creatingAccount
+            ? "This sends an account creation request to the ICT/MIS administrator. Your account will not be available immediately."
+            : "This sends a request to the ICT/MIS administrator. Your password will not change immediately."}
         </p>
         <div className="password-reset-info-list">
           <article>
@@ -348,7 +378,12 @@ function PasswordResetInfoModal({
             <span>
               <b>How you will know</b>
               <small>
-                {useDefaultPassword ? (
+                {creatingAccount ? (
+                  <>
+                    {ACCOUNT_REQUEST_FOLLOW_UP} The pending label will disappear
+                    once your account is created.
+                  </>
+                ) : useDefaultPassword ? (
                   <>
                     Once the administrator completes the reset, you can sign in
                     with the default credentials shown here.
@@ -366,17 +401,41 @@ function PasswordResetInfoModal({
           <article>
             <AppIcon name="password" size={22} />
             <span>
-              <b>{useDefaultPassword ? "Sign in with your default credentials" : checkForNewPassword ? "Check for your new password" : "Check your account credentials"}</b>
+              <b>
+                {creatingAccount
+                  ? "View your new account credentials"
+                  : useDefaultPassword
+                    ? "Sign in with your default credentials"
+                    : checkForNewPassword
+                      ? "Check for your new password"
+                      : "Check your account credentials"}
+              </b>
               <small>
-                {useDefaultPassword ? (
+                {creatingAccount ? (
                   <>
-                    {DEFAULT_PASSWORD_RESET_FOLLOW_UP} Tap Show All in Credentials
-                    Summary to view your username and default password.
+                    Once your account is created, open Credentials Summary and
+                    tap Show All to view your username and password.
+                    {accountTitle === "Kumosoft" && (
+                      <>
+                        {" "}
+                        You can also select <strong>
+                          Sign in with Google
+                        </strong>{" "}
+                        on Kumosoft using your institutional email account.
+                      </>
+                    )}
+                  </>
+                ) : useDefaultPassword ? (
+                  <>
+                    {DEFAULT_PASSWORD_RESET_FOLLOW_UP} Tap Show All in
+                    Credentials Summary to view your username and default
+                    password.
                   </>
                 ) : checkForNewPassword ? (
                   <>
                     {NEW_PASSWORD_RESET_FOLLOW_UP} Tap Show All in Credentials
-                    Summary to view your updated password once the reset is completed.
+                    Summary to view your updated password once the reset is
+                    completed.
                   </>
                 ) : (
                   <>
@@ -783,11 +842,14 @@ function AdminShell({ children, path, onLogout, token, admin }) {
   const sidebarOpen = sidebarPinned || sidebarPreview;
   const isViewingRequestQueue = () =>
     currentAdminPath.current === "/admin/password-resets" &&
-    document.visibilityState === "visible" && document.hasFocus();
+    document.visibilityState === "visible" &&
+    document.hasFocus();
   useEffect(() => {
     const title = createPendingRequestTitle({ document });
     pendingRequestTitle.current = title;
-    const acknowledge = () => { if (isViewingRequestQueue()) title.acknowledge(); };
+    const acknowledge = () => {
+      if (isViewingRequestQueue()) title.acknowledge();
+    };
     window.addEventListener("focus", acknowledge);
     document.addEventListener("visibilitychange", acknowledge);
     return () => {
@@ -1116,7 +1178,11 @@ function AdminLogin({ onLogin, notice = "" }) {
                 passwordVisible={passwordVisible}
                 onPasswordVisibilityChange={setPasswordVisible}
               />
-              {(error || notice) && <p className="error" role="alert">{error || notice}</p>}
+              {(error || notice) && (
+                <p className="error" role="alert">
+                  {error || notice}
+                </p>
+              )}
               <button className="btn primary wide">Sign in</button>
             </form>
             {setupRequired && (
@@ -1196,14 +1262,16 @@ function Dashboard({ token }) {
           ? {
               tone: "danger",
               title: `Short by ${-voucherBalance} voucher${voucherBalance === -1 ? "" : "s"}`,
-              detail: "More stock is needed to cover students without vouchers.",
+              detail:
+                "More stock is needed to cover students without vouchers.",
             }
           : {
               tone: "green",
               title: voucherBalance
                 ? `${voucherBalance} extra voucher${voucherBalance === 1 ? "" : "s"}`
                 : "Enough vouchers for every student",
-              detail: "Available stock covers all students still needing a voucher.",
+              detail:
+                "Available stock covers all students still needing a voucher.",
             };
   const assignedRate = voucherTotal
     ? Math.round((vouchers.assigned / voucherTotal) * 100)
@@ -1344,9 +1412,9 @@ function Dashboard({ token }) {
                 <span>{assignedRate}% in use</span>
               </div>
               <p className="dashboard-panel-note">
-                Counts cover active students and vouchers in the current academic
-                period. Released and inactive vouchers are excluded from available
-                stock.
+                Counts cover active students and vouchers in the current
+                academic period. Released and inactive vouchers are excluded
+                from available stock.
               </p>
             </article>
             <article className="panel dashboard-coverage-panel">
@@ -3759,7 +3827,7 @@ function CoursesPage({ token }) {
           <RecordsTableControls
             search={search}
             searchLabel="Search courses"
-            searchPlaceholder="Search code or course name"
+            searchPlaceholder="Search all columns"
             onSearchChange={(value) => {
               setSearch(value);
               tableRef.current?.dt()?.search(value).draw();
@@ -3778,13 +3846,23 @@ function CoursesPage({ token }) {
             data={filteredCourses}
             columns={columns}
             slots={{
-              0: (data) => <b>{data}</b>,
+              0: (data, type, _row) =>
+                type === "display" ? <b>{data}</b> : String(data ?? ""),
               2: (data) => levelLabels[data] || "Other / review",
-              3: (data) => (
-                <Status tone={data ? "green" : "danger"}>
-                  {data ? "Active" : "Inactive"}
-                </Status>
-              ),
+              3: (data, type, _row) =>
+                type === "display" ? (
+                  <Status tone={data ? "green" : "danger"}>
+                    {data ? "Active" : "Inactive"}
+                  </Status>
+                ) : type === "filter" ? (
+                  data ? (
+                    "Active"
+                  ) : (
+                    "Inactive"
+                  )
+                ) : (
+                  Number(data)
+                ),
               4: (_data, row) => (
                 <Button variant="secondary" onClick={() => edit(row)}>
                   Edit
@@ -4787,17 +4865,28 @@ function ImportModalFrame({ children, busy, onClose }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = previousOverflow; };
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
   }, []);
   return createPortal(
-    <div className="modal-backdrop import-review-overlay" onMouseDown={busy ? undefined : onClose}>
+    <div
+      className="modal-backdrop import-review-overlay"
+      onMouseDown={busy ? undefined : onClose}
+    >
       {children}
     </div>,
     document.body,
   );
 }
 
-function ImportValidationGroups({ groups, sections, onLoadMore, busy, loadingGroup }) {
+function ImportValidationGroups({
+  groups,
+  sections,
+  onLoadMore,
+  busy,
+  loadingGroup,
+}) {
   return (
     <div className="mssql-validation-groups">
       {sections.map(([title, tone, kind, count, empty]) => {
@@ -4805,26 +4894,37 @@ function ImportValidationGroups({ groups, sections, onLoadMore, busy, loadingGro
         const rows = group?.records || [];
         return (
           <section className={`mssql-validation-group ${tone}`} key={kind}>
-            <header><span>{title}</span><b>{count || 0}</b></header>
+            <header>
+              <span>{title}</span>
+              <b>{count || 0}</b>
+            </header>
             {rows.length ? (
               <div className="mssql-validation-rows">
                 {rows.map((row) => (
                   <article key={`${kind}-${row.row}`}>
                     <small>Row {row.row}</small>
                     <span>
-                      {row.label ?? (row.schoolId
-                        ? `${row.schoolId} — ${row.name} (${row.courseCode})`
-                        : row.message)}
+                      {row.label ??
+                        (row.schoolId
+                          ? `${row.schoolId} — ${row.name} (${row.courseCode})`
+                          : row.message)}
                     </span>
-                    {(row.label || row.schoolId) && row.message && <em>{row.message}</em>}
+                    {(row.label || row.schoolId) && row.message && (
+                      <em>{row.message}</em>
+                    )}
                   </article>
                 ))}
               </div>
-            ) : <p>{empty}</p>}
+            ) : (
+              <p>{empty}</p>
+            )}
             {group?.hasMore && (
               <footer>
-                <Button variant="secondary" disabled={busy}
-                  onClick={() => onLoadMore(kind, group.nextOffset)}>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => onLoadMore(kind, group.nextOffset)}
+                >
                   {loadingGroup === kind ? "Loading..." : "Load next 250"}
                 </Button>
               </footer>
@@ -4837,20 +4937,67 @@ function ImportValidationGroups({ groups, sections, onLoadMore, busy, loadingGro
 }
 
 function fileImportSections(type, validation) {
-  const noun = type.id === "courses" ? "courses" : type.id === "students" ? "students"
-    : type.id === "vouchers" ? "vouchers" : "accounts";
-  const sections = type.id === "student-deactivate"
-    ? [["Students to deactivate", "errors", "new", validation.new, "No students will be deactivated."]]
-    : [[`New ${noun}`, "created", "new", validation.new, `No ${noun} will be created.`]];
+  const noun =
+    type.id === "courses"
+      ? "courses"
+      : type.id === "students"
+        ? "students"
+        : type.id === "vouchers"
+          ? "vouchers"
+          : "accounts";
+  const sections =
+    type.id === "student-deactivate"
+      ? [
+          [
+            "Students to deactivate",
+            "errors",
+            "new",
+            validation.new,
+            "No students will be deactivated.",
+          ],
+        ]
+      : [
+          [
+            `New ${noun}`,
+            "created",
+            "new",
+            validation.new,
+            `No ${noun} will be created.`,
+          ],
+        ];
   if (type.id === "vouchers") {
-    sections.push(["Duplicate vouchers", "updated", "duplicate", validation.duplicates, "No duplicate vouchers found."]);
+    sections.push([
+      "Duplicate vouchers",
+      "updated",
+      "duplicate",
+      validation.duplicates,
+      "No duplicate vouchers found.",
+    ]);
   } else if (type.id !== "student-deactivate") {
-    sections.push([`Updated ${noun}`, "updated", "update", validation.update, `No ${noun} will be updated.`]);
+    sections.push([
+      `Updated ${noun}`,
+      "updated",
+      "update",
+      validation.update,
+      `No ${noun} will be updated.`,
+    ]);
   }
   if (type.id === "courses") {
-    sections.push(["Unchanged courses", "unchanged", "unchanged", validation.unchanged, "No unchanged courses found."]);
+    sections.push([
+      "Unchanged courses",
+      "unchanged",
+      "unchanged",
+      validation.unchanged,
+      "No unchanged courses found.",
+    ]);
   }
-  sections.push(["Errors", "errors", "error", validation.invalid ?? validation.errors?.length ?? 0, "No errors found."]);
+  sections.push([
+    "Errors",
+    "errors",
+    "error",
+    validation.invalid ?? validation.errors?.length ?? 0,
+    "No errors found.",
+  ]);
   return sections;
 }
 
@@ -4931,7 +5078,10 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
           ...current.groups,
           [category]: {
             ...data.page,
-            records: [...current.groups[category].records, ...data.page.records],
+            records: [
+              ...current.groups[category].records,
+              ...data.page.records,
+            ],
           },
         },
       }));
@@ -4962,10 +5112,21 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
       >
         <header>
           <div>
-            <p className="eyebrow">{validation ? "VALIDATION COMPLETE" : "BULK IMPORT"}</p>
-            <h2>{validation ? `Review import: ${type.title}` : `Import ${type.title}`}</h2>
+            <p className="eyebrow">
+              {validation ? "VALIDATION COMPLETE" : "BULK IMPORT"}
+            </p>
+            <h2>
+              {validation
+                ? `Review import: ${type.title}`
+                : `Import ${type.title}`}
+            </h2>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close" disabled={busy}>
+          <button
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close"
+            disabled={busy}
+          >
             &times;
           </button>
         </header>
@@ -4986,24 +5147,43 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
               />
               <div className="import-validation-notes">
                 {invalid > 0 && validation.errorReport && (
-                  <Button variant="secondary" disabled={busy}
-                    onClick={() => downloadErrorReport(validation.errorReport, type.id)}>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      downloadErrorReport(validation.errorReport, type.id)
+                    }
+                  >
                     <AppIcon name="download" /> Download error rows
                   </Button>
                 )}
-                {error && <p className="error" role="alert">{error}</p>}
+                {error && (
+                  <p className="error" role="alert">
+                    {error}
+                  </p>
+                )}
                 {importErrorReport && (
-                  <Button variant="secondary" disabled={busy}
-                    onClick={() => downloadErrorReport(importErrorReport, type.id)}>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      downloadErrorReport(importErrorReport, type.id)
+                    }
+                  >
                     <AppIcon name="download" /> Download failed rows
                   </Button>
                 )}
                 {busy && !loadingGroup && (
                   <p className="import-progress" role="status">
-                    <span className="import-progress-spinner" aria-hidden="true">
+                    <span
+                      className="import-progress-spinner"
+                      aria-hidden="true"
+                    >
                       <AppIcon name="progress_activity" size={19} />
                     </span>
-                    <span>Importing {changes} records. Please keep this window open.</span>
+                    <span>
+                      Importing {changes} records. Please keep this window open.
+                    </span>
                   </p>
                 )}
               </div>
@@ -5024,8 +5204,11 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
                 disabled={busy || changes < 1}
                 onClick={runImport}
               >
-                {busy && !loadingGroup ? "Importing..." : type.id === "student-deactivate"
-                  ? `Deactivate ${changes} students` : `Import ${changes} records`}
+                {busy && !loadingGroup
+                  ? "Importing..."
+                  : type.id === "student-deactivate"
+                    ? `Deactivate ${changes} students`
+                    : `Import ${changes} records`}
               </button>
             </footer>
           </div>
@@ -5171,7 +5354,12 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 : "Import enrolled students"}
             </h2>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close" disabled={busy}>
+          <button
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close"
+            disabled={busy}
+          >
             &times;
           </button>
         </header>
@@ -5238,9 +5426,27 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
               <ImportValidationGroups
                 groups={preview.groups}
                 sections={[
-                  ["Created students", "created", "new", preview.new, "No students will be created."],
-                  ["Updated students", "updated", "update", preview.update, "No students will be updated."],
-                  ["Errors", "errors", "error", preview.invalid, "No errors found."],
+                  [
+                    "Created students",
+                    "created",
+                    "new",
+                    preview.new,
+                    "No students will be created.",
+                  ],
+                  [
+                    "Updated students",
+                    "updated",
+                    "update",
+                    preview.update,
+                    "No students will be updated.",
+                  ],
+                  [
+                    "Errors",
+                    "errors",
+                    "error",
+                    preview.invalid,
+                    "No errors found.",
+                  ],
                 ]}
                 onLoadMore={loadPreview}
                 busy={busy}
@@ -5278,7 +5484,9 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 }
                 onClick={importStudents}
               >
-                {busy && !loadingGroup ? "Importing..." : "Import and synchronize"}
+                {busy && !loadingGroup
+                  ? "Importing..."
+                  : "Import and synchronize"}
               </button>
             </footer>
           </div>
@@ -5394,7 +5602,12 @@ function ImportsPage({ token }) {
 
 function KioskUsageStatus({ kiosk }) {
   const state = kiosk.usage_status || (kiosk.is_online ? "UNKNOWN" : "OFFLINE");
-  const labels = { IN_USE: "In use", IDLE: "Idle", UNKNOWN: "Unknown", OFFLINE: "Offline" };
+  const labels = {
+    IN_USE: "In use",
+    IDLE: "Idle",
+    UNKNOWN: "Unknown",
+    OFFLINE: "Offline",
+  };
   return (
     <span className="kiosk-usage" data-status={state}>
       <span>{labels[state] || "Unknown"}</span>
@@ -5483,11 +5696,7 @@ function KiosksPage({ token }) {
   const online = kiosks.filter((item) => item.is_online).length;
   const inUse = kiosks.filter((item) => item.usage_status === "IN_USE").length;
   const filtered = kiosks.filter((item) =>
-    [item.kiosk_name, item.kiosk_code, item.location]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
+    matchesTableSearch(query, kioskSearchValues(item)),
   );
   const selected = details?.kiosk;
   const actionLabel = {
@@ -5556,7 +5765,7 @@ function KiosksPage({ token }) {
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search kiosks"
+                  placeholder="Search all columns"
                   aria-label="Search kiosks"
                 />
               </label>
@@ -5663,7 +5872,9 @@ function KiosksPage({ token }) {
               <dl className="kiosk-detail-grid">
                 <div>
                   <dt>Current usage</dt>
-                  <dd><KioskUsageStatus kiosk={selected} /></dd>
+                  <dd>
+                    <KioskUsageStatus kiosk={selected} />
+                  </dd>
                 </div>
                 <div>
                   <dt>IP address</dt>
@@ -6143,10 +6354,17 @@ function AdminApp() {
   }, []);
   useEffect(() => {
     let active = true;
-    adminApi.restoreSession()
-      .then((restoredToken) => { if (active && !restoredToken) setChecking(false); })
-      .catch(() => { if (active) setChecking(false); });
-    return () => { active = false; };
+    adminApi
+      .restoreSession()
+      .then((restoredToken) => {
+        if (active && !restoredToken) setChecking(false);
+      })
+      .catch(() => {
+        if (active) setChecking(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
   useEffect(() => {
     if (!token) return;
@@ -6160,7 +6378,9 @@ function AdminApp() {
         setAdmin(currentAdmin);
         setChecking(false);
       })
-      .catch(() => { if (!controller.signal.aborted) setChecking(false); });
+      .catch(() => {
+        if (!controller.signal.aborted) setChecking(false);
+      });
     return () => controller.abort();
   }, [token]);
   if (checking)
@@ -6169,12 +6389,18 @@ function AdminApp() {
         Checking your administrator session...
       </main>
     );
-  if (!token) return <AdminLogin notice={sessionNotice} onLogin={(nextToken) => {
-    setChecking(true);
-    setAdmin(null);
-    setSessionNotice("");
-    adminApi.startSession(nextToken);
-  }} />;
+  if (!token)
+    return (
+      <AdminLogin
+        notice={sessionNotice}
+        onLogin={(nextToken) => {
+          setChecking(true);
+          setAdmin(null);
+          setSessionNotice("");
+          adminApi.startSession(nextToken);
+        }}
+      />
+    );
   const content =
     admin?.role === "Request Staff" && path !== "/admin/password-resets" ? (
       <AdminRedirect
@@ -6336,7 +6562,8 @@ function Kiosk() {
   const [kioskReady, setKioskReady] = useState(false);
   const kioskActivity = useRef(null);
   const reportKioskActivity = useRef(null);
-  if (!kioskActivity.current) kioskActivity.current = createKioskActivityTracker();
+  if (!kioskActivity.current)
+    kioskActivity.current = createKioskActivityTracker();
   const viewingCredentials = Boolean(result);
   useEffect(() => {
     kioskActivity.current.setViewing(viewingCredentials);
@@ -6426,7 +6653,8 @@ function Kiosk() {
             "This browser kiosk cannot control the device power. Install the kiosk device agent to use this action.",
           );
         }
-      } catch {} finally {
+      } catch {
+      } finally {
         inFlight = false;
         if (queued && active) {
           queued = false;
@@ -6440,7 +6668,14 @@ function Kiosk() {
     const refreshActivity = () => {
       if (document.visibilityState === "visible") void heartbeat();
     };
-    const activityEvents = ["pointerdown", "pointermove", "touchstart", "keydown", "input", "wheel"];
+    const activityEvents = [
+      "pointerdown",
+      "pointermove",
+      "touchstart",
+      "keydown",
+      "input",
+      "wheel",
+    ];
     activityEvents.forEach((event) =>
       window.addEventListener(event, trackInteraction, { passive: true }),
     );
@@ -6452,7 +6687,9 @@ function Kiosk() {
       active = false;
       clearInterval(timer);
       reportKioskActivity.current = null;
-      activityEvents.forEach((event) => window.removeEventListener(event, trackInteraction));
+      activityEvents.forEach((event) =>
+        window.removeEventListener(event, trackInteraction),
+      );
       document.removeEventListener("visibilitychange", refreshActivity);
     };
   }, [kioskReady]);
@@ -6574,7 +6811,31 @@ function Kiosk() {
             ],
           };
     });
+  const acceptsRequest = (credentialType, kind) => {
+    const control = moduleControls.find(
+      (item) => item.module_key === credentialType,
+    );
+    if (control && (!control.is_visible || control.is_maintenance))
+      return false;
+    const options = credentialRequestOptions(credentialType, control);
+    if (kind === "ACCOUNT_CREATION") return options.accountRequests;
+    return options.passwordResets;
+  };
+  useEffect(() => {
+    if (
+      resetRequestInfo &&
+      !requestingReset &&
+      !acceptsRequest(resetRequestInfo.type, resetRequestInfo.kind)
+    ) {
+      setResetRequestInfo(null);
+      setResetNotice("Requests for this account are currently unavailable.");
+    }
+  }, [moduleControls, resetRequestInfo, requestingReset]);
   const requestReset = async (credentialType) => {
+    if (!acceptsRequest(credentialType, "PASSWORD_RESET"))
+      return setResetNotice(
+        "Password reset requests for this account are currently unavailable.",
+      );
     setRequestingReset(credentialType);
     setResetNotice("");
     try {
@@ -6598,10 +6859,14 @@ function Kiosk() {
     }
   };
   const requestAccount = async (credentialType) => {
+    if (!acceptsRequest(credentialType, "ACCOUNT_CREATION"))
+      return setResetNotice(
+        "New-account requests for this credential are currently unavailable.",
+      );
     setRequestingReset(credentialType);
     setResetNotice("");
     try {
-      const response = await request("/kiosk/account-requests", {
+      await request("/kiosk/account-requests", {
         method: "POST",
         headers: {
           ...kioskHeaders,
@@ -6609,8 +6874,11 @@ function Kiosk() {
         },
         body: JSON.stringify({ credentialType }),
       });
-      setResetNotice(response.message);
+      setResetNotice(
+        `Your ${resetRequestInfo.title} account request is pending. ${ACCOUNT_REQUEST_FOLLOW_UP}`,
+      );
       markRequestPending(credentialType, "ACCOUNT_CREATION");
+      setResetRequestInfo(null);
     } catch (err) {
       setResetNotice(err.message);
     } finally {
@@ -6707,10 +6975,12 @@ function Kiosk() {
       (item) => !item.unavailable && !item.maintenance,
     ).length,
     kioskControl = moduleControls.find((item) => item.module_key === "KIOSK"),
-    passwordResetRequestsEnabled =
-      moduleControls.find(
-        (item) => item.module_key === "PASSWORD_RESET_REQUEST",
-      )?.is_visible !== false;
+    passwordResetRequestsEnabled = visibleCredentials.some(
+      (item) =>
+        !item.unavailable &&
+        !item.maintenance &&
+        acceptsRequest(item.type, "PASSWORD_RESET"),
+    );
   if (kioskControl?.is_maintenance)
     return (
       <div className="kiosk-page">
@@ -6850,14 +7120,25 @@ function Kiosk() {
                 c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
               );
               const canRequest =
-                c.type !== "SATP" &&
                 !c.maintenance &&
-                (c.unavailable || passwordResetRequestsEnabled);
-              const satpGoogleSignIn = (
-                <p>
-                  No SATP password is available. Select{" "}
-                  <b>Sign in with Google</b> on SATP and use your institutional
-                  email account.
+                acceptsRequest(
+                  c.type,
+                  c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
+                );
+              const supportsGoogleSignIn = ["SATP", "KUMOSOFT"].includes(
+                c.type,
+              );
+              const showGoogleSignIn =
+                supportsGoogleSignIn &&
+                (c.unavailable ||
+                  c.hasPassword === false ||
+                  (passwordsVisible && !c.password?.trim()) ||
+                  (c.type === "KUMOSOFT" &&
+                    passwordResetGuidance(c).checkForNewPassword));
+              const googleSignIn = (
+                <p className="credential-google-sign-in">
+                  Use <b>Sign in with Google</b> with your institutional email
+                  account.
                 </p>
               );
               return (
@@ -6885,9 +7166,9 @@ function Kiosk() {
                         maintenance.
                       </span>
                     </div>
-                  ) : c.unavailable && c.type === "SATP" ? (
+                  ) : c.unavailable && supportsGoogleSignIn ? (
                     <div className="credential-module-unavailable">
-                      {satpGoogleSignIn}
+                      {googleSignIn}
                       <p className="credential-website">
                         <b>Website:</b> {meta.website}
                       </p>
@@ -6904,10 +7185,8 @@ function Kiosk() {
                       <p>
                         <b>{meta.username}:</b> <span>{c.username}</span>
                       </p>
-                      {c.type === "SATP" &&
-                      (c.hasPassword === false ||
-                        (passwordsVisible && !c.password?.trim())) ? (
-                        satpGoogleSignIn
+                      {showGoogleSignIn ? (
+                        googleSignIn
                       ) : (
                         <p
                           className={`credential-password${passwordsVisible ? " visible" : ""}`}
@@ -6937,13 +7216,14 @@ function Kiosk() {
                             Boolean(requestingReset) || Boolean(pending)
                           }
                           onClick={() =>
-                            c.unavailable
-                              ? requestAccount(c.type)
-                              : setResetRequestInfo({
-                                  type: c.type,
-                                  title: meta.title,
-                                  ...passwordResetGuidance(c),
-                                })
+                            setResetRequestInfo({
+                              type: c.type,
+                              title: meta.title,
+                              kind: c.unavailable
+                                ? "ACCOUNT_CREATION"
+                                : "PASSWORD_RESET",
+                              ...passwordResetGuidance(c),
+                            })
                           }
                         >
                           <AppIcon
@@ -6982,6 +7262,8 @@ function Kiosk() {
                           {formatRequestTime(pending.requestedAt)}.
                           {pending.kind === "PASSWORD_RESET" &&
                             ` ${passwordResetGuidance(c).followUp}`}
+                          {pending.kind === "ACCOUNT_CREATION" &&
+                            ` ${ACCOUNT_REQUEST_FOLLOW_UP}`}
                         </p>
                       )}
                     </div>
@@ -7046,12 +7328,17 @@ function Kiosk() {
           <Toast message={resetNotice} onClose={() => setResetNotice("")} />
         )}
         {resetRequestInfo && (
-          <PasswordResetInfoModal
+          <CredentialRequestInfoModal
             accountTitle={resetRequestInfo.title}
+            requestKind={resetRequestInfo.kind}
             hasDefaultPassword={resetRequestInfo.hasDefaultPassword}
             checkForNewPassword={resetRequestInfo.checkForNewPassword}
             submitting={requestingReset === resetRequestInfo.type}
-            onSubmit={() => requestReset(resetRequestInfo.type)}
+            onSubmit={() =>
+              resetRequestInfo.kind === "ACCOUNT_CREATION"
+                ? requestAccount(resetRequestInfo.type)
+                : requestReset(resetRequestInfo.type)
+            }
             onClose={() => setResetRequestInfo(null)}
           />
         )}
@@ -7202,20 +7489,21 @@ function ModuleControlsPage({ token }) {
   const displayName = (key) =>
     key === "VOUCHER"
       ? "WiFi Voucher"
-      : key === "PASSWORD_RESET_REQUEST"
-        ? "Password reset requests"
+      : key === "SATP"
+        ? "SATP"
         : key.charAt(0) + key.slice(1).toLowerCase();
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
       <PageHeader
-        title="Credential visibility controls"
-        description="Choose which credentials students can see and place individual modules or the entire kiosk under maintenance."
+        title="Credential controls"
+        description="Manage credential visibility, maintenance, and which requests students can submit."
       />
       <section className="panel module-control-panel">
         <div className="course-intro">
           Disabling a credential removes it from the kiosk. Setting Kiosk
-          maintenance replaces the entire dispenser with a maintenance screen.
+          maintenance replaces the entire dispenser with a maintenance screen.{" "}
+          Pausing requests does not remove requests that are already pending.
         </div>
         {error && <p className="error">{error}</p>}
         <div className="module-control-table-wrap">
@@ -7225,82 +7513,154 @@ function ModuleControlsPage({ token }) {
                 <th>Credential section</th>
                 <th>Visibility</th>
                 <th>Maintenance</th>
+                <th>Password resets</th>
+                <th>New accounts</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {controls.map((item) => (
-                <tr key={item.module_key}>
-                  <td>
-                    <b>{displayName(item.module_key)}</b>
-                    {item.module_key === "KIOSK" && (
-                      <small>Controls the complete student dispenser</small>
-                    )}
-                  </td>
-                  <td>
-                    {item.module_key === "KIOSK" ? (
-                      <span className="muted-cell">
-                        Controlled by maintenance
-                      </span>
-                    ) : (
-                      <Status tone={item.is_visible ? "green" : "gold"}>
-                        {item.is_visible ? "Enabled" : "Disabled"}
-                      </Status>
-                    )}
-                  </td>
-                  <td>
-                    {item.module_key === "PASSWORD_RESET_REQUEST" ? (
-                      <span className="muted-cell">Not applicable</span>
-                    ) : (
-                      <Status tone={item.is_maintenance ? "gold" : "green"}>
-                        {item.is_maintenance ? "Maintenance" : "Normal"}
-                      </Status>
-                    )}
-                  </td>
-                  <td>
-                    <div className="module-control-actions">
-                      {item.module_key !== "KIOSK" && (
-                        <button
-                          className={`btn ${item.is_visible ? "danger" : "primary"}`}
-                          disabled={Boolean(busy)}
-                          onClick={() =>
-                            setPendingChange({
-                              item,
-                              values: { isVisible: !item.is_visible },
-                              action: "visibility",
-                            })
-                          }
-                        >
-                          {busy === `${item.module_key}-visibility`
-                            ? "Saving..."
-                            : item.is_visible
-                              ? "Disable"
-                              : "Enable"}
-                        </button>
-                      )}
-                      {item.module_key !== "PASSWORD_RESET_REQUEST" && (
-                        <button
-                          className={`btn ${item.is_maintenance ? "secondary" : "maintenance"}`}
-                          disabled={Boolean(busy)}
-                          onClick={() =>
-                            setPendingChange({
-                              item,
-                              values: { isMaintenance: !item.is_maintenance },
-                              action: "maintenance",
-                            })
-                          }
-                        >
-                          {busy === `${item.module_key}-maintenance`
-                            ? "Saving..."
-                            : item.is_maintenance
-                              ? "Set normal"
-                              : "Set maintenance"}
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {controls
+                .filter((item) => item.module_key !== "PASSWORD_RESET_REQUEST")
+                .map((item) => {
+                  const options = credentialRequestOptions(
+                    item.module_key,
+                    item,
+                  );
+                  return (
+                    <tr key={item.module_key}>
+                      <td>
+                        <b>{displayName(item.module_key)}</b>
+                        {item.module_key === "KIOSK" && (
+                          <small>Controls the complete student dispenser</small>
+                        )}
+                        {item.module_key === "SATP" && (
+                          <small>Uses Google sign-in; no request buttons</small>
+                        )}
+                      </td>
+                      <td>
+                        {item.module_key === "KIOSK" ? (
+                          <span className="muted-cell">
+                            Controlled by maintenance
+                          </span>
+                        ) : (
+                          <Status tone={item.is_visible ? "green" : "gold"}>
+                            {item.is_visible ? "Enabled" : "Disabled"}
+                          </Status>
+                        )}
+                      </td>
+                      <td>
+                        <Status tone={item.is_maintenance ? "gold" : "green"}>
+                          {item.is_maintenance ? "Maintenance" : "Normal"}
+                        </Status>
+                      </td>
+                      <td>
+                        {PASSWORD_RESET_MODULES.includes(item.module_key) ? (
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-label={`Accept ${displayName(item.module_key)} password reset requests`}
+                            aria-checked={options.passwordResets}
+                            className="module-request-toggle"
+                            disabled={Boolean(busy)}
+                            onClick={() =>
+                              update(
+                                item,
+                                {
+                                  acceptPasswordResets: !options.passwordResets,
+                                },
+                                "password-resets",
+                              )
+                            }
+                          >
+                            <i aria-hidden="true" />
+                            <span>
+                              {busy === `${item.module_key}-password-resets`
+                                ? "Saving..."
+                                : options.passwordResets
+                                  ? "Accepting"
+                                  : "Paused"}
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="muted-cell">Not applicable</span>
+                        )}
+                      </td>
+                      <td>
+                        {ACCOUNT_REQUEST_MODULES.includes(item.module_key) ? (
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-label={`Accept ${displayName(item.module_key)} new-account requests`}
+                            aria-checked={options.accountRequests}
+                            className="module-request-toggle"
+                            disabled={Boolean(busy)}
+                            onClick={() =>
+                              update(
+                                item,
+                                {
+                                  acceptAccountRequests:
+                                    !options.accountRequests,
+                                },
+                                "account-requests",
+                              )
+                            }
+                          >
+                            <i aria-hidden="true" />
+                            <span>
+                              {busy === `${item.module_key}-account-requests`
+                                ? "Saving..."
+                                : options.accountRequests
+                                  ? "Accepting"
+                                  : "Paused"}
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="muted-cell">Not applicable</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="module-control-actions">
+                          {item.module_key !== "KIOSK" && (
+                            <button
+                              className={`btn ${item.is_visible ? "danger" : "primary"}`}
+                              disabled={Boolean(busy)}
+                              onClick={() =>
+                                setPendingChange({
+                                  item,
+                                  values: { isVisible: !item.is_visible },
+                                  action: "visibility",
+                                })
+                              }
+                            >
+                              {busy === `${item.module_key}-visibility`
+                                ? "Saving..."
+                                : item.is_visible
+                                  ? "Disable"
+                                  : "Enable"}
+                            </button>
+                          )}
+                          <button
+                            className={`btn ${item.is_maintenance ? "secondary" : "maintenance"}`}
+                            disabled={Boolean(busy)}
+                            onClick={() =>
+                              setPendingChange({
+                                item,
+                                values: { isMaintenance: !item.is_maintenance },
+                                action: "maintenance",
+                              })
+                            }
+                          >
+                            {busy === `${item.module_key}-maintenance`
+                              ? "Saving..."
+                              : item.is_maintenance
+                                ? "Set normal"
+                                : "Set maintenance"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>
@@ -7477,7 +7837,9 @@ function TransactionsPage({ token }) {
           <strong>{listing.total}</strong>
         </article>
         <article>
-          <span>{appliedSearch ? "Matching reveals today" : "Reveals today"}</span>
+          <span>
+            {appliedSearch ? "Matching reveals today" : "Reveals today"}
+          </span>
           <strong>{listing.today}</strong>
         </article>
         <article>
@@ -7534,7 +7896,7 @@ function TransactionsPage({ token }) {
                 <input
                   type="search"
                   aria-label="Search transactions"
-                  placeholder="Student name, ID, or kiosk"
+                  placeholder="Search all columns"
                   maxLength={200}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -7611,11 +7973,13 @@ function TransactionsPage({ token }) {
         ) : !loading && !error ? (
           <Empty
             title={
-              appliedSearch ? "No matching transactions" : "No password reveals yet"
+              appliedSearch
+                ? "No matching transactions"
+                : "No password reveals yet"
             }
             detail={
               appliedSearch
-                ? "Try another student name, student ID, or kiosk code."
+                ? "Try another search term or choose another academic period."
                 : "There are no recorded password reveals for this academic period."
             }
           />
@@ -7946,19 +8310,35 @@ function RemindersPage({ token }) {
   );
 }
 
-async function sendRequestReview(id, action, reviewToken, token, keepalive = false) {
+async function sendRequestReview(
+  id,
+  action,
+  reviewToken,
+  token,
+  keepalive = false,
+) {
   const path = `/admin/password-reset-requests/${id}/review${action === "acquire" ? "" : `/${action}`}`;
   const options = {
     method: "POST",
-    headers: { Authorization: `Bearer ${adminApi.getAccessToken() || token}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${adminApi.getAccessToken() || token}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ reviewToken }),
   };
   const response = keepalive
-    ? await fetch(`${API}${path}`, { ...options, credentials: "same-origin", keepalive: true })
+    ? await fetch(`${API}${path}`, {
+        ...options,
+        credentials: "same-origin",
+        keepalive: true,
+      })
     : await adminFetch(path, options);
   const data = response.status === 204 ? null : await response.json();
   if (!response.ok)
-    throw Object.assign(new Error(data?.message || "Unable to update the request review."), { status: response.status });
+    throw Object.assign(
+      new Error(data?.message || "Unable to update the request review."),
+      { status: response.status },
+    );
   return data;
 }
 
@@ -8006,7 +8386,9 @@ function PasswordResetRequestsPage({ token }) {
   reviewAuthToken.current = token;
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, []);
   const headers = { Authorization: `Bearer ${token}` };
   const load = () => refreshRequests.current?.();
@@ -8028,7 +8410,9 @@ function PasswordResetRequestsPage({ token }) {
     const expire = () => {
       if (!active) return;
       setSelected(null);
-      setError("Your review session ended. Review the request again before continuing.");
+      setError(
+        "Your review session ended. Review the request again before continuing.",
+      );
       load();
     };
     const resetExpiry = (leaseMs) => {
@@ -8040,8 +8424,16 @@ function PasswordResetRequestsPage({ token }) {
       renewing = true;
       const startedAt = performance.now();
       try {
-        const result = await sendRequestReview(session.id, "renew", session.token, reviewAuthToken.current);
-        if (active) resetExpiry(Math.max(0, result.leaseMs - (performance.now() - startedAt)));
+        const result = await sendRequestReview(
+          session.id,
+          "renew",
+          session.token,
+          reviewAuthToken.current,
+        );
+        if (active)
+          resetExpiry(
+            Math.max(0, result.leaseMs - (performance.now() - startedAt)),
+          );
       } catch (err) {
         if ([401, 403, 404, 409].includes(err.status)) expire();
         // Network failures are allowed only until the last confirmed lease ends.
@@ -8049,12 +8441,21 @@ function PasswordResetRequestsPage({ token }) {
         renewing = false;
       }
     };
-    const release = (keepalive) => sendRequestReview(session.id, "release", session.token, reviewAuthToken.current, keepalive).catch(() => {});
+    const release = (keepalive) =>
+      sendRequestReview(
+        session.id,
+        "release",
+        session.token,
+        reviewAuthToken.current,
+        keepalive,
+      ).catch(() => {});
     const pageHide = () => {
       void release(true);
       setSelected(null);
     };
-    const visibilityChange = () => { if (document.visibilityState === "visible") void renew(); };
+    const visibilityChange = () => {
+      if (document.visibilityState === "visible") void renew();
+    };
     resetExpiry(selected.leaseMs);
     const timer = setInterval(renew, 20000);
     window.addEventListener("focus", renew);
@@ -8067,7 +8468,9 @@ function PasswordResetRequestsPage({ token }) {
       window.removeEventListener("focus", renew);
       window.removeEventListener("pagehide", pageHide);
       document.removeEventListener("visibilitychange", visibilityChange);
-      void release(!mounted.current).finally(() => { if (mounted.current) load(); });
+      void release(!mounted.current).finally(() => {
+        if (mounted.current) load();
+      });
     };
   }, [selected?.id, selected?.reviewToken]);
   useEffect(() => {
@@ -8088,10 +8491,13 @@ function PasswordResetRequestsPage({ token }) {
       }
       loading = true;
       try {
-        const next = await request(`/admin/password-reset-requests${appliedSearch ? `?search=${encodeURIComponent(appliedSearch)}` : ""}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
+        const next = await request(
+          `/admin/password-reset-requests${appliedSearch ? `?search=${encodeURIComponent(appliedSearch)}` : ""}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
         if (controller.signal.aborted) return;
         const snapshot = JSON.stringify(next);
         if (snapshot !== lastSnapshot) {
@@ -8224,14 +8630,31 @@ function PasswordResetRequestsPage({ token }) {
     try {
       const bytes = new Uint8Array(32);
       crypto.getRandomValues(bytes);
-      reviewToken = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      reviewToken = Array.from(bytes, (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
       const startedAt = performance.now();
-      const review = await sendRequestReview(item.id, "acquire", reviewToken, reviewAuthToken.current);
+      const review = await sendRequestReview(
+        item.id,
+        "acquire",
+        reviewToken,
+        reviewAuthToken.current,
+      );
       if (!mounted.current) {
-        void sendRequestReview(item.id, "release", reviewToken, reviewAuthToken.current, true).catch(() => {});
+        void sendRequestReview(
+          item.id,
+          "release",
+          reviewToken,
+          reviewAuthToken.current,
+          true,
+        ).catch(() => {});
         return;
       }
-      setSelected({ ...item, reviewToken, leaseMs: Math.max(0, review.leaseMs - (performance.now() - startedAt)) });
+      setSelected({
+        ...item,
+        reviewToken,
+        leaseMs: Math.max(0, review.leaseMs - (performance.now() - startedAt)),
+      });
       load();
     } catch (err) {
       if (mounted.current) {
@@ -8239,7 +8662,14 @@ function PasswordResetRequestsPage({ token }) {
         load();
       }
       // The acquisition may have succeeded even when its response was lost.
-      if (reviewToken) void sendRequestReview(item.id, "release", reviewToken, reviewAuthToken.current, true).catch(() => {});
+      if (reviewToken)
+        void sendRequestReview(
+          item.id,
+          "release",
+          reviewToken,
+          reviewAuthToken.current,
+          true,
+        ).catch(() => {});
     } finally {
       openingReviewRef.current = false;
       if (mounted.current) setOpeningReview(null);
@@ -8342,11 +8772,15 @@ function PasswordResetRequestsPage({ token }) {
       />
       <section className="student-summary reset-request-summary">
         <article>
-          <span>{appliedSearch ? "Matching pending requests" : "Pending requests"}</span>
+          <span>
+            {appliedSearch ? "Matching pending requests" : "Pending requests"}
+          </span>
           <strong>{pending}</strong>
         </article>
         <article>
-          <span>{appliedSearch ? "Matching password resets" : "Password resets"}</span>
+          <span>
+            {appliedSearch ? "Matching password resets" : "Password resets"}
+          </span>
           <strong>
             {
               requests.filter(
@@ -8358,7 +8792,9 @@ function PasswordResetRequestsPage({ token }) {
           </strong>
         </article>
         <article>
-          <span>{appliedSearch ? "Matching account requests" : "Account requests"}</span>
+          <span>
+            {appliedSearch ? "Matching account requests" : "Account requests"}
+          </span>
           <strong>
             {
               requests.filter(
@@ -8370,7 +8806,9 @@ function PasswordResetRequestsPage({ token }) {
           </strong>
         </article>
         <article>
-          <span>{appliedSearch ? "Matching voucher requests" : "Voucher requests"}</span>
+          <span>
+            {appliedSearch ? "Matching voucher requests" : "Voucher requests"}
+          </span>
           <strong>
             {
               requests.filter(
@@ -8426,7 +8864,7 @@ function PasswordResetRequestsPage({ token }) {
                 <input
                   type="search"
                   aria-label="Search credential requests"
-                  placeholder="Student name, ID, course, or account"
+                  placeholder="Search all columns"
                   maxLength={200}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -8434,7 +8872,9 @@ function PasswordResetRequestsPage({ token }) {
               </span>
             </label>
             <small role={loadingRequests ? "status" : undefined}>
-              {loadingRequests ? "Loading requests..." : "Pending first · Newest first"}
+              {loadingRequests
+                ? "Loading requests..."
+                : "Pending first · Newest first"}
             </small>
           </div>
         </div>
@@ -8536,12 +8976,25 @@ function PasswordResetRequestsPage({ token }) {
                         <div className="request-review-action">
                           <Button
                             variant="secondary"
-                            disabled={Boolean(item.reviewing_until) || openingReview !== null}
+                            disabled={
+                              Boolean(item.reviewing_until) ||
+                              openingReview !== null
+                            }
                             onClick={() => reviewRequest(item)}
                           >
-                            {openingReview === item.id ? "Opening..." : item.reviewing_until ? "Being reviewed" : "Review request"}
+                            {openingReview === item.id
+                              ? "Opening..."
+                              : item.reviewing_until
+                                ? "Being reviewed"
+                                : "Review request"}
                           </Button>
-                          {item.reviewing_until && <small>Reviewing: {item.reviewing_by_name || "Another administrator"}</small>}
+                          {item.reviewing_until && (
+                            <small>
+                              Reviewing:{" "}
+                              {item.reviewing_by_name ||
+                                "Another administrator"}
+                            </small>
+                          )}
                         </div>
                       ) : (
                         <div className="resolved-request-action">
@@ -8592,13 +9045,17 @@ function PasswordResetRequestsPage({ token }) {
           </div>
         ) : (
           <Empty
-            title={appliedSearch ? "No matching requests" : `No ${queueFilter === "ALL" ? "credential" : queueFilter.toLowerCase()} requests`}
+            title={
+              appliedSearch
+                ? "No matching requests"
+                : `No ${queueFilter === "ALL" ? "credential" : queueFilter.toLowerCase()} requests`
+            }
             detail={
               appliedSearch
-                ? "Try another name, ID, course, or account, or change the queue filter."
+                ? "Try another search term or change the queue filter."
                 : queueFilter === "PENDING"
-                ? "There are no requests waiting for administrator action."
-                : "No requests match this queue filter."
+                  ? "There are no requests waiting for administrator action."
+                  : "No requests match this queue filter."
             }
           />
         )}
@@ -8608,7 +9065,8 @@ function PasswordResetRequestsPage({ token }) {
           <div
             className="modal-backdrop credential-request-overlay"
             onMouseDown={(event) => {
-              if (!saving && event.target === event.currentTarget) setSelected(null);
+              if (!saving && event.target === event.currentTarget)
+                setSelected(null);
             }}
           >
             <section
@@ -8851,6 +9309,15 @@ function PasswordResetRequestsPage({ token }) {
 }
 
 function AdminUsersPage({ token }) {
+  const requestPermissionsLabel = (user) => {
+    const count = effectiveRequestPermissions(
+      user.requestPermissions,
+      user.role_name,
+    ).length;
+    return count === REQUEST_PERMISSION_KEYS.length
+      ? "All request types"
+      : `${count} request permissions`;
+  };
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [editor, setEditor] = useState(null);
@@ -8996,41 +9463,65 @@ function AdminUsersPage({ token }) {
               { data: "role_name" },
               { data: "is_active" },
               { data: "last_login" },
-              null,
+              { data: null, orderable: false, searchable: false },
             ]}
             slots={{
-              0: (_data, row) => (
-                <span className="student-cell">
-                  <b>{row.full_name}</b>
-                  <small>
-                    Added {new Date(row.created_at).toLocaleDateString()}
-                  </small>
-                </span>
-              ),
-              1: (data) => <span className="admin-email">{data}</span>,
-              2: (data, row) => (
-                <span className="admin-role-cell">
-                  <Status tone={data === "Super Admin" ? "green" : "gold"}>
-                    {data}
+              0: (_data, type, row) =>
+                type === "display" ? (
+                  <span className="student-cell">
+                    <b>{row.full_name}</b>
+                    <small>
+                      Added {new Date(row.created_at).toLocaleDateString()}
+                    </small>
+                  </span>
+                ) : type === "filter" ? (
+                  `${row.full_name} Added ${dateSearchText(row.created_at)}`
+                ) : (
+                  row.full_name || ""
+                ),
+              1: (data, type, _row) =>
+                type === "display" ? (
+                  <span className="admin-email">{data}</span>
+                ) : (
+                  String(data ?? "")
+                ),
+              2: (data, type, row) =>
+                type === "display" ? (
+                  <span className="admin-role-cell">
+                    <Status tone={data === "Super Admin" ? "green" : "gold"}>
+                      {data}
+                    </Status>
+                    <small>{requestPermissionsLabel(row)}</small>
+                  </span>
+                ) : type === "filter" ? (
+                  `${data} ${requestPermissionsLabel(row)}`
+                ) : (
+                  String(data ?? "")
+                ),
+              3: (data, type, _row) =>
+                type === "display" ? (
+                  <Status tone={data ? "green" : "danger"}>
+                    {data ? "Active" : "Inactive"}
                   </Status>
-                  <small>
-                    {effectiveRequestPermissions(row.requestPermissions, data)
-                      .length === REQUEST_PERMISSION_KEYS.length
-                      ? "All request types"
-                      : effectiveRequestPermissions(
-                          row.requestPermissions,
-                          data,
-                        ).length + " request permissions"}
-                  </small>
-                </span>
-              ),
-              3: (data) => (
-                <Status tone={data ? "green" : "danger"}>
-                  {data ? "Active" : "Inactive"}
-                </Status>
-              ),
-              4: (data) =>
-                data ? (
+                ) : type === "filter" ? (
+                  data ? (
+                    "Active"
+                  ) : (
+                    "Inactive"
+                  )
+                ) : (
+                  Number(data)
+                ),
+              4: (data, type, _row) =>
+                type === "filter" ? (
+                  data ? (
+                    dateSearchText(data)
+                  ) : (
+                    "Never"
+                  )
+                ) : type !== "display" ? (
+                  data || ""
+                ) : data ? (
                   new Date(data).toLocaleString()
                 ) : (
                   <span className="muted-cell">Never</span>
@@ -9732,7 +10223,7 @@ function VouchersPage({ token }) {
           <RecordsTableControls
             search={searchInput}
             searchLabel="Search vouchers or students"
-            searchPlaceholder="Search code, name or ID"
+            searchPlaceholder="Search all columns"
             onSearchChange={setSearchInput}
             pageSize={limit}
             pageSizeLabel="Vouchers per page"
@@ -10102,7 +10593,7 @@ function StudentsPage({ token }) {
           <RecordsTableControls
             search={search}
             searchLabel="Search students"
-            searchPlaceholder="Search name or ID"
+            searchPlaceholder="Search all columns"
             onSearchChange={(value) => {
               setSearch(value);
               setPage(1);
@@ -10319,11 +10810,12 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
       })
       .catch((e) => setError(e.message));
   }, []);
-  const update = (key, value) => setForm((current) => ({
-    ...current,
-    [key]: value,
-    ...(key === "emailAddress" && !value.trim() ? { emailPassword: "" } : {}),
-  }));
+  const update = (key, value) =>
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(key === "emailAddress" && !value.trim() ? { emailPassword: "" } : {}),
+    }));
   const generateVoucher = async () => {
     try {
       const data = await request(
@@ -10550,9 +11042,10 @@ class AppErrorBoundary extends Component {
             <button
               className="btn primary wide"
               onClick={() => {
-                adminApi.logout().catch(() => {}).finally(() =>
-                  location.assign(`${APP_BASE}/admin`),
-                );
+                adminApi
+                  .logout()
+                  .catch(() => {})
+                  .finally(() => location.assign(`${APP_BASE}/admin`));
               }}
             >
               Return to admin login

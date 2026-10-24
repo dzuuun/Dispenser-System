@@ -19,10 +19,13 @@ async function updateReview(req, res, renew) {
       const review = await readRequestReview(connection, id);
       if (
         review?.is_live &&
-        (Number(review.admin_user_id) !== Number(req.admin.sub) || review.review_token !== token)
+        (Number(review.admin_user_id) !== Number(req.admin.sub) ||
+          review.review_token !== token)
       ) {
         throw Object.assign(
-          new Error(`This request is already being reviewed by ${review.reviewer_name || "another administrator"}.`),
+          new Error(
+            `This request is already being reviewed by ${review.reviewer_name || "another administrator"}.`,
+          ),
           { status: 409 },
         );
       }

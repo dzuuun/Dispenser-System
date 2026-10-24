@@ -16,7 +16,14 @@ function setup() {
     },
     clearInterval: (id) => timers.delete(id),
   });
-  return { title, document, timers, tick: () => { for (const callback of timers.values()) callback(); } };
+  return {
+    title,
+    document,
+    timers,
+    tick: () => {
+      for (const callback of timers.values()) callback();
+    },
+  };
 }
 
 test("initial pending count appears in the tab without treating old requests as new", () => {
@@ -73,7 +80,11 @@ test("resolutions update the count and zero pending restores the original title"
   tick();
   assert.equal(document.title, "NDMU Credentials Dispenser");
   title.update({ count: 1, latestPendingId: "1" });
-  assert.equal(timers.size, 1, "a count increase still detects requests on an older API");
+  assert.equal(
+    timers.size,
+    1,
+    "a count increase still detects requests on an older API",
+  );
 });
 
 test("logout clears the animation and prevents a late response from changing the title", () => {

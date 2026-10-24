@@ -174,9 +174,18 @@ test("historical table pagination and summaries use the selected transaction per
   assert.doesNotMatch(listing.sql, /s.academic_period_id/);
 });
 
-test("search applies the same bound name, student ID, and kiosk filter before counting and pagination", async (t) => {
+test("search applies all displayed transaction fields before counting and pagination", async (t) => {
   const { get, calls } = await setup(t, { count: 31 });
-  for (const term of ["Test Student", "0012345", "KIOSK-01", "Pe\u00f1a"]) {
+  for (const term of [
+    "Test Student",
+    "0012345",
+    "KIOSK-01",
+    "Pe\u00f1a",
+    "BSIT",
+    "Revealed",
+    "10/22/2026",
+    "10:59:40 AM",
+  ]) {
     const start = calls.length;
     const response = await get(
       `/transactions?academicPeriodId=3&page=2&limit=10&search=${encodeURIComponent(term)}`,
@@ -189,18 +198,37 @@ test("search applies the same bound name, student ID, and kiosk filter before co
     assert.equal(body.total, 31);
     assert.equal(body.studentsServed, 1);
     const queries = calls.slice(start);
-    const summary = queries.find(({ sql }) => sql.includes("COUNT(*) AS total"));
+    const summary = queries.find(({ sql }) =>
+      sql.includes("COUNT(*) AS total"),
+    );
     const listing = queries.find(({ sql }) => sql.includes("LIMIT ? OFFSET ?"));
-    assert.deepEqual(summary.values, [3, `%${term}%`, `%${term}%`, `%${term}%`]);
+    assert.deepEqual(summary.values, [3, ...Array(13).fill(`%${term}%`)]);
     assert.deepEqual(listing.values, [...summary.values, 10, 10]);
     for (const { sql } of [summary, listing]) {
       assert.match(sql, /LEFT JOIN students s ON s.id=t.student_id/);
-      assert.match(sql, /WHERE t.academic_period_id=\? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1 AND \(/);
+      assert.match(
+        sql,
+        /WHERE t.academic_period_id=\? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1 AND \(/,
+      );
       assert.match(sql, /s.student_id LIKE \? ESCAPE '!'/);
-      assert.match(sql, /CONCAT_WS\(' ', NULLIF\(s.first_name, ''\), NULLIF\(s.middle_name, ''\), NULLIF\(s.last_name, ''\)\) LIKE \? ESCAPE '!'/);
+      assert.match(
+        sql,
+        /CONCAT_WS\(' ', NULLIF\(s.first_name, ''\), NULLIF\(s.middle_name, ''\), NULLIF\(s.last_name, ''\)\) LIKE \? ESCAPE '!'/,
+      );
       assert.match(sql, /OR t.kiosk_code LIKE \? ESCAPE '!'/);
+      assert.match(sql, /LEFT JOIN courses c ON c.id=s.course_id/);
+      assert.match(sql, /c\.code LIKE \? ESCAPE '!'/);
+      assert.match(sql, /'Revealed' LIKE \? ESCAPE '!'/);
+      assert.match(sql, /THEN 'Unknown student'/);
+      assert.match(
+        sql,
+        /DATE_FORMAT\(t\.created_at, '%c\/%e\/%Y, %l:%i:%s %p'\)/,
+      );
       assert.doesNotMatch(sql, /s.academic_period_id/);
-      assert.ok(!sql.includes(term), "Search text must remain a bound SQL value");
+      assert.ok(
+        !sql.includes(`LIKE '%${term}%'`),
+        "Search text must remain a bound SQL value",
+      );
     }
   }
 });
@@ -219,8 +247,8 @@ test("search normalizes whitespace and treats wildcard and SQL characters litera
   assert.deepEqual(body.rows, []);
   const summary = calls.find(({ sql }) => sql.includes("COUNT(*) AS total"));
   const pattern = "%KIOSK!_100!%!! ' OR 1=1 --%";
-  assert.deepEqual(summary.values, [8, pattern, pattern, pattern]);
-  assert.deepEqual(calls.at(-1).values, [8, pattern, pattern, pattern, 10, 0]);
+  assert.deepEqual(summary.values, [8, ...Array(13).fill(pattern)]);
+  assert.deepEqual(calls.at(-1).values, [8, ...Array(13).fill(pattern), 10, 0]);
   assert.ok(calls.every(({ sql }) => !sql.includes("OR 1=1")));
 });
 

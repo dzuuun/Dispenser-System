@@ -9,9 +9,12 @@ export function importPreview(groups, query = {}) {
     (category && !Object.hasOwn(groups, category)) ||
     (query.offset !== undefined &&
       (typeof query.offset !== "string" || !/^\d+$/.test(query.offset))) ||
-    !Number.isSafeInteger(offset) || offset < 0
+    !Number.isSafeInteger(offset) ||
+    offset < 0
   ) {
-    throw Object.assign(new Error("Invalid import preview page."), { status: 400 });
+    throw Object.assign(new Error("Invalid import preview page."), {
+      status: 400,
+    });
   }
   const page = (records, start = 0) => ({
     records: records.slice(start, start + PAGE_SIZE),
@@ -28,8 +31,9 @@ export function importPreview(groups, query = {}) {
       };
 }
 
-export const importErrorPreview = (errors) => errors.map((error) => ({
-  row: error.row,
-  label: error.message,
-  message: "This row will be skipped.",
-}));
+export const importErrorPreview = (errors) =>
+  errors.map((error) => ({
+    row: error.row,
+    label: error.message,
+    message: "This row will be skipped.",
+  }));

@@ -5,7 +5,8 @@ export function createKioskActivityTracker(now = () => performance.now()) {
   let lastInteraction = null;
   let viewing = false;
   const snapshot = () => {
-    const idleMs = lastInteraction === null ? null : Math.max(0, now() - lastInteraction);
+    const idleMs =
+      lastInteraction === null ? null : Math.max(0, now() - lastInteraction);
     if (idleMs === null || idleMs >= KIOSK_IDLE_MS)
       return { state: "IDLE", idleMs: null };
     return {

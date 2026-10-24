@@ -1,4 +1,8 @@
 import { pool } from "../config/db.js";
+import {
+  ACCOUNT_REQUEST_MODULES,
+  PASSWORD_RESET_MODULES,
+} from "../../shared/credential-request-controls.mjs";
 
 const MODULES = new Set([
   "VOUCHER",
@@ -7,12 +11,11 @@ const MODULES = new Set([
   "KUMOSOFT",
   "EMAIL",
   "KIOSK",
-  "PASSWORD_RESET_REQUEST",
 ]);
 
 export async function listModuleControls(_req, res) {
   const [rows] = await pool.query(
-    "SELECT module_key, is_visible, is_maintenance, updated_at FROM credential_module_controls ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','PASSWORD_RESET_REQUEST','KIOSK')",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, updated_at FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST' ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','KIOSK')",
   );
   res.set("Cache-Control", "no-store").json(rows);
 }
@@ -23,21 +26,44 @@ export async function updateModuleControl(req, res) {
     return res.status(404).json({ message: "Credential module not found." });
   const isVisible = req.body?.isVisible;
   const isMaintenance = req.body?.isMaintenance;
+  const acceptPasswordResets = req.body?.acceptPasswordResets;
+  const acceptAccountRequests = req.body?.acceptAccountRequests;
+  const settings = {
+    isVisible,
+    isMaintenance,
+    acceptPasswordResets,
+    acceptAccountRequests,
+  };
+  if (
+    Object.values(settings).some(
+      (value) => value !== undefined && typeof value !== "boolean",
+    )
+  )
+    return res
+      .status(400)
+      .json({ message: "Control settings must be true or false." });
+  if (
+    acceptPasswordResets !== undefined &&
+    !PASSWORD_RESET_MODULES.includes(moduleKey)
+  )
+    return res.status(400).json({
+      message: "Password reset requests are not supported for this module.",
+    });
+  if (
+    acceptAccountRequests !== undefined &&
+    !ACCOUNT_REQUEST_MODULES.includes(moduleKey)
+  )
+    return res.status(400).json({
+      message: "New-account requests are not supported for this module.",
+    });
   if (moduleKey === "KIOSK" && typeof isVisible === "boolean")
     return res
       .status(400)
       .json({ message: "Use maintenance mode to control the kiosk." });
-  if (
-    moduleKey === "PASSWORD_RESET_REQUEST" &&
-    typeof isMaintenance === "boolean"
-  )
-    return res
-      .status(400)
-      .json({ message: "Use visibility to control password reset requests." });
-  if (typeof isVisible !== "boolean" && typeof isMaintenance !== "boolean")
-    return res
-      .status(400)
-      .json({ message: "Choose a visibility or maintenance setting." });
+  if (Object.values(settings).every((value) => value === undefined))
+    return res.status(400).json({
+      message: "Choose a visibility, maintenance, or request setting.",
+    });
   const [[currentControl]] = await pool.execute(
     "SELECT is_maintenance FROM credential_module_controls WHERE module_key=?",
     [moduleKey],
@@ -53,6 +79,14 @@ export async function updateModuleControl(req, res) {
   if (typeof isMaintenance === "boolean") {
     assignments.push("is_maintenance=?");
     values.push(isMaintenance);
+  }
+  if (typeof acceptPasswordResets === "boolean") {
+    assignments.push("accept_password_resets=?");
+    values.push(acceptPasswordResets);
+  }
+  if (typeof acceptAccountRequests === "boolean") {
+    assignments.push("accept_account_requests=?");
+    values.push(acceptAccountRequests);
   }
   values.push(moduleKey);
   await pool.execute(
@@ -76,7 +110,7 @@ export async function updateModuleControl(req, res) {
 
 export async function publicModuleControls(_req, res) {
   const [rows] = await pool.query(
-    "SELECT module_key, is_visible, is_maintenance FROM credential_module_controls",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
   );
   res.set("Cache-Control", "no-store").json(rows);
 }

@@ -1,5 +1,8 @@
 import { pool } from "../config/db.js";
-import { kioskActivityReport, withKioskUsage } from "../services/kiosk-activity.service.js";
+import {
+  kioskActivityReport,
+  withKioskUsage,
+} from "../services/kiosk-activity.service.js";
 
 const ONLINE_WINDOW_MINUTES = 5;
 const browserName = (userAgent = "") => {
@@ -47,7 +50,9 @@ export async function getKiosk(req, res) {
        FROM kiosk_commands WHERE kiosk_id=? ORDER BY id DESC LIMIT 8`,
     [req.params.id],
   );
-  res.set("Cache-Control", "no-store").json({ kiosk: withKioskUsage(kiosk), commands });
+  res
+    .set("Cache-Control", "no-store")
+    .json({ kiosk: withKioskUsage(kiosk), commands });
 }
 
 const actions = {

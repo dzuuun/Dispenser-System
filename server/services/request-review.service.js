@@ -19,7 +19,9 @@ export function reviewIdentity(req) {
   const id = Number(req.params.id);
   const token = req.body?.reviewToken;
   if (!Number.isSafeInteger(id) || id < 1)
-    throw Object.assign(new Error("Invalid credential request."), { status: 400 });
+    throw Object.assign(new Error("Invalid credential request."), {
+      status: 400,
+    });
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token))
     throw Object.assign(
       new Error("Open Review request to start a review session."),
@@ -66,7 +68,9 @@ export async function requireRequestReview(connection, req) {
     review.review_token !== token
   )
     throw Object.assign(
-      new Error("This review session has ended or is owned by another administrator. Close the dialog and review the request again."),
+      new Error(
+        "This review session has ended or is owned by another administrator. Close the dialog and review the request again.",
+      ),
       { status: 409 },
     );
 }

@@ -1,5 +1,12 @@
 import { pool } from "../config/db.js";
-import { clearRequestReview, requireRequestReview } from "../services/request-review.service.js";
+import {
+  tableSearch,
+  dateSearchFields,
+} from "../services/table-search.service.js";
+import {
+  clearRequestReview,
+  requireRequestReview,
+} from "../services/request-review.service.js";
 import {
   canHandleRequest,
   requestPermissionFilter,
@@ -35,17 +42,15 @@ export async function pendingCredentialRequestCount(req, res) {
 }
 
 export async function listPasswordResetRequests(req, res) {
-  const search = req.query?.search ?? "";
-  if (typeof search !== "string" || search.length > 200)
-    return res.status(400).json({ message: "Search must be 200 characters or fewer." });
-  const term = search.trim().replace(/\s+/g, " ");
   const filter = requestPermissionFilter(req.admin?.requestPermissions || []);
   const searchFields = [
     "s.student_id",
     "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
     "c.code",
     "pr.credential_type",
+    "CASE WHEN pr.credential_type='VOUCHER' THEN 'WiFi Voucher' ELSE pr.credential_type END",
     "REPLACE(pr.request_kind, '_', ' ')",
+    "CASE pr.request_kind WHEN 'ACCOUNT_CREATION' THEN 'Account creation' WHEN 'VOUCHER_REQUEST' THEN 'Replacement request' ELSE 'Password reset' END",
     `CASE pr.credential_type
       WHEN 'SATP' THEN satp.username
       WHEN 'SCHOOLOGY' THEN schoology.username
@@ -53,11 +58,17 @@ export async function listPasswordResetRequests(req, res) {
       WHEN 'EMAIL' THEN email.email_address
       WHEN 'VOUCHER' THEN voucher.voucher_code
     END`,
+    "pr.status",
+    "CASE WHEN pr.status<>'PENDING' THEN au.full_name END",
+    "CASE WHEN pr.status='PENDING' AND review.request_id IS NOT NULL THEN CONCAT('Being reviewed Reviewing: ', COALESCE(reviewer.full_name, 'Another administrator')) END",
+    ...dateSearchFields("pr.requested_at", { minuteOnly: true }),
+    ...dateSearchFields(
+      "CASE WHEN pr.status<>'PENDING' THEN pr.resolved_at END",
+      { minuteOnly: true },
+    ),
   ];
-  const searchWhere = term
-    ? ` AND (${searchFields.map((field) => `${field} LIKE ? ESCAPE '!'`).join(" OR ")})`
-    : "";
-  const pattern = `%${term.replace(/[!%_]/g, "!$&")}%`;
+  const search = tableSearch(req.query?.search, searchFields);
+  const searchWhere = search.sql ? ` AND ${search.sql}` : "";
   const [rows] = await pool.query(
     `SELECT pr.id, pr.credential_type, pr.request_kind, pr.request_reason, pr.status, pr.kiosk_code,
             pr.requested_at, pr.resolved_at,
@@ -104,7 +115,7 @@ export async function listPasswordResetRequests(req, res) {
       WHERE ${filter.sql}${searchWhere}
       ORDER BY (pr.status='PENDING') DESC, pr.requested_at DESC
       LIMIT 500`,
-    [...filter.values, ...(term ? searchFields.map(() => pattern) : [])],
+    [...filter.values, ...search.values],
   );
 
   res.set("Cache-Control", "no-store").json(
@@ -341,8 +352,14 @@ export async function rejectVoucherRequest(req, res) {
       "SELECT student_id, credential_type, request_kind FROM password_reset_requests WHERE id=? AND status='PENDING' FOR UPDATE",
       [id],
     );
-    if (!request || request.credential_type !== "VOUCHER" || request.request_kind !== "VOUCHER_REQUEST")
-      throw Object.assign(new Error("Pending voucher request not found."), { status: 404 });
+    if (
+      !request ||
+      request.credential_type !== "VOUCHER" ||
+      request.request_kind !== "VOUCHER_REQUEST"
+    )
+      throw Object.assign(new Error("Pending voucher request not found."), {
+        status: 404,
+      });
     await requireRequestReview(connection, req);
     const [result] = await connection.execute(
       `UPDATE password_reset_requests
@@ -351,10 +368,15 @@ export async function rejectVoucherRequest(req, res) {
       [req.admin.sub, id],
     );
     if (!result.affectedRows)
-      throw Object.assign(new Error("Pending voucher request not found."), { status: 404 });
+      throw Object.assign(new Error("Pending voucher request not found."), {
+        status: 404,
+      });
     await clearRequestReview(connection, id);
     await connection.commit();
-    res.json({ message: "Voucher request rejected. The student's current voucher was not changed." });
+    res.json({
+      message:
+        "Voucher request rejected. The student's current voucher was not changed.",
+    });
   } catch (error) {
     await connection.rollback();
     throw error;
