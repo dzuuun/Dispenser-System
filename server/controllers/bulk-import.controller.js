@@ -303,7 +303,11 @@ export async function exportAccountCredentials(req, res) {
 export async function reviewStudentRows(
   rows,
   executor = pool,
-  { updateExistingBirthdays = true } = {},
+  {
+    updateExistingBirthdays = true,
+    detectUnchanged = false,
+    academicPeriodId,
+  } = {},
 ) {
   const [courses] = await executor.query(
     "SELECT id, code FROM courses WHERE is_active=1",
@@ -312,17 +316,22 @@ export async function reviewStudentRows(
     courses.map((course) => [course.code.toUpperCase(), course.id]),
   );
   const [existingRows] = await executor.query(
-    `SELECT id, student_id, kumosoft_id${updateExistingBirthdays ? "" : ", birth_date"} FROM students`,
+    `SELECT id, student_id, kumosoft_id${detectUnchanged ? ", first_name, middle_name, last_name, birth_date, course_id, academic_period_id, is_active" : updateExistingBirthdays ? "" : ", birth_date"} FROM students`,
   );
   const existing = new Map(
     existingRows.map((student) => [student.student_id, student.id]),
   );
-  const existingBirthdays = new Map(existingRows.map((student) => [
-    student.student_id,
-    student.birth_date instanceof Date
-      ? student.birth_date.toISOString().slice(0, 10)
-      : String(student.birth_date ?? ""),
-  ]));
+  const existingDetails = new Map(
+    existingRows.map((student) => [student.student_id, student]),
+  );
+  const existingBirthdays = new Map(
+    existingRows.map((student) => [
+      student.student_id,
+      student.birth_date instanceof Date
+        ? student.birth_date.toISOString().slice(0, 10)
+        : String(student.birth_date ?? ""),
+    ]),
+  );
   const kumosoftOwnerMap = new Map(
     existingRows
       .filter((student) => student.kumosoft_id)
@@ -338,9 +347,10 @@ export async function reviewStudentRows(
     const firstName = rowValue(row, "FirstName", "GivenName");
     const middleName = rowValue(row, "MiddleName", "MiddleInitial");
     const lastName = rowValue(row, "LastName", "Surname");
-    const birthDate = !updateExistingBirthdays && existing.has(schoolId)
-      ? existingBirthdays.get(schoolId)
-      : rowValue(row, "BirthDate", "Birthday", "DateOfBirth");
+    const birthDate =
+      !updateExistingBirthdays && existing.has(schoolId)
+        ? existingBirthdays.get(schoolId)
+        : rowValue(row, "BirthDate", "Birthday", "DateOfBirth");
     const courseCode = rowValue(row, "CourseCode", "Course").toUpperCase();
     const rowNumber = index + 2;
     if (
@@ -381,6 +391,20 @@ export async function reviewStudentRows(
       });
     seen.add(schoolId);
     if (kumosoftId) seenKumosoftIds.add(kumosoftId);
+    const current = existingDetails.get(schoolId);
+    const unchanged =
+      detectUnchanged &&
+      current &&
+      current.first_name === firstName &&
+      (current.middle_name || null) === (middleName || null) &&
+      current.last_name === lastName &&
+      (current.kumosoft_id || null) ===
+        (kumosoftId || current.kumosoft_id || null) &&
+      (!updateExistingBirthdays ||
+        existingBirthdays.get(schoolId) === birthDate) &&
+      Number(current.course_id) === Number(courseMap.get(courseCode)) &&
+      Number(current.academic_period_id) === Number(academicPeriodId) &&
+      Number(current.is_active) === 1;
     items.push({
       row: rowNumber,
       schoolId,
@@ -391,7 +415,7 @@ export async function reviewStudentRows(
       birthDate,
       courseId: courseMap.get(courseCode),
       courseCode,
-      status: existing.has(schoolId) ? "update" : "new",
+      status: current ? (unchanged ? "unchanged" : "update") : "new",
       id: existing.get(schoolId),
     });
   });
@@ -399,8 +423,12 @@ export async function reviewStudentRows(
 }
 
 async function reviewStudentDeactivation(rows, executor = pool) {
-  const [students] = await executor.query("SELECT student_id FROM students");
-  const existing = new Set(students.map((student) => student.student_id));
+  const [students] = await executor.query(
+    "SELECT student_id, is_active FROM students",
+  );
+  const existing = new Map(
+    students.map((student) => [student.student_id, student]),
+  );
   const seen = new Set(),
     errors = [],
     items = [];
@@ -420,12 +448,26 @@ async function reviewStudentDeactivation(rows, executor = pool) {
         row: rowNumber,
         message: `Student ${schoolId} was not found.`,
       });
-    items.push({ row: rowNumber, schoolId, status: "new" });
+    items.push({
+      row: rowNumber,
+      schoolId,
+      status:
+        Number(existing.get(schoolId).is_active) === 0 ? "unchanged" : "new",
+    });
   });
   return { items, errors };
 }
 
-async function reviewAccounts(rows, config, executor = pool) {
+const sameImportedPassword = (account, password) => {
+  try {
+    return (decryptPassword(account) || null) === (password || null);
+  } catch {
+    // Unreadable stored credentials need an update, not an unchanged result.
+    return false;
+  }
+};
+
+async function reviewAccounts(rows, config, executor = pool, type) {
   const [students] = await executor.query(
     "SELECT id, student_id, kumosoft_id FROM students",
   );
@@ -438,16 +480,31 @@ async function reviewAccounts(rows, config, executor = pool) {
       .map((student) => [student.kumosoft_id, student.student_id]),
   );
   const [accounts] = await executor.query(
-    `SELECT student_id, ${config.column} AS account_name FROM ${config.table}`,
+    `SELECT student_id, ${config.column} AS account_name, encrypted_password, password_iv, password_auth_tag, is_active FROM ${config.table}`,
   );
-  const existing = new Set(
-    accounts.map((account) => Number(account.student_id)),
+  const existing = new Map(
+    accounts.map((account) => [Number(account.student_id), account]),
   );
   const accountOwnerMap = new Map(
     accounts.map((account) => [
       String(account.account_name).toLowerCase(),
       Number(account.student_id),
     ]),
+  );
+  let pending = [];
+  try {
+    [pending] = await executor.query(
+      "SELECT school_id, account_name, encrypted_password, password_iv, password_auth_tag FROM pending_account_imports WHERE account_type=?",
+      [type],
+    );
+  } catch (error) {
+    if (error.code !== "ER_NO_SUCH_TABLE") throw error;
+  }
+  const pendingBySchoolId = new Map(
+    pending.map((account) => [account.school_id, account]),
+  );
+  const studentDetails = new Map(
+    students.map((student) => [student.student_id, student]),
   );
   const seen = new Set(),
     seenKumosoftIds = new Set(),
@@ -539,6 +596,17 @@ async function reviewAccounts(rows, config, executor = pool) {
     seenLogins.add(loginKey);
     seen.add(schoolId);
     if (config.requiresKumosoftId) seenKumosoftIds.add(kumosoftId);
+    const account = studentId
+      ? existing.get(Number(studentId))
+      : pendingBySchoolId.get(schoolId);
+    const unchanged =
+      account &&
+      account.account_name === login &&
+      (!studentId || Number(account.is_active) === 1) &&
+      (!studentId ||
+        !config.requiresKumosoftId ||
+        studentDetails.get(schoolId).kumosoft_id === kumosoftId) &&
+      sameImportedPassword(account, password);
     items.push({
       row: rowNumber,
       schoolId,
@@ -551,7 +619,7 @@ async function reviewAccounts(rows, config, executor = pool) {
           : config.requiresKumosoftId
             ? kumosoftId
             : schoolId,
-      status: studentId && existing.has(Number(studentId)) ? "update" : "new",
+      status: !account ? "new" : unchanged ? "unchanged" : "update",
     });
   });
   return { items, errors };
@@ -564,16 +632,21 @@ async function review(type, file, executor = pool) {
   const rows = await readRows(file);
   const result =
     type === "students"
-      ? await reviewStudentRows(rows, executor)
+      ? await reviewStudentRows(rows, executor, {
+          detectUnchanged: true,
+          academicPeriodId: (await requireCurrentAcademicPeriod(executor)).id,
+        })
       : type === "student-deactivate"
         ? await reviewStudentDeactivation(rows, executor)
-        : await reviewAccounts(rows, config, executor);
+        : await reviewAccounts(rows, config, executor, type);
   return {
     ...result,
     rows,
     total: rows.length,
     new: result.items.filter((item) => item.status === "new").length,
     update: result.items.filter((item) => item.status === "update").length,
+    unchanged: result.items.filter((item) => item.status === "unchanged")
+      .length,
   };
 }
 
@@ -583,6 +656,7 @@ export async function upsertStudentRows(
   { updateExistingBirthdays = true } = {},
 ) {
   const period = await requireCurrentAcademicPeriod(connection);
+  items = items.filter((item) => item.status !== "unchanged");
   for (
     let start = 0;
     start < items.length;
@@ -619,6 +693,7 @@ export async function validateDataImport(req, res) {
     const groups = {
       new: [],
       update: [],
+      unchanged: [],
       error: importErrorPreview(result.errors),
     };
     for (const item of result.items) {
@@ -630,17 +705,20 @@ export async function validateDataImport(req, res) {
           : [item.schoolId, item.login !== item.schoolId && item.login]
               .filter(Boolean)
               .join(" — "),
-        message: isStudent
-          ? item.status === "new"
-            ? "Student will be created."
-            : "Student record will be updated."
-          : req.params.type === "student-deactivate"
-            ? "Student will be marked inactive."
-            : !item.studentId
-              ? "Account will be saved until its student is imported."
-              : item.status === "new"
-                ? "Account will be created."
-                : "Account will be updated.",
+        message:
+          item.status === "unchanged"
+            ? "No changes required. This record will be kept."
+            : isStudent
+              ? item.status === "new"
+                ? "Student will be created."
+                : "Student record will be updated."
+              : req.params.type === "student-deactivate"
+                ? "Student will be marked inactive."
+                : !item.studentId
+                  ? "Account will be saved until its student is imported."
+                  : item.status === "new"
+                    ? "Account will be created."
+                    : "Account will be updated.",
       });
     }
     const preview = importPreview(groups, req.query);
@@ -650,7 +728,7 @@ export async function validateDataImport(req, res) {
       total: result.total,
       new: result.new,
       update: result.update,
-      unchanged: 0,
+      unchanged: result.unchanged,
       invalid: result.errors.length,
       errors: result.errors,
       errorReport: await buildErrorReport(result.rows, result.errors),
@@ -681,13 +759,20 @@ export async function importData(req, res) {
     if (req.params.type === "students") {
       await upsertStudentRows(result.items, connection);
     } else if (req.params.type === "student-deactivate") {
-      await connection.query(
-        `UPDATE students SET is_active=0 WHERE student_id IN (${result.items.map(() => "?").join(", ")})`,
-        result.items.map((item) => item.schoolId),
+      const changes = result.items.filter(
+        (item) => item.status !== "unchanged",
       );
+      if (changes.length)
+        await connection.query(
+          `UPDATE students SET is_active=0 WHERE student_id IN (${changes.map(() => "?").join(", ")})`,
+          changes.map((item) => item.schoolId),
+        );
     } else {
-      const attachedItems = result.items.filter((item) => item.studentId);
-      const pendingItems = result.items.filter((item) => !item.studentId);
+      const changes = result.items.filter(
+        (item) => item.status !== "unchanged",
+      );
+      const attachedItems = changes.filter((item) => item.studentId);
+      const pendingItems = changes.filter((item) => !item.studentId);
       const failedRows = new Set();
       const rowErrorCodes = new Set([
         "ER_DUP_ENTRY",
@@ -807,13 +892,16 @@ export async function importData(req, res) {
     res.json({
       inserted: result.new,
       deactivated:
-        req.params.type === "student-deactivate"
-          ? result.items.length
-          : undefined,
+        req.params.type === "student-deactivate" ? result.new : undefined,
       updated: result.update,
+      unchanged: result.unchanged,
       total: result.total,
       invalid: result.errors.length,
-      pending: result.items.filter((item) => !item.studentId).length,
+      pending: config.table
+        ? result.items.filter(
+            (item) => !item.studentId && item.status !== "unchanged",
+          ).length
+        : 0,
       errors: result.errors,
       errorReport: await buildErrorReport(result.rows, result.errors),
     });

@@ -48,20 +48,48 @@ async function loadDashboard(
 
 test("dashboard returns populated reveal rows as an array instead of discarding the first row", async (t) => {
   const recentActivity = [
-    { id: 8, transaction_type: "VIEW_CREDENTIALS", first_name: "New", middle_name: "Test", last_name: "Student", student_id: "2026008", kiosk_code: "KIOSK-01", created_at: "2026-10-24T08:00:00.000Z" },
-    { id: 7, transaction_type: "VIEW_CREDENTIALS", first_name: "Earlier", last_name: "Student", student_id: "2026007", kiosk_code: "KIOSK-02", created_at: "2026-10-24T07:00:00.000Z" },
+    {
+      id: 8,
+      transaction_type: "VIEW_CREDENTIALS",
+      first_name: "New",
+      middle_name: "Test",
+      last_name: "Student",
+      student_id: "2026008",
+      kiosk_code: "KIOSK-01",
+      created_at: "2026-10-24T08:00:00.000Z",
+    },
+    {
+      id: 7,
+      transaction_type: "VIEW_CREDENTIALS",
+      first_name: "Earlier",
+      last_name: "Student",
+      student_id: "2026007",
+      kiosk_code: "KIOSK-02",
+      created_at: "2026-10-24T07:00:00.000Z",
+    },
   ];
   const { body, calls, headers } = await loadDashboard(t, { recentActivity });
   assert.deepEqual(body.recentActivity, recentActivity);
   assert.equal(headers["Cache-Control"], "no-store");
-  const query = calls.find(({ sql }) => sql.includes("FROM credential_transactions"));
+  const query = calls.find(({ sql }) =>
+    sql.includes("FROM credential_transactions"),
+  );
   assert.deepEqual(query.values, [7]);
-  assert.match(query.sql, /t\.academic_period_id=\? AND t\.transaction_type='VIEW_CREDENTIALS' AND t\.success=1/);
+  assert.match(
+    query.sql,
+    /t\.academic_period_id=\? AND t\.transaction_type='VIEW_CREDENTIALS' AND t\.success=1/,
+  );
   assert.match(query.sql, /ORDER BY t\.created_at DESC, t\.id DESC LIMIT 5/);
 });
 
 test("a single reveal also remains a one-item array", async (t) => {
-  const recentActivity = [{ transaction_type: "VIEW_CREDENTIALS", student_id: "2026001", created_at: "2026-10-24T08:00:00.000Z" }];
+  const recentActivity = [
+    {
+      transaction_type: "VIEW_CREDENTIALS",
+      student_id: "2026001",
+      created_at: "2026-10-24T08:00:00.000Z",
+    },
+  ];
   const { body } = await loadDashboard(t, { recentActivity });
   assert.deepEqual(body.recentActivity, recentActivity);
 });

@@ -195,7 +195,9 @@ async function classifyImport(file, executor = pool) {
       `SELECT id, code, name, academic_level FROM courses WHERE code IN (${placeholders})`,
       codes,
     );
-    records.forEach((record) => existing.set(record.code, record));
+    records.forEach((record) =>
+      existing.set(record.code.toUpperCase(), record),
+    );
   }
   const items = parsed.valid.map((item) => {
     const record = existing.get(item.code);
@@ -205,8 +207,7 @@ async function classifyImport(file, executor = pool) {
       inferAcademicLevel(item.code, item.name);
     const status = !record
       ? "new"
-      : record.name.trim().toLowerCase() === item.name.trim().toLowerCase() &&
-          record.academic_level === academicLevel
+      : record.name === item.name && record.academic_level === academicLevel
         ? "unchanged"
         : "update";
     return { ...item, academicLevel, status, id: record?.id };
@@ -268,7 +269,9 @@ export async function importCourses(req, res) {
     const result = await classifyImport(req.file, connection);
     let inserted = 0,
       updated = 0;
-    for (const item of result.items) {
+    for (const item of result.items.filter(
+      (item) => item.status !== "unchanged",
+    )) {
       await connection.query("SAVEPOINT import_row");
       try {
         if (item.status === "new") {

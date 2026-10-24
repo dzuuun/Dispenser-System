@@ -56,7 +56,7 @@ const importPeriod = async () => {
       ),
       { status: 400 },
     );
-  return { schoolYear, semester, term };
+  return { id: active.id, schoolYear, semester, term };
 };
 
 async function readMssqlStudents(period) {
@@ -120,6 +120,7 @@ const summary = (result) => ({
   total: result.items.length + result.errors.length,
   new: result.items.filter((item) => item.status === "new").length,
   update: result.items.filter((item) => item.status === "update").length,
+  unchanged: result.items.filter((item) => item.status === "unchanged").length,
   invalid: result.errors.length,
   errors: result.errors.slice(0, 50),
 });
@@ -137,7 +138,9 @@ const previewRecords = (result) =>
       message:
         item.status === "new"
           ? "Student will be created."
-          : "Student record will be updated.",
+          : item.status === "unchanged"
+            ? "No changes. Student will be kept."
+            : "Student record will be updated.",
     })),
     ...result.errors.map((item) => ({
       kind: "error",
@@ -158,7 +161,7 @@ const previewPage = (records, offset) => {
 
 const previewGroups = (result) =>
   Object.fromEntries(
-    ["new", "update", "error"].map((kind) => [
+    ["new", "update", "unchanged", "error"].map((kind) => [
       kind,
       previewPage(
         previewRecords(result).filter((record) => record.kind === kind),
@@ -178,7 +181,10 @@ const birthdayImportOptions = (value, fromQuery = false) => {
     return { updateExistingBirthdays: value === "true" };
   if (!fromQuery && typeof value === "boolean")
     return { updateExistingBirthdays: value };
-  throw Object.assign(new Error("Update existing birthdays must be true or false."), { status: 400 });
+  throw Object.assign(
+    new Error("Update existing birthdays must be true or false."),
+    { status: 400 },
+  );
 };
 
 const sourceStudentIds = (rows) => [
@@ -227,13 +233,20 @@ async function deactivateStudentsMissingFromSource(ids, connection) {
 
 export async function previewMssqlStudentImport(req, res, next) {
   try {
-    const options = birthdayImportOptions(req.query.updateExistingBirthdays, true);
+    const options = birthdayImportOptions(
+      req.query.updateExistingBirthdays,
+      true,
+    );
     const period = await importPeriod();
     const rows = await readMssqlStudents(period);
-    const result = await reviewStudentRows(rows, pool, options);
+    const result = await reviewStudentRows(rows, pool, {
+      ...options,
+      detectUnchanged: true,
+      academicPeriodId: period.id,
+    });
     const offset = previewOffset(req.query.offset);
     const category = String(req.query.category || "");
-    if (category && !["new", "update", "error"].includes(category))
+    if (category && !["new", "update", "unchanged", "error"].includes(category))
       return res.status(400).json({ message: "Invalid preview category." });
     const deactivate =
       !category && offset === 0
@@ -270,7 +283,11 @@ export async function importMssqlStudents(req, res, next) {
     const sourceIds = sourceStudentIds(rows);
     connection = await pool.getConnection();
     await connection.beginTransaction();
-    const result = await reviewStudentRows(rows, connection, options);
+    const result = await reviewStudentRows(rows, connection, {
+      ...options,
+      detectUnchanged: true,
+      academicPeriodId: period.id,
+    });
     if (!result.items.length) {
       await connection.rollback();
       return res.status(400).json({
@@ -290,18 +307,24 @@ export async function importMssqlStudents(req, res, next) {
         deactivated: pendingDeactivations,
       });
     }
-    await upsertStudentRows(result.items, connection, options);
+    await upsertStudentRows(
+      result.items.filter((item) => item.status !== "unchanged"),
+      connection,
+      options,
+    );
     const deactivated = await deactivateStudentsMissingFromSource(
       sourceIds,
       connection,
     );
     await connection.commit();
+    const counts = summary(result);
     res.json({
-      message: `${result.items.length} student${result.items.length === 1 ? "" : "s"} imported from SQL Server; ${deactivated} student${deactivated === 1 ? "" : "s"} deactivated because they are not enrolled this semester.`,
+      message: `SQL Server synchronization completed: ${counts.new} created, ${counts.update} updated, ${counts.unchanged} unchanged; ${deactivated} deactivated because they are not enrolled this semester.`,
       period,
       ...options,
       inserted: result.items.filter((item) => item.status === "new").length,
       updated: result.items.filter((item) => item.status === "update").length,
+      unchanged: counts.unchanged,
       deactivated,
       invalid: result.errors.length,
       errors: result.errors.slice(0, 50),

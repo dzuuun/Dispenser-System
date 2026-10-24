@@ -4940,7 +4940,7 @@ function fileImportSections(type, validation) {
   const noun =
     type.id === "courses"
       ? "courses"
-      : type.id === "students"
+      : type.id === "students" || type.id === "student-deactivate"
         ? "students"
         : type.id === "vouchers"
           ? "vouchers"
@@ -4982,15 +4982,13 @@ function fileImportSections(type, validation) {
       `No ${noun} will be updated.`,
     ]);
   }
-  if (type.id === "courses") {
-    sections.push([
-      "Unchanged courses",
-      "unchanged",
-      "unchanged",
-      validation.unchanged,
-      "No unchanged courses found.",
-    ]);
-  }
+  sections.push([
+    `Unchanged ${noun}`,
+    "unchanged",
+    "unchanged",
+    validation.unchanged,
+    `No unchanged ${noun} found.`,
+  ]);
   sections.push([
     "Errors",
     "errors",
@@ -5049,12 +5047,13 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
       const result = await send();
       const inserted = Number(result.inserted ?? result.added ?? 0);
       const updated = Number(result.updated ?? 0);
+      const unchanged = Number(result.unchanged ?? 0);
       const skipped = Number(result.invalid ?? result.errors?.length ?? 0);
       if (result.errorReport) downloadErrorReport(result.errorReport, type.id);
       onComplete(
         type.id === "student-deactivate"
-          ? `${result.deactivated || 0} student${result.deactivated === 1 ? "" : "s"} deactivated${skipped ? `; ${skipped} invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`
-          : `${type.title}: ${inserted} added${updated ? `, ${updated} updated` : ""}${skipped ? `; ${skipped} unmatched or invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`,
+          ? `${result.deactivated || 0} student${result.deactivated === 1 ? "" : "s"} deactivated${unchanged ? `, ${unchanged} unchanged` : ""}${skipped ? `; ${skipped} invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`
+          : `${type.title}: ${inserted} added${updated ? `, ${updated} updated` : ""}${unchanged ? `, ${unchanged} unchanged` : ""}${result.duplicates ? `, ${result.duplicates} duplicate rows skipped` : ""}${skipped ? `; ${skipped} unmatched or invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`,
       );
       onClose();
     } catch (err) {
@@ -5291,7 +5290,10 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
     setLoadingGroup(category || "all");
     setError("");
     try {
-      const params = new URLSearchParams({ offset, updateExistingBirthdays: birthdayOption });
+      const params = new URLSearchParams({
+        offset,
+        updateExistingBirthdays: birthdayOption,
+      });
       if (category) params.set("category", category);
       const data = await request(
         `/admin/imports/mssql-students/preview?${params}`,
@@ -5321,7 +5323,8 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
       setLoadingGroup("");
     }
   };
-  const previewIsCurrent = preview?.updateExistingBirthdays === updateExistingBirthdays;
+  const previewIsCurrent =
+    preview?.updateExistingBirthdays === updateExistingBirthdays;
   const importStudents = async () => {
     if (busy || !previewIsCurrent) return;
     setBusy(true);
@@ -5350,8 +5353,8 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
         <small>
           {updateExistingBirthdays
             ? "Overwrite saved birthdays with SQL Server values."
-            : "Keep birthdays already saved in this system."}
-          {" "}New students always use the SQL Server birthday.
+            : "Keep birthdays already saved in this system."}{" "}
+          New students always use the SQL Server birthday.
         </small>
       </span>
       <input
@@ -5454,6 +5457,9 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 <span>
                   <b>{preview.update}</b> updates
                 </span>
+                <span>
+                  <b>{preview.unchanged || 0}</b> unchanged
+                </span>
                 <span className={preview.invalid ? "has-errors" : ""}>
                   <b>{preview.invalid}</b> invalid
                 </span>
@@ -5479,6 +5485,13 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                     "update",
                     preview.update,
                     "No students will be updated.",
+                  ],
+                  [
+                    "Unchanged students",
+                    "unchanged",
+                    "unchanged",
+                    preview.unchanged,
+                    "No unchanged students.",
                   ],
                   [
                     "Errors",
@@ -5525,7 +5538,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 disabled={
                   busy ||
                   !previewIsCurrent ||
-                  (!preview.new && !preview.update) ||
+                  (!preview.new && !preview.update && !preview.deactivate) ||
                   (preview.deactivate > 0 && !confirmDeactivation)
                 }
                 onClick={importStudents}

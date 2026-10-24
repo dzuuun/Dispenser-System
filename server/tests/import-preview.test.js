@@ -59,6 +59,8 @@ function database(t) {
   const query = async (sql) => {
     calls.push(sql);
     assert.match(sql, /^SELECT/, "Preview must never write to the database");
+    if (sql.includes("FROM academic_periods")) return [[{ id: 7 }]];
+    if (sql.includes("FROM pending_account_imports")) return [[]];
     if (sql.includes("FROM courses WHERE code IN"))
       return [
         [
@@ -219,12 +221,14 @@ test("voucher reviews retain original row numbers and show skipped duplicates se
     { VoucherCode: "", Other: "Missing voucher" },
   ]);
   assert.equal(body.new, 1);
-  assert.equal(body.duplicates, 2);
+  assert.equal(body.duplicates, 1);
+  assert.equal(body.unchanged, 1);
   assert.equal(body.groups.new.records[0].row, 2);
   assert.deepEqual(
     body.groups.duplicate.records.map((row) => row.row),
-    [3, 4],
+    [4],
   );
+  assert.equal(body.groups.unchanged.records[0].row, 3);
   assert.equal(body.groups.error.records[0].row, 5);
   assert.ok(body.errorReport);
 });

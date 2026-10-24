@@ -182,24 +182,37 @@ async function reviewVoucherImport(file) {
   const [existingRows] = await pool.query(
     "SELECT voucher_code FROM wifi_vouchers",
   );
-  const existing = new Set(existingRows.map((row) => row.voucher_code));
+  const existing = new Set(
+    existingRows.map((row) => String(row.voucher_code).trim().toUpperCase()),
+  );
   const seen = new Set();
   const valid = [],
     validRows = [],
     errors = [],
-    duplicates = [];
+    duplicates = [],
+    unchanged = [];
   for (const item of source) {
     if (!item.code) {
       errors.push({ row: item.row, message: "VoucherCode is required." });
-    } else if (seen.has(item.code) || existing.has(item.code)) {
+    } else if (seen.has(item.code)) {
       duplicates.push({ row: item.row, code: item.code });
     } else {
       seen.add(item.code);
-      valid.push(item.code);
-      validRows.push(item);
+      if (existing.has(item.code)) unchanged.push(item);
+      else {
+        valid.push(item.code);
+        validRows.push(item);
+      }
     }
   }
-  return { valid, validRows, errors, duplicates };
+  return {
+    valid,
+    validRows,
+    errors,
+    duplicates,
+    unchanged,
+    total: source.length,
+  };
 }
 
 export async function validateVoucherImport(req, res) {
@@ -216,6 +229,12 @@ export async function validateVoucherImport(req, res) {
         label: item.code,
         message: "Existing or duplicate voucher will be skipped.",
       })),
+      unchanged: review.unchanged.map((item) => ({
+        row: item.row,
+        label: item.code,
+        message:
+          "Voucher already exists. Its status and assignment will be kept.",
+      })),
       error: importErrorPreview(review.errors),
     },
     req.query,
@@ -224,6 +243,10 @@ export async function validateVoucherImport(req, res) {
   res.json({
     ...preview,
     new: review.valid.length,
+    total: review.total,
+    update: 0,
+    unchanged: review.unchanged.length,
+    invalid: review.errors.length,
     duplicates: review.duplicates.length,
     errors: review.errors,
     duplicateRows: review.duplicates.slice(0, 20),
@@ -246,6 +269,9 @@ export async function importVouchers(req, res) {
   }
   res.status(201).json({
     added: review.valid.length,
+    total: review.total,
+    updated: 0,
+    unchanged: review.unchanged.length,
     duplicates: review.duplicates.length,
     invalid: review.errors.length,
     errors: review.errors,
