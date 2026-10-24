@@ -300,7 +300,11 @@ export async function exportAccountCredentials(req, res) {
   }
 }
 
-export async function reviewStudentRows(rows, executor = pool) {
+export async function reviewStudentRows(
+  rows,
+  executor = pool,
+  { updateExistingBirthdays = true } = {},
+) {
   const [courses] = await executor.query(
     "SELECT id, code FROM courses WHERE is_active=1",
   );
@@ -308,11 +312,17 @@ export async function reviewStudentRows(rows, executor = pool) {
     courses.map((course) => [course.code.toUpperCase(), course.id]),
   );
   const [existingRows] = await executor.query(
-    "SELECT id, student_id, kumosoft_id FROM students",
+    `SELECT id, student_id, kumosoft_id${updateExistingBirthdays ? "" : ", birth_date"} FROM students`,
   );
   const existing = new Map(
     existingRows.map((student) => [student.student_id, student.id]),
   );
+  const existingBirthdays = new Map(existingRows.map((student) => [
+    student.student_id,
+    student.birth_date instanceof Date
+      ? student.birth_date.toISOString().slice(0, 10)
+      : String(student.birth_date ?? ""),
+  ]));
   const kumosoftOwnerMap = new Map(
     existingRows
       .filter((student) => student.kumosoft_id)
@@ -328,7 +338,9 @@ export async function reviewStudentRows(rows, executor = pool) {
     const firstName = rowValue(row, "FirstName", "GivenName");
     const middleName = rowValue(row, "MiddleName", "MiddleInitial");
     const lastName = rowValue(row, "LastName", "Surname");
-    const birthDate = rowValue(row, "BirthDate", "Birthday", "DateOfBirth");
+    const birthDate = !updateExistingBirthdays && existing.has(schoolId)
+      ? existingBirthdays.get(schoolId)
+      : rowValue(row, "BirthDate", "Birthday", "DateOfBirth");
     const courseCode = rowValue(row, "CourseCode", "Course").toUpperCase();
     const rowNumber = index + 2;
     if (
@@ -565,7 +577,11 @@ async function review(type, file, executor = pool) {
   };
 }
 
-export async function upsertStudentRows(items, connection) {
+export async function upsertStudentRows(
+  items,
+  connection,
+  { updateExistingBirthdays = true } = {},
+) {
   const period = await requireCurrentAcademicPeriod(connection);
   for (
     let start = 0;
@@ -590,7 +606,7 @@ export async function upsertStudentRows(items, connection) {
     await connection.query(
       `INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, academic_period_id, is_active)
        VALUES ${placeholders.join(", ")}
-       ON DUPLICATE KEY UPDATE kumosoft_id=COALESCE(VALUES(kumosoft_id), kumosoft_id), first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), birth_date=VALUES(birth_date), course_id=VALUES(course_id), academic_period_id=VALUES(academic_period_id), is_active=1`,
+       ON DUPLICATE KEY UPDATE kumosoft_id=COALESCE(VALUES(kumosoft_id), kumosoft_id), first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), ${updateExistingBirthdays ? "birth_date=VALUES(birth_date), " : ""}course_id=VALUES(course_id), academic_period_id=VALUES(academic_period_id), is_active=1`,
       values,
     );
   }

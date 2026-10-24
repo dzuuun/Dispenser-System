@@ -115,7 +115,9 @@ Most state-changing administrator functions require the **Super Admin** role, in
 
 ### SQL Server student import
 
-The **SQL Server students** import card lets a Super Admin select a school year and semester, preview the source rows, and synchronize enrolled students. New students are created, matching school IDs are updated, and active local students absent from the selected source list are deactivated. The preview shows the pending deactivation count before the import runs; rows whose course is not an active course in this system are reported as invalid.
+The **SQL Server students** import card uses the current academic period to preview and synchronize enrolled students. New students are created, matching school IDs are updated, and active local students absent from the source list are deactivated. The preview shows the pending deactivation count before the import runs; rows whose course is not an active course in this system are reported as invalid.
+
+**Update existing birthdays** is off by default to preserve birthdays corrected in this system. Enable it to overwrite existing birthdays with SQL Server values. New students always use the source birthday. Changing this option refreshes the review in place; importing stays disabled until the updated preview succeeds. Regular student file uploads retain their existing birthday-update behavior.
 
 Create or configure a read-only registrar view that exposes these columns: `SchoolID`, `LastName`, `FirstName`, `MiddleName`, `BirthDate`, `CourseCode`, `SchoolYear`, and `Semester`. A template for the expected registrar schema is available at [server/db/mssql-enrolled-students-view.sql](server/db/mssql-enrolled-students-view.sql). Configure its view name and a least-privilege SQL Server login with the `MSSQL_*` environment variables, then restart the API after updating `.env`.
 

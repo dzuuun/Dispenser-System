@@ -5272,6 +5272,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
     [busy, setBusy] = useState(false),
     [loadingGroup, setLoadingGroup] = useState(""),
     [confirmDeactivation, setConfirmDeactivation] = useState(false),
+    [updateExistingBirthdays, setUpdateExistingBirthdays] = useState(false),
     [error, setError] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
   useEffect(() => {
@@ -5281,12 +5282,16 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
       )
       .catch((err) => setError(err.message));
   }, []);
-  const loadPreview = async (category = "", offset = 0) => {
+  const loadPreview = async (
+    category = "",
+    offset = 0,
+    birthdayOption = updateExistingBirthdays,
+  ) => {
     setBusy(true);
-    setLoadingGroup(category);
+    setLoadingGroup(category || "all");
     setError("");
     try {
-      const params = new URLSearchParams({ offset });
+      const params = new URLSearchParams({ offset, updateExistingBirthdays: birthdayOption });
       if (category) params.set("category", category);
       const data = await request(
         `/admin/imports/mssql-students/preview?${params}`,
@@ -5316,7 +5321,9 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
       setLoadingGroup("");
     }
   };
+  const previewIsCurrent = preview?.updateExistingBirthdays === updateExistingBirthdays;
   const importStudents = async () => {
+    if (busy || !previewIsCurrent) return;
     setBusy(true);
     setError("");
     try {
@@ -5325,6 +5332,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           confirmDeactivation,
+          updateExistingBirthdays,
         }),
       });
       onComplete(result.message);
@@ -5335,6 +5343,33 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
       setBusy(false);
     }
   };
+  const birthdayToggle = (
+    <label className="status-toggle mssql-birthday-toggle">
+      <span>
+        <b>Update existing birthdays</b>
+        <small>
+          {updateExistingBirthdays
+            ? "Overwrite saved birthdays with SQL Server values."
+            : "Keep birthdays already saved in this system."}
+          {" "}New students always use the SQL Server birthday.
+        </small>
+      </span>
+      <input
+        type="checkbox"
+        role="switch"
+        aria-label="Update existing birthdays"
+        checked={updateExistingBirthdays}
+        disabled={busy}
+        onChange={(event) => {
+          const enabled = event.target.checked;
+          setUpdateExistingBirthdays(enabled);
+          setConfirmDeactivation(false);
+          if (preview) loadPreview("", 0, enabled);
+        }}
+      />
+      <i aria-hidden="true" />
+    </label>
+  );
   return (
     <ImportModalFrame busy={busy} onClose={onClose}>
       <section
@@ -5386,6 +5421,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 </b>
               </span>
             </div>
+            {birthdayToggle}
             {error && <p className="error">{error}</p>}
             <footer>
               <Button variant="secondary" onClick={onClose}>
@@ -5397,13 +5433,17 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
             </footer>
           </form>
         ) : (
-          <div className="validation-result mssql-validation-result">
+          <div
+            className="validation-result mssql-validation-result"
+            aria-busy={busy && Boolean(loadingGroup)}
+          >
             <div className="mssql-validation-body">
               <p className="eyebrow">
                 {preview.period.schoolYear} ·{" "}
                 {preview.period.term || `Semester ${preview.period.semester}`}
               </p>
               <h3>Review semester student import</h3>
+              {birthdayToggle}
               <div className="validation-summary">
                 <span>
                   <b>{preview.total}</b> source rows
@@ -5449,7 +5489,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                   ],
                 ]}
                 onLoadMore={loadPreview}
-                busy={busy}
+                busy={busy || !previewIsCurrent}
                 loadingGroup={loadingGroup}
               />
               <p className="mssql-sync-warning">
@@ -5473,19 +5513,27 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 </label>
               )}
               {error && <p className="error">{error}</p>}
+              {!previewIsCurrent && !busy && (
+                <Button variant="secondary" onClick={() => loadPreview()}>
+                  Retry preview
+                </Button>
+              )}
             </div>
             <footer>
               <button
                 className="btn primary"
                 disabled={
                   busy ||
+                  !previewIsCurrent ||
                   (!preview.new && !preview.update) ||
                   (preview.deactivate > 0 && !confirmDeactivation)
                 }
                 onClick={importStudents}
               >
-                {busy && !loadingGroup
-                  ? "Importing..."
+                {busy
+                  ? loadingGroup
+                    ? "Updating preview..."
+                    : "Importing..."
                   : "Import and synchronize"}
               </button>
             </footer>

@@ -4160,6 +4160,15 @@ button {
 .mssql-student-import-modal .form-note {
   margin: 0;
 }
+.mssql-birthday-toggle > span {
+  min-width: 0;
+}
+.mssql-birthday-toggle > i {
+  flex-shrink: 0;
+}
+.mssql-validation-body > .mssql-birthday-toggle {
+  margin: 16px 24px;
+}
 .mssql-student-import-modal form > footer {
   margin: 0 -26px;
   padding: 15px 26px;

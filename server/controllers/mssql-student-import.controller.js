@@ -172,6 +172,15 @@ const previewOffset = (value) => {
   return Number.isInteger(offset) && offset >= 0 ? offset : 0;
 };
 
+const birthdayImportOptions = (value, fromQuery = false) => {
+  if (value === undefined) return { updateExistingBirthdays: false };
+  if (fromQuery && (value === "true" || value === "false"))
+    return { updateExistingBirthdays: value === "true" };
+  if (!fromQuery && typeof value === "boolean")
+    return { updateExistingBirthdays: value };
+  throw Object.assign(new Error("Update existing birthdays must be true or false."), { status: 400 });
+};
+
 const sourceStudentIds = (rows) => [
   ...new Set(
     rows.map((row) => String(row.SchoolID || "").trim()).filter(Boolean),
@@ -218,9 +227,10 @@ async function deactivateStudentsMissingFromSource(ids, connection) {
 
 export async function previewMssqlStudentImport(req, res, next) {
   try {
+    const options = birthdayImportOptions(req.query.updateExistingBirthdays, true);
     const period = await importPeriod();
     const rows = await readMssqlStudents(period);
-    const result = await reviewStudentRows(rows);
+    const result = await reviewStudentRows(rows, pool, options);
     const offset = previewOffset(req.query.offset);
     const category = String(req.query.category || "");
     if (category && !["new", "update", "error"].includes(category))
@@ -231,6 +241,7 @@ export async function previewMssqlStudentImport(req, res, next) {
         : undefined;
     res.json({
       period,
+      ...options,
       deactivate,
       ...summary(result),
       ...(category
@@ -253,12 +264,13 @@ export async function previewMssqlStudentImport(req, res, next) {
 export async function importMssqlStudents(req, res, next) {
   let connection;
   try {
+    const options = birthdayImportOptions(req.body?.updateExistingBirthdays);
     const period = await importPeriod();
     const rows = await readMssqlStudents(period);
     const sourceIds = sourceStudentIds(rows);
     connection = await pool.getConnection();
     await connection.beginTransaction();
-    const result = await reviewStudentRows(rows, connection);
+    const result = await reviewStudentRows(rows, connection, options);
     if (!result.items.length) {
       await connection.rollback();
       return res.status(400).json({
@@ -278,7 +290,7 @@ export async function importMssqlStudents(req, res, next) {
         deactivated: pendingDeactivations,
       });
     }
-    await upsertStudentRows(result.items, connection);
+    await upsertStudentRows(result.items, connection, options);
     const deactivated = await deactivateStudentsMissingFromSource(
       sourceIds,
       connection,
@@ -287,6 +299,7 @@ export async function importMssqlStudents(req, res, next) {
     res.json({
       message: `${result.items.length} student${result.items.length === 1 ? "" : "s"} imported from SQL Server; ${deactivated} student${deactivated === 1 ? "" : "s"} deactivated because they are not enrolled this semester.`,
       period,
+      ...options,
       inserted: result.items.filter((item) => item.status === "new").length,
       updated: result.items.filter((item) => item.status === "update").length,
       deactivated,
