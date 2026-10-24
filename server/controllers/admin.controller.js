@@ -160,7 +160,7 @@ export async function dashboard(req, res) {
     ),
     pool.query("SELECT COUNT(*) total FROM courses WHERE is_active=1"),
   ]);
-  res.json({
+  res.set("Cache-Control", "no-store").json({
     academicPeriod: period
       ? {
           id: period.id,
@@ -183,7 +183,7 @@ export async function dashboard(req, res) {
       online: Number(kiosks[0].online || 0),
     },
     credentials: Array.isArray(credentials[0]) ? credentials[0] : [],
-    recentActivity: Array.isArray(transactions[0]) ? transactions[0] : [],
+    recentActivity: Array.isArray(transactions) ? transactions : [],
   });
 }
 

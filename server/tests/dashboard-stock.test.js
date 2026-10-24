@@ -11,6 +11,7 @@ async function loadDashboard(
     period = { id: 7, school_year: "2026-2027", semester: "First semester" },
     students = { total: 356, withoutVoucher: "120" },
     vouchers = { available: "90", assigned: "400" },
+    recentActivity = [],
   } = {},
 ) {
   const calls = [];
@@ -19,7 +20,7 @@ async function loadDashboard(
     if (sql.includes("FROM academic_periods")) return [period ? [period] : []];
     if (sql.includes("FROM students WHERE")) return [[students]];
     if (sql.includes("FROM wifi_vouchers WHERE")) return [[vouchers]];
-    if (sql.includes("FROM credential_transactions")) return [[]];
+    if (sql.includes("FROM credential_transactions")) return [recentActivity];
     if (sql.includes("FROM kiosks")) return [[{ total: 1, online: 1 }]];
     if (sql.includes("FROM satp_accounts")) return [[]];
     if (sql.includes("FROM password_reset_requests")) return [[{ total: 0 }]];
@@ -29,16 +30,46 @@ async function loadDashboard(
   t.mock.method(pool, "query", run);
   t.mock.method(pool, "execute", run);
   let body;
+  const headers = {};
   await dashboard(
     { admin: { requestPermissions: [] } },
     {
+      set(name, value) {
+        headers[name] = value;
+        return this;
+      },
       json: (data) => {
         body = data;
       },
     },
   );
-  return { body, calls };
+  return { body, calls, headers };
 }
+
+test("dashboard returns populated reveal rows as an array instead of discarding the first row", async (t) => {
+  const recentActivity = [
+    { id: 8, transaction_type: "VIEW_CREDENTIALS", first_name: "New", middle_name: "Test", last_name: "Student", student_id: "2026008", kiosk_code: "KIOSK-01", created_at: "2026-10-24T08:00:00.000Z" },
+    { id: 7, transaction_type: "VIEW_CREDENTIALS", first_name: "Earlier", last_name: "Student", student_id: "2026007", kiosk_code: "KIOSK-02", created_at: "2026-10-24T07:00:00.000Z" },
+  ];
+  const { body, calls, headers } = await loadDashboard(t, { recentActivity });
+  assert.deepEqual(body.recentActivity, recentActivity);
+  assert.equal(headers["Cache-Control"], "no-store");
+  const query = calls.find(({ sql }) => sql.includes("FROM credential_transactions"));
+  assert.deepEqual(query.values, [7]);
+  assert.match(query.sql, /t\.academic_period_id=\? AND t\.transaction_type='VIEW_CREDENTIALS' AND t\.success=1/);
+  assert.match(query.sql, /ORDER BY t\.created_at DESC, t\.id DESC LIMIT 8/);
+});
+
+test("a single reveal also remains a one-item array", async (t) => {
+  const recentActivity = [{ transaction_type: "VIEW_CREDENTIALS", student_id: "2026001", created_at: "2026-10-24T08:00:00.000Z" }];
+  const { body } = await loadDashboard(t, { recentActivity });
+  assert.deepEqual(body.recentActivity, recentActivity);
+});
+
+test("a dashboard with no reveals returns an empty activity array", async (t) => {
+  const { body } = await loadDashboard(t);
+  assert.deepEqual(body.recentActivity, []);
+});
 
 test("dashboard counts students without a voucher directly instead of subtracting assigned stock", async (t) => {
   // Assigned stock can include holders outside the current active student cohort.

@@ -1221,7 +1221,7 @@ function Dashboard({ token }) {
       }
     };
     refresh();
-    const interval = setInterval(refresh, 5000);
+    const interval = setInterval(refresh, 3000);
     addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
@@ -1480,7 +1480,7 @@ function Dashboard({ token }) {
               ) : (
                 <Empty
                   title="No activity yet"
-                  detail="Kiosk verification and release events appear here."
+                  detail="Credential reveals appear here after a student confirms Show All."
                 />
               )}
             </article>
