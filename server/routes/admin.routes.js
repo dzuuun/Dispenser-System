@@ -16,6 +16,7 @@ import {
 import {
   courseOptions,
   createStudent,
+  exportStudentAccounts,
   generateStudentVoucher,
   getStudent,
   listStudents,
@@ -258,6 +259,11 @@ adminRouter.post(
   importData,
 );
 adminRouter.get("/students", listStudents);
+adminRouter.get(
+  "/students/export",
+  auditAdminMutation("EXPORT", "STUDENT_ACCOUNTS"),
+  exportStudentAccounts,
+);
 adminRouter.post(
   "/students",
   requireRoles("Super Admin"),

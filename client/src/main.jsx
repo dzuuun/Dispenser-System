@@ -10491,6 +10491,8 @@ function StudentsPage({ token }) {
     [search, setSearch] = useState(""),
     [status, setStatus] = useState("active"),
     [missingAccount, setMissingAccount] = useState(""),
+    [exporting, setExporting] = useState(false),
+    [exportError, setExportError] = useState(""),
     [sort, setSort] = useState("name"),
     [direction, setDirection] = useState("asc"),
     [refresh, setRefresh] = useState(0);
@@ -10529,6 +10531,38 @@ function StudentsPage({ token }) {
     load(controller.signal);
     return () => controller.abort();
   }, [page, limit, search, status, missingAccount, sort, direction, refresh, token]);
+  const exportWorkbook = async () => {
+    setExporting(true);
+    setExportError("");
+    try {
+      const params = new URLSearchParams({
+        search, status, missingAccount, sort, direction,
+      });
+      const response = await adminFetch(`/admin/students/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        let message = "Unable to export student accounts. Please try again.";
+        try {
+          message = (await response.json()).message || message;
+        } catch {}
+        throw new Error(message);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = response.headers.get("Content-Disposition")
+        ?.match(/filename="([^"]+)"/)?.[1] || "students-linked-accounts.xlsx";
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      setExportError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
   const changeSort = (column) => {
     if (sort === column)
       setDirection((current) => (current === "asc" ? "desc" : "asc"));
@@ -10561,7 +10595,17 @@ function StudentsPage({ token }) {
       <PageHeader
         title="Students"
         description="Select a student to view or update their profile and linked credentials."
-        actions={<Button onClick={() => setAdding(true)}>Add student</Button>}
+        actions={
+          <>
+            <Button variant="secondary" onClick={exportWorkbook} disabled={exporting || loading}>
+              <AppIcon name="download" />{" "}
+              <span title="Export all students matching the current filters, across all pages.">
+                {exporting ? "Exporting..." : "Export Excel"}
+              </span>
+            </Button>
+            <Button onClick={() => setAdding(true)}>Add student</Button>
+          </>
+        }
       />
       <section className="student-summary records-summary">
         <article>
@@ -10579,6 +10623,7 @@ function StudentsPage({ token }) {
       </section>
       <section className="panel student-panel students-data-table records-data-table">
         {error && <p className="error">{error}</p>}
+        {exportError && <p className="error" role="alert">{exportError}</p>}
         <div className="records-table-toolbar">
           <div className="records-table-filters">
             <label className="records-table-field">

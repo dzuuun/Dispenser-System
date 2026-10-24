@@ -1,3 +1,4 @@
+import ExcelJS from "exceljs";
 import { pool } from "../config/db.js";
 import { decryptPassword } from "../services/encryption.service.js";
 import { encryptPassword } from "../services/encryption.service.js";
@@ -37,8 +38,8 @@ const studentAccountJoins = studentAccountTypes
   )
   .join(" ");
 
-export async function listStudents(req, res) {
-  const missingAccount = req.query.missingAccount ?? "";
+function studentListQuery(query) {
+  const missingAccount = query.missingAccount ?? "";
   if (
     typeof missingAccount !== "string" ||
     (missingAccount !== "" &&
@@ -48,7 +49,7 @@ export async function listStudents(req, res) {
     throw Object.assign(new Error("Choose a valid missing account filter."), {
       status: 400,
     });
-  const search = tableSearch(req.query["search[value]"] ?? req.query.search, [
+  const search = tableSearch(query["search[value]"] ?? query.search, [
     "s.student_id",
     "s.kumosoft_id",
     "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
@@ -61,23 +62,9 @@ export async function listStudents(req, res) {
     ),
     `CASE WHEN ${studentAccountTypes.map(({ alias }) => `${alias}.student_id IS NULL`).join(" AND ")} THEN 'No linked accounts' ELSE '' END`,
   ]);
-  const currentPeriod = await currentAcademicPeriod();
-  // Supports both the regular API and DataTables server-side paging requests.
-  const draw = Number(req.query.draw) || null;
-  const limit = Math.min(
-    draw ? 100 : 10000,
-    Math.max(10, Number(req.query.length || req.query.limit) || 20),
-  );
-  const page = Math.max(
-    1,
-    draw
-      ? Math.floor((Number(req.query.start) || 0) / limit) + 1
-      : Number(req.query.page) || 1,
-  );
-  const status = String(req.query.status || "all");
+  const status = String(query.status || "all");
   const filters = ["s.academic_period_id=?"],
     values = [];
-  values.push(currentPeriod?.id || 0);
   if (search.sql) {
     const numericId =
       /^\d+$/.test(search.term) && Number.isSafeInteger(Number(search.term));
@@ -100,20 +87,43 @@ export async function listStudents(req, res) {
       studentId: "s.student_id",
       course: "c.code, s.last_name, s.first_name",
       status: "s.is_active DESC, s.last_name, s.first_name",
-    }[String(req.query.sort || "name")] ||
+    }[String(query.sort || "name")] ||
     "s.last_name, s.first_name, s.student_id";
   const direction =
-    String(req.query.direction || "asc").toLowerCase() === "desc"
+    String(query.direction || "asc").toLowerCase() === "desc"
       ? "DESC"
       : "ASC";
+  return { search, where, values, orderBy, direction };
+}
+
+const studentListSelect = `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, s.is_active, c.code course_code, c.name course_name,
+      ${studentAccountTypes.map(({ alias }) => `${alias}.is_active AS ${alias}_active`).join(", ")}
+     FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins}`;
+
+export async function listStudents(req, res) {
+  const {
+    search, where, values: filterValues, orderBy, direction,
+  } = studentListQuery(req.query);
+  const currentPeriod = await currentAcademicPeriod();
+  const values = [currentPeriod?.id || 0, ...filterValues];
+  // Supports both the regular API and DataTables server-side paging requests.
+  const draw = Number(req.query.draw) || null;
+  const limit = Math.min(
+    draw ? 100 : 10000,
+    Math.max(10, Number(req.query.length || req.query.limit) || 20),
+  );
+  const page = Math.max(
+    1,
+    draw
+      ? Math.floor((Number(req.query.start) || 0) / limit) + 1
+      : Number(req.query.page) || 1,
+  );
   const [[count]] = await pool.execute(
     `SELECT COUNT(*) total, SUM(s.is_active=1) active_total FROM students s${search.term ? ` JOIN courses c ON c.id=s.course_id ${studentAccountJoins}` : ""} ${where}`,
     values,
   );
   const [records] = await pool.execute(
-    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, s.is_active, c.code course_code, c.name course_name,
-      ${studentAccountTypes.map(({ alias }) => `${alias}.is_active AS ${alias}_active`).join(", ")}
-     FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins} ${where} ORDER BY ${orderBy} ${direction} LIMIT ? OFFSET ?`,
+    `${studentListSelect} ${where} ORDER BY ${orderBy} ${direction} LIMIT ? OFFSET ?`,
     [...values, limit, (page - 1) * limit],
   );
   const rows = records.map((record) => {
@@ -145,6 +155,54 @@ export async function listStudents(req, res) {
       : response,
   );
 }
+
+export async function exportStudentAccounts(req, res) {
+  const { where, values, orderBy, direction } = studentListQuery(req.query);
+  const period = await requireCurrentAcademicPeriod();
+  // Use the table's filters and ordering, but export every matching student.
+  const [students] = await pool.execute(
+    `${studentListSelect} ${where} ORDER BY ${orderBy} ${direction}`,
+    [period.id, ...values],
+  );
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Student linked accounts");
+  sheet.columns = [
+    { header: "School ID", key: "schoolId", width: 18 },
+    { header: "Kumosoft ID", key: "kumosoftId", width: 18 },
+    { header: "Student name", key: "name", width: 44 },
+    { header: "Course code", key: "courseCode", width: 18 },
+    { header: "Course name", key: "courseName", width: 55 },
+    { header: "Student status", key: "status", width: 18 },
+    ...studentAccountTypes.map(({ type, label }) => ({
+      header: label, key: type, width: 16,
+    })),
+  ];
+  for (const student of students)
+    sheet.addRow({
+      schoolId: String(student.student_id ?? ""),
+      kumosoftId: String(student.kumosoft_id ?? ""),
+      name: [student.first_name, student.middle_name, student.last_name]
+        .filter(Boolean).join(" "),
+      courseCode: student.course_code || "",
+      courseName: student.course_name || "",
+      status: student.is_active ? "Active" : "Inactive",
+      ...Object.fromEntries(studentAccountTypes.map(({ type, alias }) => [
+        type, student[`${alias}_active`] != null ? "Yes" : "No",
+      ])),
+    });
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = { from: "A1", to: "J1" };
+  const label = `${period.school_year}-${period.semester}`.replace(
+    /[^a-zA-Z0-9-]+/g, "-",
+  );
+  res.set({
+    "Cache-Control": "no-store",
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Disposition": `attachment; filename="students-linked-accounts-${label}-${period.id}.xlsx"`,
+  }).send(Buffer.from(await workbook.xlsx.writeBuffer()));
+}
+
 export async function getStudent(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1)
