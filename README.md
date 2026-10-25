@@ -1,6 +1,6 @@
-# NDMU Credentials Dispenser
+# Credentials Dispenser
 
-A self-service credentials kiosk for Notre Dame of Midsayap College. Students verify their identity at the kiosk to retrieve approved credentials and WiFi vouchers. Administrators manage student records, service accounts, vouchers, kiosks, requests, and audit activity from the web portal.
+Students verify their identity at the kiosk to retrieve approved credentials and WiFi vouchers. Administrators manage student records, service accounts, vouchers, kiosks, requests, and audit activity from the web portal.
 
 The application uses a React client, an Express API, and MySQL. Express serves
 the compiled client and API beneath `/dispenser` from one application port.
@@ -138,7 +138,7 @@ For an existing database, apply the course-level migration before restarting the
 ```powershell
 npm run migrate-course-academic-levels -w server
 npm run build
-pm2 restart ndmu-credentials-dispenser
+pm2 restart credentials-dispenser
 ```
 
 The migration classifies recognizable degree programs and leaves ambiguous courses as Other for review. It can be rerun without resetting an administrator's classifications. Course imports accept an optional `AcademicLevel` column (`COLLEGE`, `GRADUATE_SCHOOL`, or `OTHER`). Omitting it preserves an existing course's classification; new courses are classified from their code and name when possible.
@@ -204,8 +204,8 @@ These steps target **Windows Server** with Node.js 20+, Git, MySQL, and IIS with
 1. In PowerShell, clone the production source and install the locked dependency set.
 
    ```powershell
-   git clone <repository-url> C:\Apps\ndmu-credentials-dispenser
-   Set-Location -LiteralPath "C:\Apps\ndmu-credentials-dispenser"
+   git clone <repository-url> C:\Apps\credentials-dispenser
+   Set-Location -LiteralPath "C:\Apps\credentials-dispenser"
    npm ci --omit=dev
    ```
 
@@ -221,14 +221,14 @@ These steps target **Windows Server** with Node.js 20+, Git, MySQL, and IIS with
    ```powershell
    npm run build
    npm install --global pm2
-   pm2 start npm --name ndmu-credentials-dispenser -- start
+   pm2 start npm --name credentials-dispenser -- start
    ```
 
 4. Confirm the process and inspect startup errors.
 
    ```powershell
    pm2 status
-   pm2 logs ndmu-credentials-dispenser
+   pm2 logs credentials-dispenser
    ```
 
 5. As the deployment account, save the running process list. Then open an **elevated PowerShell** window to install PM2 as a Windows service. PM2's normal `pm2 startup` command generates startup scripts for Unix-like init systems; use the Windows service helper instead.
@@ -239,7 +239,7 @@ These steps target **Windows Server** with Node.js 20+, Git, MySQL, and IIS with
 
    ```powershell
    npm install --global pm2-windows-service
-   pm2-service-install -n "NDMU Credentials Dispenser"
+   pm2-service-install -n "Credentials Dispenser"
    ```
 
    At the installer prompts, let it configure the environment and use the default restored PM2 process list. In the Windows **Services** console, set the new service's **Log On** account to the same dedicated account that ran `pm2 save`; this ensures it can access the saved PM2 process list. Start the service and confirm it is set to start automatically.
@@ -251,12 +251,12 @@ These steps target **Windows Server** with Node.js 20+, Git, MySQL, and IIS with
 Back up the database before schema or bulk-data changes. Pull the new source, stop the managed process, install dependencies, rebuild the client, and restart it. On Windows, stop the app before `npm ci` so native modules such as `bcrypt.node` can be replaced:
 
 ```powershell
-Set-Location -LiteralPath "C:\Apps\ndmu-credentials-dispenser"
+Set-Location -LiteralPath "C:\Apps\credentials-dispenser"
 git pull
-pm2 stop ndmu-credentials-dispenser
+pm2 stop credentials-dispenser
 npm ci --omit=dev
 npm run build
-pm2 restart ndmu-credentials-dispenser
+pm2 restart credentials-dispenser
 pm2 save
 ```
 
@@ -264,7 +264,7 @@ Continue to the build and restart only after installation succeeds. If Windows s
 
 The request-control migration runs automatically when the API starts. To apply it explicitly to an existing database before restarting, run `npm run migrate-credential-request-controls -w server` from the project directory. It adds missing request-control columns, carries over the old password-reset setting once, and preserves existing settings on subsequent runs. It uses the database connection in `.env` and requires permission to alter `credential_module_controls`.
 
-Use `pm2 logs ndmu-credentials-dispenser` to troubleshoot and `pm2 monit` for live process monitoring. If `.env` values change, restart the process after saving the file. After a Node.js upgrade, reinstall or update PM2 and restart the Windows service so it uses the current Node runtime.
+Use `pm2 logs credentials-dispenser` to troubleshoot and `pm2 monit` for live process monitoring. If `.env` values change, restart the process after saving the file. After a Node.js upgrade, reinstall or update PM2 and restart the Windows service so it uses the current Node runtime.
 
 ## Production checklist
 
