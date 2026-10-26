@@ -2163,7 +2163,8 @@ button {
   color: #092e25;
 }
 
-.credential-card-body > .credential-google-sign-in {
+.credential-card-body > .credential-google-sign-in,
+.credential-card-body > .credential-sign-in-help {
   display: block;
 }
 
@@ -2215,6 +2216,7 @@ button {
 
 .credential-summary-actions {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   width: min(100%, 520px);
   margin: 12px auto 0;
@@ -6892,6 +6894,7 @@ strong {
   }
 
   .kiosk-results .credential-summary-card > h2 {
+    flex-shrink: 0;
     margin-bottom: 9px;
     padding-top: 9px;
     padding-bottom: 9px;
@@ -6904,7 +6907,21 @@ strong {
   }
 
   .kiosk-results .credential-summary-card .credential-website {
-    margin-top: 12px;
+    margin-top: 0;
+  }
+
+  .kiosk-results .credential-card-body {
+    flex: 0 0 auto;
+  }
+
+  .kiosk-results .credential-card-body > .credential-google-sign-in,
+  .kiosk-results .credential-card-body > .credential-sign-in-help {
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+
+  .kiosk-results .credential-card-body > .credential-google-sign-in > b {
+    font-size: inherit;
   }
 
   .kiosk-results .credential-summary-actions {
@@ -8545,6 +8562,23 @@ body,
 }
 
 @media (min-width: 761px) and (max-width: 1100px) and (max-height: 950px) {
+  .kiosk.kiosk-results {
+    padding-top: 10px;
+    padding-bottom: 8px;
+  }
+
+  .kiosk-results .credential-summary-grid {
+    margin-top: 8px;
+  }
+
+  .kiosk-results .credential-summary-card > h2 {
+    margin-bottom: 6px;
+  }
+
+  .kiosk-results .credential-summary-card .credential-card-body {
+    gap: 2px;
+  }
+
   .kiosk-results .credential-request-row .kiosk-request-button {
     padding-right: 8px;
     padding-left: 8px;
@@ -8593,7 +8627,7 @@ body,
   }
 
   .kiosk-results .credential-summary-card .credential-website {
-    margin-top: 4px;
+    margin-top: 0;
   }
 
   .kiosk-results .credential-card-body {

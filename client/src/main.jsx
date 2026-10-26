@@ -364,6 +364,20 @@ function CredentialRequestInfoModal({
             : "This sends a request to the ICT/MIS administrator. Your password will not change immediately."}
         </p>
         <div className="password-reset-info-list">
+          {!creatingAccount && accountTitle === "Schoology" && (
+            <article>
+              <AppIcon name="mail" size={22} />
+              <span>
+                <b>Alternative: reset using your institutional email</b>
+                <small>
+                  Instead of submitting this request, you can reset your password
+                  yourself. On the Schoology sign-in page, select <strong>Forgot password</strong>,
+                  enter your institutional email address, and check your
+                  institutional email inbox for password reset instructions.
+                </small>
+              </span>
+            </article>
+          )}
           <article>
             <AppIcon name="schedule" size={22} />
             <span>
@@ -386,8 +400,8 @@ function CredentialRequestInfoModal({
                   </>
                 ) : useDefaultPassword ? (
                   <>
-                    Once the administrator completes the reset, you can sign in
-                    with the default credentials shown here.
+                    The pending status will disappear once the administrator
+                    completes your password reset.
                   </>
                 ) : (
                   <>
@@ -7216,7 +7230,7 @@ function Kiosk() {
               const supportsGoogleSignIn = ["SATP", "KUMOSOFT"].includes(
                 c.type,
               );
-              const showGoogleSignIn =
+              const useGoogleInsteadOfPassword =
                 supportsGoogleSignIn &&
                 (c.unavailable ||
                   c.hasPassword === false ||
@@ -7225,8 +7239,8 @@ function Kiosk() {
                     passwordResetGuidance(c).checkForNewPassword));
               const googleSignIn = (
                 <p className="credential-google-sign-in">
-                  Use <b>Sign in with Google</b> with your institutional email
-                  account.
+                  {useGoogleInsteadOfPassword ? "Use " : "Or use "}
+                  <b>Sign in with Google</b> with your institutional email.
                 </p>
               );
               return (
@@ -7278,9 +7292,7 @@ function Kiosk() {
                       <p>
                         <b>{meta.username}:</b> <span>{c.username}</span>
                       </p>
-                      {showGoogleSignIn ? (
-                        googleSignIn
-                      ) : (
+                      {!useGoogleInsteadOfPassword && (
                         <p
                           className={`credential-password${passwordsVisible ? " visible" : ""}`}
                         >
@@ -7290,6 +7302,12 @@ function Kiosk() {
                               ? c.password || "Not available"
                               : "••••••••"}
                           </code>
+                        </p>
+                      )}
+                      {supportsGoogleSignIn && googleSignIn}
+                      {c.type === "SCHOOLOGY" && (
+                        <p className="credential-sign-in-help">
+                          Sign in with your username (ID number) or institutional email.
                         </p>
                       )}
                       {meta.website && (
