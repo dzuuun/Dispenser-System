@@ -55,6 +55,32 @@ export async function getKiosk(req, res) {
     .json({ kiosk: withKioskUsage(kiosk), commands });
 }
 
+export async function updateKioskLocation(req, res) {
+  if (!validId(req.params.id))
+    return res.status(400).json({ message: "Invalid kiosk." });
+  const location = typeof req.body?.location === "string"
+    ? req.body.location.trim()
+    : "";
+  if (!location || location.length > 160)
+    return res.status(400).json({
+      message: "Enter a kiosk location between 1 and 160 characters.",
+    });
+  const [[kiosk]] = await pool.execute(
+    "SELECT id, location FROM kiosks WHERE id=? AND is_active=1",
+    [req.params.id],
+  );
+  if (!kiosk) return res.status(404).json({ message: "Kiosk not found." });
+  if (kiosk.location !== location) {
+    const [result] = await pool.execute(
+      "UPDATE kiosks SET location=? WHERE id=? AND is_active=1",
+      [location, kiosk.id],
+    );
+    if (!result.affectedRows)
+      return res.status(404).json({ message: "Kiosk not found." });
+  }
+  res.json({ id: kiosk.id, location, message: "Kiosk location saved." });
+}
+
 const actions = {
   reload: { command: "RELOAD", label: "Reload dispenser" },
   restartBrowser: { command: "RESTART_BROWSER", label: "Restart browser" },
@@ -110,7 +136,9 @@ export async function kioskHeartbeat(req, res) {
   await pool.execute(
     `UPDATE kiosks SET last_seen=NOW(), ip_address=?, hostname=COALESCE(?, hostname),
        uptime_seconds=?, browser_status=?, current_page=?, operating_system=?,
-       kiosk_name=COALESCE(?, kiosk_name), location=COALESCE(?, location),
+       kiosk_name=COALESCE(?, kiosk_name),
+       location=CASE WHEN location IS NULL OR TRIM(location) IN ('', 'Unassigned')
+                     THEN COALESCE(?, location) ELSE location END,
        activity_state=?, activity_reported_at=NOW(),
        last_interaction_at=TIMESTAMPADD(MICROSECOND, ?, NOW()) WHERE id=?`,
     [

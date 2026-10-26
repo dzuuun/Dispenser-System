@@ -5816,6 +5816,83 @@ function KioskUsageStatus({ kiosk }) {
   );
 }
 
+function KioskLocationEditor({ kiosk, token, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [location, setLocation] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const submitting = useRef(false);
+  const assigned = Boolean(kiosk.location?.trim()) && kiosk.location.trim().toLowerCase() !== "unassigned";
+  const save = async (event) => {
+    event.preventDefault();
+    if (submitting.current || !location.trim()) return;
+    submitting.current = true;
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await request(`/admin/kiosks/${kiosk.id}/location`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ location: location.trim() }),
+      });
+      setEditing(false);
+      onSaved(updated);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      submitting.current = false;
+      setSaving(false);
+    }
+  };
+  return (
+    <section className="kiosk-location-editor" aria-label="Kiosk location">
+      {editing ? (
+        <form onSubmit={save}>
+          <label htmlFor="kiosk-location">Location</label>
+          <p>Enter where this kiosk is installed.</p>
+          <input
+            id="kiosk-location"
+            type="text"
+            autoFocus
+            required
+            maxLength={160}
+            value={location}
+            disabled={saving}
+            placeholder="e.g. ICT/MIS Office"
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "kiosk-location-error" : undefined}
+            onChange={(event) => setLocation(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !saving) setEditing(false);
+            }}
+          />
+          {error && <p className="error" id="kiosk-location-error" role="alert">{error}</p>}
+          <div className="kiosk-location-actions">
+            <Button variant="secondary" disabled={saving} onClick={() => setEditing(false)}>Cancel</Button>
+            <button className="btn primary" type="submit" disabled={saving || !location.trim()}>
+              {saving ? "Saving..." : "Save location"}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <div>
+            <span><AppIcon name="location_on" size={17} /> Location</span>
+            <p>{kiosk.location || "Unassigned"}</p>
+          </div>
+          <Button variant="secondary" onClick={() => {
+            setLocation(assigned ? kiosk.location : "");
+            setError("");
+            setEditing(true);
+          }}>
+            <AppIcon name="edit" size={16} /> {assigned ? "Edit location" : "Set location"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
 function KiosksPage({ token }) {
   const [kiosks, setKiosks] = useState([]),
     [error, setError] = useState(""),
@@ -5824,56 +5901,97 @@ function KiosksPage({ token }) {
     [selectedId, setSelectedId] = useState(null),
     [details, setDetails] = useState(null),
     [detailsLoading, setDetailsLoading] = useState(false),
+    [detailsError, setDetailsError] = useState(""),
+    [detailsRevision, setDetailsRevision] = useState(0),
     [pendingAction, setPendingAction] = useState(""),
     [toast, setToast] = useState("");
   const { observe: observeKiosks, isNew: isNewKiosk } = useNewRowHighlights(token);
   const headers = { Authorization: `Bearer ${token}` };
+  const listRequestId = useRef(0);
+  const listFetching = useRef(false);
   const load = async ({ quiet = false } = {}) => {
+    if (listFetching.current) return;
+    listFetching.current = true;
+    const requestId = ++listRequestId.current;
     if (!quiet) setLoading(true);
     try {
       const next = await request("/admin/kiosks", { headers });
+      if (requestId !== listRequestId.current) return;
       observeKiosks(next);
       setKiosks(next);
       setError("");
     } catch (err) {
-      setError(err.message);
+      if (requestId === listRequestId.current) setError(err.message);
     } finally {
-      if (!quiet) setLoading(false);
+      if (requestId === listRequestId.current) {
+        listFetching.current = false;
+        setLoading(false);
+      }
     }
   };
   useEffect(() => {
     load();
     const timer = setInterval(() => load({ quiet: true }), 3000);
-    return () => clearInterval(timer);
+    const refresh = () => load({ quiet: true });
+    addEventListener("focus", refresh);
+    return () => {
+      listRequestId.current += 1;
+      listFetching.current = false;
+      clearInterval(timer);
+      removeEventListener("focus", refresh);
+    };
   }, [token]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
-  const openKiosk = async (id) => {
+  const openKiosk = (id) => {
+    if (id !== selectedId) setDetailsLoading(true);
     setSelectedId(id);
-    setDetailsLoading(true);
-    try {
-      setDetails(await request(`/admin/kiosks/${id}`, { headers }));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDetailsLoading(false);
-    }
   };
   useEffect(() => {
-    if (!selectedId && kiosks[0]) openKiosk(kiosks[0].id);
-  }, [kiosks]);
+    if (!kiosks.some((item) => item.id === selectedId)) {
+      setSelectedId(kiosks[0]?.id ?? null);
+    }
+  }, [kiosks, selectedId]);
   useEffect(() => {
+    setPendingAction("");
     if (!selectedId) return;
-    const refreshDetails = () =>
-      request(`/admin/kiosks/${selectedId}`, { headers })
-        .then(setDetails)
-        .catch((err) => setError(err.message));
+    let active = true;
+    let fetching = false;
+    const controller = new AbortController();
+    setDetailsLoading(true);
+    setDetailsError("");
+    const refreshDetails = async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const next = await request(`/admin/kiosks/${selectedId}`, {
+          headers,
+          signal: controller.signal,
+        });
+        if (active) {
+          setDetails(next);
+          setDetailsError("");
+        }
+      } catch (err) {
+        if (active) setDetailsError(err.message);
+      } finally {
+        fetching = false;
+        if (active) setDetailsLoading(false);
+      }
+    };
+    refreshDetails();
     const timer = setInterval(refreshDetails, 3000);
-    return () => clearInterval(timer);
-  }, [selectedId, token]);
+    addEventListener("focus", refreshDetails);
+    return () => {
+      active = false;
+      controller.abort();
+      clearInterval(timer);
+      removeEventListener("focus", refreshDetails);
+    };
+  }, [selectedId, token, detailsRevision]);
   const queueAction = async () => {
     if (!pendingAction || !selectedId) return;
     try {
@@ -5884,7 +6002,7 @@ function KiosksPage({ token }) {
       });
       setToast(response.message);
       setPendingAction("");
-      openKiosk(selectedId);
+      setDetailsRevision((value) => value + 1);
     } catch (err) {
       setError(err.message);
       setPendingAction("");
@@ -5895,7 +6013,18 @@ function KiosksPage({ token }) {
   const filtered = kiosks.filter((item) =>
     matchesTableSearch(query, kioskSearchValues(item)),
   );
-  const selected = details?.kiosk;
+  const selected = details?.kiosk?.id === selectedId ? details.kiosk : null;
+  const locationSaved = (updated) => {
+    setKiosks((items) => items.map((item) => item.id === updated.id ? { ...item, location: updated.location } : item));
+    setDetails((current) => current?.kiosk?.id === updated.id
+      ? { ...current, kiosk: { ...current.kiosk, location: updated.location } }
+      : current);
+    setToast(updated.message);
+    listRequestId.current += 1;
+    listFetching.current = false;
+    load({ quiet: true });
+    setDetailsRevision((value) => value + 1);
+  };
   const actionLabel = {
     reload: "Reload dispenser",
     restartBrowser: "Restart browser",
@@ -5903,7 +6032,7 @@ function KiosksPage({ token }) {
     shutdown: "Shut down device",
   };
   const duration = (seconds) => {
-    if (!Number.isFinite(Number(seconds))) return "Not reported";
+    if (seconds == null || !Number.isFinite(Number(seconds))) return "Not reported";
     const value = Math.max(0, Number(seconds));
     const days = Math.floor(value / 86400),
       hours = Math.floor((value % 86400) / 3600),
@@ -5913,273 +6042,311 @@ function KiosksPage({ token }) {
       .join(" ");
   };
   return (
-    <>
+    <div className="kiosk-management-page">
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
       <PageHeader
         title="Kiosks"
-        description="Monitor dispenser devices that have opened and connected to the system."
+        description="Monitor connected devices, live usage, and remote kiosk controls."
         actions={
-          <Button variant="secondary" onClick={() => load()}>
-            <AppIcon name="refresh" /> Refresh
-          </Button>
+          <div className="kiosk-management-refresh">
+            <span className="kiosk-live-indicator"><i /> Live · 3s</span>
+            <Button variant="secondary" disabled={loading} onClick={() => {
+              load({ quiet: true });
+              setDetailsRevision((value) => value + 1);
+            }}>
+              <AppIcon name="refresh" /> Refresh
+            </Button>
+          </div>
         }
       />
       <section className="student-summary kiosk-admin-summary">
         <article>
           <span>Detected kiosks</span>
           <strong>{kiosks.length}</strong>
+          <small>Registered devices</small>
         </article>
         <article>
           <span>Online now</span>
           <strong>{online}</strong>
+          <small>Connected within 5 minutes</small>
         </article>
         <article>
           <span>In use now</span>
           <strong>{inUse}</strong>
+          <small>Entering details or viewing credentials</small>
         </article>
         <article>
           <span>Offline</span>
           <strong>{kiosks.length - online}</strong>
+          <small>No recent connection</small>
         </article>
       </section>
-      <section className="panel kiosk-admin-panel">
-        <div className="course-intro">
-          Updates every three seconds. In use means someone is entering details
-          or viewing credentials. Usage becomes idle after 30 seconds without
-          interaction; unknown means activity reports are unavailable. Online
-          means the device has connected within the last five minutes.
-        </div>
-        {error && <p className="error">{error}</p>}
-        {loading ? (
-          <div className="kiosk-loading" role="status">
-            <span className="loading-spinner" /> Loading kiosks...
-          </div>
-        ) : kiosks.length ? (
-          <>
-            <div className="kiosk-monitor-toolbar">
-              <label>
-                <AppIcon name="search" size={19} />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search all columns"
-                  aria-label="Search kiosks"
-                />
-              </label>
-              <small>
-                {filtered.length} of {kiosks.length} devices
-              </small>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className={`kiosk-management-layout${selectedId ? " has-selection" : ""}`}>
+        <section className="panel kiosk-admin-panel" aria-labelledby="kiosk-devices-title">
+          <header className="kiosk-monitor-heading">
+            <div>
+              <p className="eyebrow">DEVICE MONITOR</p>
+              <h2 id="kiosk-devices-title">Registered kiosks</h2>
+              <p>Select a device to view its details and controls.</p>
             </div>
-            <div className="kiosk-admin-table-wrap">
-              <table className="kiosk-admin-table kiosk-monitor-table">
-                <thead>
-                  <tr>
-                    <th>Location</th>
-                    <th>Device</th>
-                    <th>Status</th>
-                    <th>Usage</th>
-                    <th>Last seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((item) => (
-                    <tr
-                      key={item.id}
-                      className={[
-                        item.id === selectedId ? "selected" : "",
-                        isNewKiosk(item.id) ? "live-row-new" : "",
-                      ].filter(Boolean).join(" ")}
-                      onClick={() => openKiosk(item.id)}
-                    >
-                      <td>
-                        {item.location || (
-                          <span className="muted-cell">Not reported</span>
-                        )}
-                      </td>
-                      <td>
-                        <span className="student-cell">
-                          <b>{item.kiosk_name}</b>
-                          <small>{item.kiosk_code}</small>
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          className={`kiosk-connection ${item.is_online ? "online" : "offline"}`}
-                        >
-                          <i />
-                          {item.is_online ? "Online" : "Offline"}
-                        </span>
-                      </td>
-                      <td>
-                        <KioskUsageStatus kiosk={item} />
-                      </td>
-                      <td>
-                        {item.last_seen ? (
-                          <span className="request-date">
-                            <b>
-                              {new Date(item.last_seen).toLocaleDateString()}
-                            </b>
-                            <small>
-                              {new Date(item.last_seen).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </small>
-                          </span>
-                        ) : (
-                          <span className="muted-cell">Never connected</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!filtered.length && (
-              <p className="kiosk-no-results">No kiosk matches your search.</p>
-            )}
-          </>
-        ) : (
-          <Empty
-            title="No kiosk detected"
-            detail="Open the student dispenser on a kiosk device. It will appear here after connecting."
-          />
-        )}
-      </section>
-      {selectedId && (
-        <section className="panel kiosk-detail-panel">
-          {detailsLoading || !selected ? (
+            <Status>{online} online</Status>
+          </header>
+          {loading ? (
             <div className="kiosk-loading" role="status">
-              <span className="loading-spinner" /> Loading kiosk details...
+              <span className="loading-spinner" /> Loading kiosks...
             </div>
-          ) : (
+          ) : kiosks.length ? (
             <>
-              <header>
-                <div>
-                  <p className="eyebrow">KIOSK DETAILS</p>
-                  <h2>
-                    {selected.location || "Kiosk"} — {selected.kiosk_code}
-                  </h2>
-                  <p>{selected.kiosk_name}</p>
-                </div>
-                <span
-                  className={`kiosk-connection ${selected.is_online ? "online" : "offline"}`}
-                >
-                  <i />
-                  {selected.is_online ? "Online" : "Offline"}
-                </span>
-              </header>
-              <dl className="kiosk-detail-grid">
-                <div>
-                  <dt>Current usage</dt>
-                  <dd>
-                    <KioskUsageStatus kiosk={selected} />
-                  </dd>
-                </div>
-                <div>
-                  <dt>IP address</dt>
-                  <dd>{selected.ip_address || "Not reported"}</dd>
-                </div>
-                <div>
-                  <dt>MAC address</dt>
-                  <dd>
-                    {selected.mac_address || "Not available in browser kiosk"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Operating system</dt>
-                  <dd>{selected.operating_system || "Not reported"}</dd>
-                </div>
-                <div>
-                  <dt>Uptime</dt>
-                  <dd>{duration(selected.uptime_seconds)}</dd>
-                </div>
-                <div>
-                  <dt>Browser</dt>
-                  <dd>{selected.browser_status || "Not reported"}</dd>
-                </div>
-                <div>
-                  <dt>Browser status</dt>
-                  <dd>{selected.is_online ? "Running" : "Not connected"}</dd>
-                </div>
-                <div>
-                  <dt>Website</dt>
-                  <dd>{selected.current_page || "Not reported"}</dd>
-                </div>
-                <div>
-                  <dt>Website status</dt>
-                  <dd>{selected.is_online ? "Reachable" : "Unavailable"}</dd>
-                </div>
-                <div>
-                  <dt>Last seen</dt>
-                  <dd>
-                    {selected.last_seen
-                      ? new Date(selected.last_seen).toLocaleString()
-                      : "Never"}
-                  </dd>
-                </div>
-              </dl>
-              <div className="kiosk-command-actions">
-                <Button
-                  variant="secondary"
-                  onClick={() => setPendingAction("reload")}
-                >
-                  <AppIcon name="refresh" /> Reload dispenser
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => setPendingAction("restartBrowser")}
-                >
-                  <AppIcon name="restart_alt" /> Restart browser
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => setPendingAction("reboot")}
-                >
-                  <AppIcon name="restart_alt" /> Reboot
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => setPendingAction("shutdown")}
-                >
-                  <AppIcon name="power_settings_new" /> Shut down
-                </Button>
+              <div className="kiosk-monitor-toolbar">
+                <label>
+                  <AppIcon name="search" size={19} />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search all columns"
+                    aria-label="Search kiosks"
+                  />
+                </label>
+                <small>
+                  {filtered.length} of {kiosks.length} devices
+                </small>
               </div>
-              <div className="kiosk-command-note">
-                <AppIcon name="info" size={18} /> Reload and restart run in the
-                browser kiosk. Reboot and shut down require the optional device
-                agent and will be reported as unsupported until it is installed.
-              </div>
-              {details.commands?.length > 0 && (
-                <section className="kiosk-command-history">
-                  <h3>Recent commands</h3>
-                  {details.commands.map((command) => (
-                    <div key={command.id}>
-                      <span>{command.command.replace(/_/g, " ")}</span>
-                      <Status
-                        tone={
-                          command.status === "COMPLETED"
-                            ? "green"
-                            : command.status === "UNSUPPORTED" ||
-                                command.status === "FAILED"
-                              ? "danger"
-                              : "gold"
-                        }
+              <div className="kiosk-admin-table-wrap">
+                <table className="kiosk-admin-table kiosk-monitor-table">
+                  <thead>
+                    <tr>
+                      <th>Device</th>
+                      <th>Location</th>
+                      <th>Status</th>
+                      <th>Usage</th>
+                      <th>Last seen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((item) => (
+                      <tr
+                        key={item.id}
+                        className={[
+                          item.id === selectedId ? "selected" : "",
+                          isNewKiosk(item.id) ? "live-row-new" : "",
+                        ].filter(Boolean).join(" ")}
+                        onClick={() => openKiosk(item.id)}
                       >
-                        {command.status.toLowerCase()}
-                      </Status>
-                      <small>
-                        {command.result_text ||
-                          new Date(command.created_at).toLocaleString()}
-                      </small>
-                    </div>
-                  ))}
-                </section>
+                        <td data-label="Device">
+                          <button
+                            type="button"
+                            className="kiosk-select-button"
+                            aria-pressed={item.id === selectedId}
+                            aria-label={`View ${item.kiosk_name || item.kiosk_code}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openKiosk(item.id);
+                            }}
+                          >
+                            <span className="kiosk-device-icon"><AppIcon name="desktop_windows" size={20} /></span>
+                            <span className="student-cell">
+                              <b>{item.kiosk_name || "Kiosk"}</b>
+                              <small>{item.kiosk_code}</small>
+                            </span>
+                          </button>
+                        </td>
+                        <td data-label="Location">
+                          {item.location || <span className="muted-cell">Not reported</span>}
+                        </td>
+                        <td data-label="Connection">
+                          <span
+                            className={`kiosk-connection ${item.is_online ? "online" : "offline"}`}
+                          >
+                            <i />
+                            {item.is_online ? "Online" : "Offline"}
+                          </span>
+                        </td>
+                        <td data-label="Usage">
+                          <KioskUsageStatus kiosk={item} />
+                        </td>
+                        <td data-label="Last seen">
+                          {item.last_seen ? (
+                            <span className="request-date">
+                              <b>
+                                {new Date(item.last_seen).toLocaleDateString()}
+                              </b>
+                              <small>
+                                {new Date(item.last_seen).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </small>
+                            </span>
+                          ) : (
+                            <span className="muted-cell">Never connected</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!filtered.length && (
+                <p className="kiosk-no-results">No kiosk matches your search.</p>
               )}
             </>
+          ) : (
+            <Empty
+              title="No kiosk detected"
+              detail="Open the student dispenser on a kiosk device. It will appear here after connecting."
+            />
           )}
+          <details className="kiosk-monitor-help">
+            <summary><AppIcon name="info" size={16} /> How status and usage are measured</summary>
+            <p>Updates every 3 seconds. In use means a student is typing or viewing credentials. Usage becomes idle after 30 seconds without interaction. Unknown means activity reports are unavailable. A device is online if it connected within the last 5 minutes.</p>
+          </details>
         </section>
-      )}
+        {selectedId && (
+          <section className="panel kiosk-detail-panel" aria-label="Selected kiosk details" aria-busy={detailsLoading}>
+            {detailsLoading ? (
+              <div className="kiosk-loading" role="status">
+                <span className="loading-spinner" /> Loading kiosk details...
+              </div>
+            ) : !selected ? (
+              <div className="kiosk-detail-error">
+                <Empty title="Unable to load kiosk" detail={detailsError || "Select a device to try again."} />
+                <Button variant="secondary" onClick={() => setDetailsRevision((value) => value + 1)}>Try again</Button>
+              </div>
+            ) : (
+              <>
+                <header>
+                  <div>
+                    <p className="eyebrow">KIOSK DETAILS</p>
+                    <h2>{selected.kiosk_name || "Kiosk"}</h2>
+                    <p>{selected.kiosk_code}</p>
+                  </div>
+                  <span
+                    className={`kiosk-connection ${selected.is_online ? "online" : "offline"}`}
+                  >
+                    <i />
+                    {selected.is_online ? "Online" : "Offline"}
+                  </span>
+                </header>
+                {detailsError && <p className="error" role="alert">{detailsError}</p>}
+                <KioskLocationEditor key={selected.id} kiosk={selected} token={token} onSaved={locationSaved} />
+                <div className="kiosk-detail-usage" data-status={selected.usage_status}>
+                  <div>
+                    <span>Current usage</span>
+                    <p>{selected.usage_status === "IN_USE"
+                      ? "A student is using this kiosk."
+                      : selected.usage_status === "IDLE"
+                        ? "Ready for the next student."
+                        : selected.is_online
+                          ? "Waiting for an activity report."
+                          : "This kiosk is not connected."}</p>
+                  </div>
+                  <KioskUsageStatus kiosk={selected} />
+                </div>
+                <dl className="kiosk-detail-grid">
+                  <div>
+                    <dt>IP address</dt>
+                    <dd>{selected.ip_address || "Not reported"}</dd>
+                  </div>
+                  <div>
+                    <dt>MAC address</dt>
+                    <dd>
+                      {selected.mac_address || "Not available in browser kiosk"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Operating system</dt>
+                    <dd>{selected.operating_system || "Not reported"}</dd>
+                  </div>
+                  <div>
+                    <dt>Uptime</dt>
+                    <dd>{duration(selected.uptime_seconds)}</dd>
+                  </div>
+                  <div>
+                    <dt>Browser</dt>
+                    <dd>{selected.browser_status || "Not reported"}</dd>
+                  </div>
+                  <div>
+                    <dt>Browser status</dt>
+                    <dd>{selected.is_online ? "Running" : "Not connected"}</dd>
+                  </div>
+                  <div className="kiosk-detail-website">
+                    <dt>Website</dt>
+                    <dd>{selected.current_page || "Not reported"}</dd>
+                  </div>
+                  <div>
+                    <dt>Website status</dt>
+                    <dd>{selected.is_online ? "Reachable" : "Unavailable"}</dd>
+                  </div>
+                  <div>
+                    <dt>Last seen</dt>
+                    <dd>
+                      {selected.last_seen
+                        ? new Date(selected.last_seen).toLocaleString()
+                        : "Never"}
+                    </dd>
+                  </div>
+                </dl>
+                <h3 className="kiosk-controls-title">Device controls</h3>
+                <div className="kiosk-command-actions">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPendingAction("reload")}
+                  >
+                    <AppIcon name="refresh" /> Reload dispenser
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPendingAction("restartBrowser")}
+                  >
+                    <AppIcon name="restart_alt" /> Restart browser
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPendingAction("reboot")}
+                  >
+                    <AppIcon name="restart_alt" /> Reboot
+                  </Button>
+                  <Button variant="danger" onClick={() => setPendingAction("shutdown")}>
+                    <AppIcon name="power_settings_new" /> Shut down
+                  </Button>
+                </div>
+                <div className="kiosk-command-note">
+                  <AppIcon name="info" size={18} /> Reload and restart run in the
+                  browser kiosk. Reboot and shut down require the optional device
+                  agent and will be reported as unsupported until it is installed.
+                </div>
+                {details.commands?.length > 0 && (
+                  <details className="kiosk-command-history">
+                    <summary>Recent commands <span>{details.commands.length}</span></summary>
+                    {details.commands.map((command) => (
+                      <div key={command.id}>
+                        <span>{({ RELOAD: "Reload dispenser", RESTART_BROWSER: "Restart browser", REBOOT: "Reboot device", SHUTDOWN: "Shut down device" })[command.command] || command.command.replace(/_/g, " ")}</span>
+                        <Status
+                          tone={
+                            command.status === "COMPLETED"
+                              ? "green"
+                              : command.status === "UNSUPPORTED" ||
+                                  command.status === "FAILED"
+                                ? "danger"
+                                : "gold"
+                          }
+                        >
+                          {command.status.toLowerCase()}
+                        </Status>
+                        <small>
+                          {command.result_text ||
+                            new Date(command.created_at).toLocaleString()}
+                        </small>
+                      </div>
+                    ))}
+                  </details>
+                )}
+              </>
+            )}
+          </section>
+        )}
+      </div>
       {pendingAction && (
         <ConfirmModal
           title={`${actionLabel[pendingAction]}?`}
@@ -6193,7 +6360,7 @@ function KiosksPage({ token }) {
           onClose={() => setPendingAction("")}
         />
       )}
-    </>
+    </div>
   );
 }
 

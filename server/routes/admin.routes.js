@@ -75,6 +75,7 @@ import {
   getKiosk,
   listKiosks,
   queueKioskAction,
+  updateKioskLocation,
 } from "../controllers/kiosk-admin.controller.js";
 import {
   activateAcademicPeriod,
@@ -185,6 +186,12 @@ adminRouter.patch(
 );
 adminRouter.get("/kiosks", requireRoles("Super Admin"), listKiosks);
 adminRouter.get("/kiosks/:id", requireRoles("Super Admin"), getKiosk);
+adminRouter.patch(
+  "/kiosks/:id/location",
+  requireRoles("Super Admin"),
+  auditAdminMutation("UPDATE_LOCATION", "KIOSK"),
+  updateKioskLocation,
+);
 adminRouter.post(
   "/kiosks/:id/actions",
   requireRoles("Super Admin"),
