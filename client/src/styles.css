@@ -2621,7 +2621,7 @@ button {
   }
 }
 
-.kiosk-page > .toast-notification {
+body:has(.kiosk-page) > .toast-notification {
   bottom: 64px;
 }
 
@@ -2642,7 +2642,7 @@ button {
 }
 
 @media (max-width: 520px) {
-  .kiosk-page > .toast-notification {
+  body:has(.kiosk-page) > .toast-notification {
     bottom: 60px;
   }
 }
@@ -4713,7 +4713,7 @@ button {
 }
 .toast-notification {
   position: fixed;
-  z-index: 100;
+  z-index: 10000;
   right: 24px;
   bottom: 24px;
   display: flex;
@@ -8974,7 +8974,10 @@ body,
 }
 .request-password-section {
   display: grid;
-  gap: 14px;
+  min-width: 0;
+  border: 1px solid #cfe0d8;
+  border-radius: 11px;
+  background: #f7fbf8;
 }
 .reset-request-modal .status-toggle {
   gap: 12px;
@@ -9001,11 +9004,24 @@ body,
 }
 .reset-request-modal .status-toggle:has(input:focus-visible) {
   outline-width: 2px;
-  outline-offset: 2px;
+  outline-offset: -3px;
+}
+.reset-request-modal .request-password-section .status-toggle {
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.reset-request-modal .request-password-section .request-password-field {
+  padding: 14px 16px 16px;
+  border-top: 1px solid #dce8e1;
+  background: #fff;
+  border-radius: 0 0 10px 10px;
 }
 .request-password-field {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 .reset-request-modal .request-password-field .field {
   margin: 0;
@@ -9016,6 +9032,11 @@ body,
   min-height: 42px;
   padding: 10px 12px;
   font-size: 0.85rem;
+}
+.reset-request-modal .request-password-field input {
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  letter-spacing: 0.025em;
 }
 .reset-request-modal .request-completion-note {
   margin: 0;
@@ -9029,25 +9050,22 @@ body,
   padding: 14px 24px;
   box-shadow: none;
 }
-.reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
-  .request-password-field {
+.reset-request-modal .request-password-field {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 10px;
 }
-.reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
-  .request-password-actions
-  .btn {
+.reset-request-modal .request-password-actions .btn {
   height: 42px;
 }
 @media (max-width: 540px) {
-  .reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
-    .request-password-field {
+  .reset-request-modal .request-password-field {
     grid-template-columns: 1fr;
   }
-  .reset-request-modal[data-request-kind="ACCOUNT_CREATION"]
-    .request-password-actions
-    .btn {
+  .reset-request-modal .request-password-actions {
+    display: grid;
+  }
+  .reset-request-modal .request-password-actions .btn {
     width: 100%;
   }
   .reset-request-modal > header {
@@ -9061,6 +9079,27 @@ body,
   }
   .reset-request-modal > .reset-request-footer {
     padding: 12px 16px;
+  }
+}
+@media (max-width: 620px) {
+  .reset-request-modal[data-request-kind="PASSWORD_RESET"]
+    > .reset-request-footer {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    align-items: stretch;
+  }
+  .reset-request-modal[data-request-kind="PASSWORD_RESET"]
+    > .reset-request-footer
+    .btn {
+    min-width: 0;
+    padding-right: 12px;
+    padding-left: 12px;
+    white-space: normal;
+  }
+  .reset-request-modal[data-request-kind="PASSWORD_RESET"]
+    > .reset-request-footer
+    .btn.primary {
+    grid-column: 2;
+    grid-row: 1;
   }
 }
 

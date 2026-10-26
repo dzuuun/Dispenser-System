@@ -10,6 +10,7 @@ import ndmuLogo from "./assets/ndmu-logo.png";
 import { generateRandomPassword } from "./password-generator.js";
 import { createPendingRequestTitle } from "./pending-request-title.js";
 import { createKioskActivityTracker } from "./kiosk-activity.js";
+import { credentialSummaryState } from "./credential-summary.js";
 import { createAdminApi } from "./admin-api.js";
 import {
   dateSearchText,
@@ -580,7 +581,7 @@ function AppIcon({ name, size = 18 }) {
 }
 function Toast({ message, onClose, tone = "success" }) {
   const isError = tone === "error";
-  return (
+  return createPortal(
     <div
       className={`toast-notification${isError ? " error-toast" : ""}`}
       role={isError ? "alert" : "status"}
@@ -592,7 +593,8 @@ function Toast({ message, onClose, tone = "success" }) {
       <button onClick={onClose} aria-label="Dismiss">
         <AppIcon name="close" size={19} />
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 function Status({ children, tone = "green" }) {
@@ -4562,7 +4564,9 @@ function StudentProfileModal({ record, onClose, onEdit }) {
                     </span>
                     <code>
                       <small>Password</small>
-                      {account.password || "Not provided"}
+                      {account.password?.trim()
+                        ? account.password
+                        : "Not available"}
                     </code>
                   </div>
                 ) : (
@@ -7050,23 +7054,28 @@ function Kiosk() {
         website: "satp.ndmu.edu.ph",
       },
     },
-    visibleCredentials = [...(result?.credentials || [])].sort((a, b) => {
-      const stateRank = (item) =>
-        item.unavailable ? 2 : item.maintenance ? 1 : 0;
-      const stateDifference = stateRank(a) - stateRank(b);
-      return (
-        stateDifference ||
-        ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(a.type) -
-          ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(b.type)
-      );
-    }),
+    visibleCredentials = (result?.credentials || [])
+      .map((credential) => ({
+        ...credential,
+        ...credentialSummaryState(credential),
+      }))
+      .sort((a, b) => {
+        const stateRank = (item) =>
+          item.unavailable ? 2 : item.maintenance ? 1 : 0;
+        const stateDifference = stateRank(a) - stateRank(b);
+        return (
+          stateDifference ||
+          ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(a.type) -
+            ["EMAIL", "KUMOSOFT", "SCHOOLOGY", "SATP"].indexOf(b.type)
+        );
+      }),
     availableCredentialCount = visibleCredentials.filter(
       (item) => !item.unavailable && !item.maintenance,
     ).length,
     kioskControl = moduleControls.find((item) => item.module_key === "KIOSK"),
     passwordResetRequestsEnabled = visibleCredentials.some(
       (item) =>
-        !item.unavailable &&
+        item.requestKind === "PASSWORD_RESET" &&
         !item.maintenance &&
         acceptsRequest(item.type, "PASSWORD_RESET"),
     );
@@ -7200,20 +7209,10 @@ function Kiosk() {
                 username: "Username",
                 website: "",
               };
-              const outcome = requestOutcome(
-                c.type,
-                c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
-              );
-              const pending = pendingRequest(
-                c.type,
-                c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
-              );
+              const outcome = requestOutcome(c.type, c.requestKind);
+              const pending = pendingRequest(c.type, c.requestKind);
               const canRequest =
-                !c.maintenance &&
-                acceptsRequest(
-                  c.type,
-                  c.unavailable ? "ACCOUNT_CREATION" : "PASSWORD_RESET",
-                );
+                !c.maintenance && acceptsRequest(c.type, c.requestKind);
               const supportsGoogleSignIn = ["SATP", "KUMOSOFT"].includes(
                 c.type,
               );
@@ -7241,7 +7240,7 @@ function Kiosk() {
                       tone={c.unavailable || c.maintenance ? "gold" : "green"}
                     >
                       {c.unavailable
-                        ? "Not assigned"
+                        ? "Not available"
                         : c.maintenance
                           ? "Maintenance"
                           : "Available"}
@@ -7264,9 +7263,14 @@ function Kiosk() {
                     </div>
                   ) : c.unavailable ? (
                     <div className="credential-module-unavailable">
-                      <b>Account required</b>
+                      <b>
+                        {c.requestKind === "ACCOUNT_CREATION"
+                          ? "Account required"
+                          : "Credentials not available"}
+                      </b>
                       <span>
-                        No {meta.title} account is linked to this student.
+                        {meta.title} credentials are not available for this
+                        student.
                       </span>
                     </div>
                   ) : (
@@ -7283,7 +7287,7 @@ function Kiosk() {
                           <b>Password:</b>
                           <code>
                             {passwordsVisible
-                              ? (c.password ?? "Not provided")
+                              ? c.password || "Not available"
                               : "••••••••"}
                           </code>
                         </p>
@@ -7308,9 +7312,7 @@ function Kiosk() {
                             setResetRequestInfo({
                               type: c.type,
                               title: meta.title,
-                              kind: c.unavailable
-                                ? "ACCOUNT_CREATION"
-                                : "PASSWORD_RESET",
+                              kind: c.requestKind,
                               ...passwordResetGuidance(c),
                             })
                           }
@@ -7319,7 +7321,7 @@ function Kiosk() {
                             name={
                               pending
                                 ? "check_circle"
-                                : c.unavailable
+                                : c.requestKind === "ACCOUNT_CREATION"
                                   ? "person_add"
                                   : "lock_reset"
                             }
@@ -7327,12 +7329,12 @@ function Kiosk() {
                           />
                           <span className="request-action-label">
                             {pending
-                              ? c.unavailable
+                              ? c.requestKind === "ACCOUNT_CREATION"
                                 ? "Request pending"
                                 : "Reset request pending"
                               : requestingReset === c.type
                                 ? "Submitting..."
-                                : c.unavailable
+                                : c.requestKind === "ACCOUNT_CREATION"
                                   ? "Request account"
                                   : "Request password reset"}
                           </span>
@@ -9016,7 +9018,7 @@ function PasswordResetRequestsPage({ token }) {
                           ? "Account creation"
                           : item.request_kind === "VOUCHER_REQUEST"
                             ? "Replacement request"
-                            : item.account_username || "Password reset"}
+                            : "Password reset"}
                       </small>
                     </td>
                     <td>
