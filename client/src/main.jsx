@@ -532,6 +532,17 @@ function VoucherRequestModal({
             </small>
           </span>
         </div>
+        <div className="voucher-request-note">
+          <AppIcon name="schedule" size={22} />
+          <span>
+            <b>When to expect it</b>
+            <small>
+              Allow at least two business hours for processing during regular
+              ICT/MIS office hours. Return to this kiosk afterward to check your
+              request status and, if approved, your new voucher.
+            </small>
+          </span>
+        </div>
         <footer>
           <button
             type="button"
