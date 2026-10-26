@@ -1,3 +1,4 @@
+import { studentFullName } from "../../shared/student-name.mjs";
 import ExcelJS from "exceljs";
 import { pool } from "../config/db.js";
 import { decryptPassword } from "../services/encryption.service.js";
@@ -57,7 +58,7 @@ function studentListQuery(query) {
   const search = tableSearch(query["search[value]"] ?? query.search, [
     "s.student_id",
     "s.kumosoft_id",
-    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(NULLIF(TRIM(s.middle_name), '-'), ''), NULLIF(s.last_name, ''))",
     "c.code",
     "c.name",
     "CASE WHEN s.is_active=1 THEN 'Active' ELSE 'Inactive' END",
@@ -190,9 +191,7 @@ export async function exportStudentAccounts(req, res) {
     sheet.addRow({
       schoolId: String(student.student_id ?? ""),
       kumosoftId: String(student.kumosoft_id ?? ""),
-      name: [student.first_name, student.middle_name, student.last_name]
-        .filter(Boolean)
-        .join(" "),
+      name: studentFullName(student),
       courseCode: student.course_code || "",
       courseName: student.course_name || "",
       status: student.is_active ? "Active" : "Inactive",

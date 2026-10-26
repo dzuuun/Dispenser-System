@@ -63,7 +63,7 @@ test("student search covers IDs, full names, course code/name, and displayed sta
       assert.match(sql, /s\.academic_period_id=\?/);
       for (const field of ["s.student_id", "s.kumosoft_id", "c.code", "c.name"])
         assert.ok(sql.includes(`${field} LIKE ? ESCAPE '!'`));
-      assert.match(sql, /NULLIF\(s.middle_name, ''\)/);
+      assert.match(sql, /NULLIF\(NULLIF\(TRIM\(s.middle_name\), '-'\), ''\)/);
       assert.match(
         sql,
         /CASE WHEN s.is_active=1 THEN 'Active' ELSE 'Inactive' END LIKE \?/,

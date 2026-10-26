@@ -73,7 +73,7 @@ test("voucher search includes every displayed data column and binds literal wild
   for (const { sql } of [count, rows]) {
     assert.match(sql, /w\.voucher_code LIKE \? ESCAPE '!'/);
     assert.match(sql, /s\.student_id LIKE \? ESCAPE '!'/);
-    assert.match(sql, /NULLIF\(s\.middle_name, ''\)/);
+    assert.match(sql, /NULLIF\(NULLIF\(TRIM\(s\.middle_name\), '-'\), ''\)/);
     assert.match(sql, /THEN 'Not assigned'/);
     assert.match(
       sql,

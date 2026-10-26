@@ -20,7 +20,6 @@ test("kiosk search matches every displayed column, including connection, usage d
   const values = kioskSearchValues(kiosk);
   for (const term of [
     "Main dispenser",
-    "KIOSK-001",
     "Library",
     "Online",
     "In use",
@@ -33,6 +32,7 @@ test("kiosk search matches every displayed column, including connection, usage d
   ])
     assert.equal(matchesTableSearch(term, values), true, term);
   assert.equal(matchesTableSearch("hidden-secret", values), false);
+  assert.equal(matchesTableSearch("KIOSK-001", values), false);
   assert.equal(matchesTableSearch("Offline", values), false);
 });
 
@@ -49,7 +49,7 @@ test("kiosk search reflects idle, unknown, offline and placeholder labels exactl
       true,
     );
   const missing = kioskSearchValues({ is_online: 0 });
-  assert.equal(matchesTableSearch("Not reported", missing), true);
+  assert.equal(matchesTableSearch("Unassigned", missing), true);
   assert.equal(matchesTableSearch("Never", missing), true);
   assert.equal(matchesTableSearch("Never connected", missing), true);
   assert.equal(

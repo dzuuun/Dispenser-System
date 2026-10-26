@@ -19,6 +19,8 @@ function setup(
           id: 1,
           credential_type: "EMAIL",
           request_kind: "PASSWORD_RESET",
+          kiosk_code: "KIOSK-MIS-01",
+          kiosk_location: "ICT/MIS Office",
           ...encryptPassword("saved-secret"),
         },
       ],
@@ -56,11 +58,14 @@ test("request search covers all displayed fields, dates, statuses and administra
   const res = await get("  Test   Student  ");
   assert.equal(res.statusCode, 200);
   const [{ sql, values }] = calls;
+  assert.equal(res.body[0].kiosk_location, "ICT/MIS Office");
+  assert.match(sql, /LEFT JOIN kiosks k ON k\.kiosk_code=pr\.kiosk_code/);
+  assert.match(sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/);
   const where = sql.slice(sql.indexOf("WHERE "));
   assert.match(where, /s\.student_id LIKE \?/);
   assert.match(
     where,
-    /CONCAT_WS\(' ', NULLIF\(s\.first_name, ''\), NULLIF\(s\.middle_name, ''\), NULLIF\(s\.last_name, ''\)\) LIKE \?/,
+    /CONCAT_WS\(' ', NULLIF\(s\.first_name, ''\), NULLIF\(NULLIF\(TRIM\(s\.middle_name\), '-'\), ''\), NULLIF\(s\.last_name, ''\)\) LIKE \?/,
   );
   assert.match(where, /c\.code LIKE \?/);
   assert.match(where, /pr\.credential_type LIKE \?/);

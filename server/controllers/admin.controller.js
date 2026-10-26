@@ -1,3 +1,4 @@
+import { studentFullName } from "../../shared/student-name.mjs";
 import { pool } from "../config/db.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
 import { requestPermissionFilter } from "../../shared/request-permissions.mjs";
@@ -11,10 +12,12 @@ import {
 const transactionWhere =
   "t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1";
 const transactionSelect = `SELECT t.id, t.transaction_type, t.success, t.kiosk_code,
+  COALESCE(NULLIF(TRIM(k.location), ''), 'Unassigned') AS kiosk_location,
   t.ip_address, t.created_at, s.student_id, s.first_name, s.middle_name, s.last_name,
   c.code AS course_code
   FROM credential_transactions t LEFT JOIN students s ON s.id=t.student_id
-  LEFT JOIN courses c ON c.id=s.course_id`;
+  LEFT JOIN courses c ON c.id=s.course_id
+  LEFT JOIN kiosks k ON k.kiosk_code=t.kiosk_code`;
 
 async function transactionPeriod(query) {
   if (query.academicPeriodId === undefined) return currentAcademicPeriod();
@@ -69,7 +72,7 @@ export async function exportTransactions(req, res) {
     { header: "Semester", key: "semester", width: 24 },
     { header: "Student ID", key: "studentId", width: 18 },
     { header: "Student name", key: "studentName", width: 42 },
-    { header: "Kiosk", key: "kiosk", width: 22 },
+    { header: "Kiosk location", key: "kiosk", width: 28 },
     { header: "Result", key: "result", width: 16 },
     { header: "Date and time (UTC+08:00)", key: "createdAt", width: 30 },
   ];
@@ -90,10 +93,8 @@ export async function exportTransactions(req, res) {
       semester: period.semester,
       studentId: row.student_id || "",
       studentName:
-        [row.first_name, row.middle_name, row.last_name]
-          .filter(Boolean)
-          .join(" ") || "Unknown student",
-      kiosk: row.kiosk_code || "",
+        studentFullName(row) || "Unknown student",
+      kiosk: row.kiosk_location || "Unassigned",
       result: "Revealed",
       createdAt: row.created_at
         ? dateFormat.format(new Date(row.created_at))
@@ -143,9 +144,11 @@ export async function dashboard(req, res) {
     ),
     pool.query(
       `SELECT t.id, t.transaction_type, t.created_at, t.kiosk_code, s.student_id,
-                s.first_name, s.middle_name, s.last_name
+                s.first_name, s.middle_name, s.last_name,
+                COALESCE(NULLIF(TRIM(k.location), ''), 'Unassigned') AS kiosk_location
            FROM credential_transactions t
            LEFT JOIN students s ON s.id=t.student_id
+           LEFT JOIN kiosks k ON k.kiosk_code=t.kiosk_code
           WHERE t.academic_period_id=? AND t.transaction_type='VIEW_CREDENTIALS' AND t.success=1
           ORDER BY t.created_at DESC, t.id DESC LIMIT 5`,
       [periodId],
@@ -216,10 +219,10 @@ export async function dashboard(req, res) {
 export async function listTransactions(req, res) {
   const search = tableSearch(req.query.search, [
     "s.student_id",
-    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(NULLIF(TRIM(s.middle_name), '-'), ''), NULLIF(s.last_name, ''))",
     "c.code",
     "CASE WHEN s.student_id IS NULL THEN 'Unknown student' ELSE '' END",
-    "t.kiosk_code",
+    "COALESCE(NULLIF(TRIM(k.location), ''), 'Unassigned')",
     "'Revealed'",
     ...dateSearchFields("t.created_at"),
   ]);
@@ -241,7 +244,7 @@ export async function listTransactions(req, res) {
       `SELECT COUNT(*) AS total,
         COALESCE(SUM(DATE(t.created_at)=CURRENT_DATE()), 0) AS today,
         COUNT(DISTINCT t.student_id) AS studentsServed
-       FROM credential_transactions t${search.term ? " LEFT JOIN students s ON s.id=t.student_id LEFT JOIN courses c ON c.id=s.course_id" : ""} WHERE ${where}`,
+       FROM credential_transactions t${search.term ? " LEFT JOIN students s ON s.id=t.student_id LEFT JOIN courses c ON c.id=s.course_id LEFT JOIN kiosks k ON k.kiosk_code=t.kiosk_code" : ""} WHERE ${where}`,
       values,
     );
     const total = Number(summary.total);

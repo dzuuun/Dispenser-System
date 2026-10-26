@@ -61,6 +61,7 @@ test("dashboard returns populated reveal rows as an array instead of discarding 
       last_name: "Student",
       student_id: "2026008",
       kiosk_code: "KIOSK-01",
+      kiosk_location: "ICT/MIS Office",
       created_at: "2026-10-24T08:00:00.000Z",
     },
     {
@@ -70,6 +71,7 @@ test("dashboard returns populated reveal rows as an array instead of discarding 
       last_name: "Student",
       student_id: "2026007",
       kiosk_code: "KIOSK-02",
+      kiosk_location: "Library",
       created_at: "2026-10-24T07:00:00.000Z",
     },
   ];
@@ -81,6 +83,8 @@ test("dashboard returns populated reveal rows as an array instead of discarding 
   );
   assert.deepEqual(query.values, [7]);
   assert.match(query.sql, /SELECT t\.id,/);
+  assert.match(query.sql, /LEFT JOIN kiosks k ON k\.kiosk_code=t\.kiosk_code/);
+  assert.match(query.sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/);
   assert.match(
     query.sql,
     /t\.academic_period_id=\? AND t\.transaction_type='VIEW_CREDENTIALS' AND t\.success=1/,

@@ -58,7 +58,7 @@ export async function listVouchers(req, res) {
     const search = tableSearch(req.query["search[value]"] ?? req.query.search, [
       "w.voucher_code",
       "s.student_id",
-      "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+      "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(NULLIF(TRIM(s.middle_name), '-'), ''), NULLIF(s.last_name, ''))",
       "CASE WHEN s.student_id IS NULL THEN 'Not assigned' ELSE '' END",
       "CASE WHEN w.is_active=0 THEN 'Inactive' WHEN w.is_assigned=1 THEN 'Assigned' WHEN w.is_released=1 THEN 'Released' ELSE 'Available' END",
       ...dateSearchFields("w.assigned_at"),

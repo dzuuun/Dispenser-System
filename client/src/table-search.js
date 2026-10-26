@@ -33,9 +33,8 @@ export function kioskSearchValues(kiosk) {
     OFFLINE: "Offline",
   };
   return [
-    kiosk.location || "Not reported",
+    kiosk.location || "Unassigned",
     kiosk.kiosk_name,
-    kiosk.kiosk_code,
     kiosk.is_online ? "Online" : "Offline",
     labels[state] || "Unknown",
     state === "IN_USE"

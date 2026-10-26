@@ -1,3 +1,4 @@
+import { studentFullName } from "../../shared/student-name.mjs";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
@@ -145,9 +146,7 @@ export async function verify(req, res) {
     ),
     student: {
       studentId: student.student_id,
-      fullName: [student.first_name, student.middle_name, student.last_name]
-        .filter(Boolean)
-        .join(" "),
+      fullName: studentFullName(student),
       yearLevel: student.year_level,
     },
   });
@@ -247,9 +246,7 @@ export async function credentials(req, res) {
       .json({
         student: {
           studentId: student.student_id,
-          fullName: [student.first_name, student.middle_name, student.last_name]
-            .filter(Boolean)
-            .join(" "),
+          fullName: studentFullName(student),
           yearLevel: student.year_level,
           course: `${student.course_code} — ${student.course_name}`,
         },

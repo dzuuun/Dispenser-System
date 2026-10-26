@@ -1,3 +1,4 @@
+import { displayMiddleName } from "../../shared/student-name.mjs";
 import {
   multiSheetWorkbookBuffer,
   readWorkbookRows,
@@ -768,7 +769,7 @@ export async function validateDataImport(req, res) {
         row: item.row,
         changes: item.changes,
         label: isStudent
-          ? `${item.schoolId} — ${[item.lastName, item.firstName, item.middleName].filter(Boolean).join(", ")} (${item.courseCode})`
+          ? `${item.schoolId} — ${[item.lastName, item.firstName, displayMiddleName(item.middleName)].filter(Boolean).join(", ")} (${item.courseCode})`
           : [item.schoolId, item.login !== item.schoolId && item.login]
               .filter(Boolean)
               .join(" — "),

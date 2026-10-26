@@ -36,6 +36,7 @@ async function setup(t, { count = 1031, noCurrent = false } = {}) {
     middle_name: null,
     last_name: "Student",
     kiosk_code: "KIOSK-01",
+    kiosk_location: "ICT/MIS Office",
     success: 1,
     created_at: new Date("2026-10-22T02:59:40.000Z"),
   }));
@@ -89,6 +90,17 @@ async function setup(t, { count = 1031, noCurrent = false } = {}) {
   return { calls, rows, get };
 }
 
+test("transaction workbook omits a dash middle name from the student name", async (t) => {
+  const { get, rows } = await setup(t, { count: 1 });
+  rows[0].middle_name = " - ";
+  const response = await get("/transactions/export");
+  assert.equal(response.status, 200);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
+  assert.equal(workbook.worksheets[0].getRow(2).getCell(5).text, "Test Student");
+  assert.equal(rows[0].middle_name, " - ");
+});
+
 test("Excel export includes all historical transactions, independent of pagination", async (t) => {
   const { get, calls, rows } = await setup(t);
   const response = await get(
@@ -111,7 +123,7 @@ test("Excel export includes all historical transactions, independent of paginati
     "Semester",
     "Student ID",
     "Student name",
-    "Kiosk",
+    "Kiosk location",
     "Result",
     "Date and time (UTC+08:00)",
   ]);
@@ -121,7 +133,7 @@ test("Excel export includes all historical transactions, independent of paginati
     "Second semester",
     "0012345",
     "Test Student",
-    "KIOSK-01",
+    "ICT/MIS Office",
     "Revealed",
     "2026-10-22 10:59:40",
   ]);
@@ -137,6 +149,23 @@ test("Excel export includes all historical transactions, independent of paginati
   );
   assert.match(exported.sql, /ORDER BY t.created_at DESC, t.id DESC/);
   assert.doesNotMatch(exported.sql, /LIMIT|s.academic_period_id|password/i);
+});
+
+test("transaction exports display saved locations and use Unassigned without falling back to kiosk codes", async (t) => {
+  const { get, rows, calls } = await setup(t, { count: 2 });
+  rows[0].kiosk_location = "Library";
+  rows[1].kiosk_location = null;
+  const response = await get("/transactions/export?academicPeriodId=3");
+  assert.equal(response.status, 200);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
+  const sheet = workbook.worksheets[0];
+  assert.equal(sheet.getRow(2).getCell(6).text, "Library");
+  assert.equal(sheet.getRow(3).getCell(6).text, "Unassigned");
+  const query = calls.find(({ sql }) => sql.includes("FROM credential_transactions t"));
+  assert.match(query.sql, /LEFT JOIN kiosks k ON k\.kiosk_code=t\.kiosk_code/);
+  assert.match(query.sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/);
+  assert.doesNotMatch(query.sql, /k\.is_active/);
 });
 
 test("period options include inactive historical periods without changing the active period", async (t) => {
@@ -179,7 +208,8 @@ test("search applies all displayed transaction fields before counting and pagina
   for (const term of [
     "Test Student",
     "0012345",
-    "KIOSK-01",
+    "ICT/MIS Office",
+    "Unassigned",
     "Pe\u00f1a",
     "BSIT",
     "Revealed",
@@ -213,9 +243,10 @@ test("search applies all displayed transaction fields before counting and pagina
       assert.match(sql, /s.student_id LIKE \? ESCAPE '!'/);
       assert.match(
         sql,
-        /CONCAT_WS\(' ', NULLIF\(s.first_name, ''\), NULLIF\(s.middle_name, ''\), NULLIF\(s.last_name, ''\)\) LIKE \? ESCAPE '!'/,
+        /CONCAT_WS\(' ', NULLIF\(s.first_name, ''\), NULLIF\(NULLIF\(TRIM\(s.middle_name\), '-'\), ''\), NULLIF\(s.last_name, ''\)\) LIKE \? ESCAPE '!'/,
       );
-      assert.match(sql, /OR t.kiosk_code LIKE \? ESCAPE '!'/);
+      assert.match(sql, /LEFT JOIN kiosks k ON k\.kiosk_code=t\.kiosk_code/);
+      assert.match(sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) LIKE \? ESCAPE '!'/);
       assert.match(sql, /LEFT JOIN courses c ON c.id=s.course_id/);
       assert.match(sql, /c\.code LIKE \? ESCAPE '!'/);
       assert.match(sql, /'Revealed' LIKE \? ESCAPE '!'/);

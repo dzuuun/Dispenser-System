@@ -82,6 +82,26 @@ const headers = [
   "SATP",
 ];
 
+test("student workbook names omit dash middle names and preserve real hyphenated names", async (t) => {
+  const { rows, get } = await setup(t, { count: 3 });
+  for (const [index, middle] of ["-", " - ", "De-la-Pena"].entries()) {
+    rows[index].first_name = "Ana-Maria";
+    rows[index].middle_name = middle;
+    rows[index].last_name = "Santos-Cruz";
+  }
+  const response = await get("/students/export");
+  assert.equal(response.status, 200);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
+  const sheet = workbook.worksheets[0];
+  assert.deepEqual([2, 3, 4].map((row) => sheet.getRow(row).getCell(3).text), [
+    "Ana-Maria Santos-Cruz",
+    "Ana-Maria Santos-Cruz",
+    "Ana-Maria De-la-Pena Santos-Cruz",
+  ]);
+  assert.equal(rows[0].middle_name, "-");
+});
+
 test("student workbook exports all matching rows with Yes/No account links and preserves IDs as text", async (t) => {
   const { rows, calls, get } = await setup(t);
   const response = await get("/students/export?page=2&limit=10");

@@ -1,3 +1,4 @@
+import { displayMiddleName, studentFullName } from "../../shared/student-name.mjs";
 import React, { Component, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -242,7 +243,7 @@ function ResolvedRequestDetails({ request, onCopy }) {
     ["Requested", formatTime(request.requested_at)],
     ["Resolved", formatTime(request.resolved_at)],
     ["Handled by", request.resolved_by_name || "Not recorded"],
-    ["Kiosk", request.kiosk_code || "Not recorded"],
+    ["Kiosk location", request.kiosk_location || "Unassigned"],
   ];
   return (
     <>
@@ -1406,14 +1407,12 @@ function Dashboard({ token }) {
                     <span>
                       <b>
                         {a.first_name
-                          ? [a.first_name, a.middle_name, a.last_name]
-                              .filter(Boolean)
-                              .join(" ")
+                          ? studentFullName(a)
                           : "Student credentials viewed"}
                       </b>
                       <small>
                         {a.student_id || "Unknown student"}
-                        {a.kiosk_code ? ` · ${a.kiosk_code}` : ""}
+                        {` · ${a.kiosk_location || "Unassigned"}`}
                       </small>
                     </span>
                     <time dateTime={a.created_at} title={new Date(a.created_at).toLocaleString()}>
@@ -1535,7 +1534,7 @@ function DashboardRequestActivity({ requests, isNew }) {
         <Button variant="secondary" onClick={() => go("/admin/password-resets")}>View all</Button>
       </header>
       {requests.length ? requests.map((item) => {
-        const name = [item.first_name, item.middle_name, item.last_name].filter(Boolean).join(" ") || "Unknown student";
+        const name = studentFullName(item) || "Unknown student";
         const date = new Date(item.requested_at);
         return (
           <div className={`dashboard-request-row${isNew(item.id) ? " live-row-new" : ""}`} key={item.id}>
@@ -1586,10 +1585,10 @@ function DashboardKioskMonitor({ kiosks, isNew }) {
                 key={kiosk.id}
               >
                 <div className="dashboard-kiosk-name">
-                  <b title={kiosk.location || kiosk.kiosk_name || kiosk.kiosk_code}>
-                    {kiosk.location || kiosk.kiosk_name || kiosk.kiosk_code}
+                  <b title={kiosk.location || "Unassigned"}>
+                    {kiosk.location || "Unassigned"}
                   </b>
-                  <small><i data-online={Boolean(kiosk.is_online)} />{kiosk.kiosk_code} · {kiosk.is_online ? "Online" : "Offline"}</small>
+                  <small><i data-online={Boolean(kiosk.is_online)} />{kiosk.kiosk_name || "Kiosk"} · {kiosk.is_online ? "Online" : "Offline"}</small>
                 </div>
                 <KioskUsageStatus kiosk={kiosk} />
               </div>
@@ -1883,9 +1882,7 @@ function LegacyStudentsPageV3({ token }) {
                   >
                     <td>
                       <b>
-                        {[s.first_name, s.middle_name, s.last_name]
-                          .filter(Boolean)
-                          .join(" ")}
+                        {studentFullName(s)}
                       </b>
                       <small>{s.kumosoft_id || "No Kumosoft ID"}</small>
                     </td>
@@ -4195,9 +4192,7 @@ function LegacyStudentsPageV5({ token }) {
               0: (_data, row) => (
                 <span className="student-cell">
                   <b>
-                    {[row.first_name, row.middle_name, row.last_name]
-                      .filter(Boolean)
-                      .join(" ")}
+                    {studentFullName(row)}
                   </b>
                   <small>{row.kumosoft_id || "No Kumosoft ID"}</small>
                 </span>
@@ -4427,13 +4422,7 @@ function LegacyStudentsPage({ token }) {
                   <tr key={student.id}>
                     <td>
                       <b>
-                        {[
-                          student.first_name,
-                          student.middle_name,
-                          student.last_name,
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
+                        {studentFullName(student)}
                       </b>
                       <small>{student.kumosoft_id || "No Kumosoft ID"}</small>
                     </td>
@@ -4508,9 +4497,7 @@ function LegacyStudentsPage({ token }) {
 function LegacyStudentProfileModalV1({ record, onClose }) {
   if (!record) return null;
   const student = record.student;
-  const name = [student.first_name, student.middle_name, student.last_name]
-    .filter(Boolean)
-    .join(" ");
+  const name = studentFullName(student);
   const accounts = {
     SATP: null,
     SCHOOLOGY: null,
@@ -4546,8 +4533,12 @@ function LegacyStudentProfileModalV1({ record, onClose }) {
               <dd>{student.last_name}</dd>
               <dt>First name</dt>
               <dd>{student.first_name}</dd>
-              <dt>Middle name</dt>
-              <dd>{student.middle_name || "-"}</dd>
+              {displayMiddleName(student.middle_name) && (
+                <>
+                  <dt>Middle name</dt>
+                  <dd>{displayMiddleName(student.middle_name)}</dd>
+                </>
+              )}
               <dt>Course</dt>
               <dd>
                 {student.course_code} - {student.course_name}
@@ -4591,9 +4582,7 @@ function LegacyStudentProfileModalV1({ record, onClose }) {
 function StudentProfileModal({ record, onClose, onEdit }) {
   if (!record) return null;
   const student = record.student,
-    name = [student.first_name, student.middle_name, student.last_name]
-      .filter(Boolean)
-      .join(" ");
+    name = studentFullName(student);
   const accounts = {
     SATP: null,
     SCHOOLOGY: null,
@@ -4631,8 +4620,12 @@ function StudentProfileModal({ record, onClose, onEdit }) {
               <dd>{student.last_name}</dd>
               <dt>First name</dt>
               <dd>{student.first_name}</dd>
-              <dt>Middle name</dt>
-              <dd>{student.middle_name || "-"}</dd>
+              {displayMiddleName(student.middle_name) && (
+                <>
+                  <dt>Middle name</dt>
+                  <dd>{displayMiddleName(student.middle_name)}</dd>
+                </>
+              )}
               <dt>Course</dt>
               <dd>
                 {student.course_code} - {student.course_name}
@@ -4811,9 +4804,7 @@ function LegacyStudentsPageV2({ token }) {
                   >
                     <td>
                       <b>
-                        {[s.first_name, s.middle_name, s.last_name]
-                          .filter(Boolean)
-                          .join(" ")}
+                        {studentFullName(s)}
                       </b>
                       <small>{s.kumosoft_id || "No Kumosoft ID"}</small>
                     </td>
@@ -6149,7 +6140,7 @@ function KiosksPage({ token }) {
                             type="button"
                             className="kiosk-select-button"
                             aria-pressed={item.id === selectedId}
-                            aria-label={`View ${item.kiosk_name || item.kiosk_code}`}
+                            aria-label={`View ${item.kiosk_name || item.location || "kiosk"}`}
                             onClick={(event) => {
                               event.stopPropagation();
                               openKiosk(item.id);
@@ -6158,12 +6149,11 @@ function KiosksPage({ token }) {
                             <span className="kiosk-device-icon"><AppIcon name="desktop_windows" size={20} /></span>
                             <span className="student-cell">
                               <b>{item.kiosk_name || "Kiosk"}</b>
-                              <small>{item.kiosk_code}</small>
                             </span>
                           </button>
                         </td>
                         <td data-label="Location">
-                          {item.location || <span className="muted-cell">Not reported</span>}
+                          {item.location || <span className="muted-cell">Unassigned</span>}
                         </td>
                         <td data-label="Connection">
                           <span
@@ -6230,7 +6220,7 @@ function KiosksPage({ token }) {
                   <div>
                     <p className="eyebrow">KIOSK DETAILS</p>
                     <h2>{selected.kiosk_name || "Kiosk"}</h2>
-                    <p>{selected.kiosk_code}</p>
+                    <p>{selected.location || "Unassigned"}</p>
                   </div>
                   <span
                     className={`kiosk-connection ${selected.is_online ? "online" : "offline"}`}
@@ -8318,7 +8308,7 @@ function TransactionsPage({ token }) {
               <thead>
                 <tr>
                   <th>Student</th>
-                  <th>Kiosk</th>
+                  <th>Kiosk location</th>
                   <th>Result</th>
                   <th>Date and time</th>
                 </tr>
@@ -8330,9 +8320,7 @@ function TransactionsPage({ token }) {
                       {item.student_id ? (
                         <span className="student-cell">
                           <b>
-                            {[item.first_name, item.middle_name, item.last_name]
-                              .filter(Boolean)
-                              .join(" ")}
+                            {studentFullName(item)}
                           </b>
                           <small>
                             {[item.student_id, item.course_code]
@@ -8344,7 +8332,7 @@ function TransactionsPage({ token }) {
                         <span className="muted-cell">Unknown student</span>
                       )}
                     </td>
-                    <td>{item.kiosk_code || "—"}</td>
+                    <td>{item.kiosk_location || "Unassigned"}</td>
                     <td>
                       <Status tone="green">Revealed</Status>
                     </td>
@@ -9292,9 +9280,7 @@ function PasswordResetRequestsPage({ token }) {
                     <td>
                       <span className="student-cell">
                         <b>
-                          {[item.first_name, item.middle_name, item.last_name]
-                            .filter(Boolean)
-                            .join(" ")}
+                          {studentFullName(item)}
                         </b>
                         <small>
                           {item.school_id} · {item.course_code}
@@ -9485,13 +9471,7 @@ function PasswordResetRequestsPage({ token }) {
                       : `${selected.credential_type} account`}
                   </h2>
                   <p>
-                    {[
-                      selected.first_name,
-                      selected.middle_name,
-                      selected.last_name,
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}{" "}
+                    {studentFullName(selected)}{" "}
                     · {selected.school_id}
                   </p>
                 </div>
@@ -10663,9 +10643,7 @@ function VouchersPage({ token }) {
                     {row.student_id ? (
                       <span className="student-cell">
                         <b>
-                          {[row.first_name, row.middle_name, row.last_name]
-                            .filter(Boolean)
-                            .join(" ")}
+                          {studentFullName(row)}
                         </b>
                         <small>{row.student_id}</small>
                       </span>
@@ -11125,13 +11103,7 @@ function StudentsPage({ token }) {
                   <td>
                     <span className="student-cell">
                       <b>
-                        {[
-                          student.first_name,
-                          student.middle_name,
-                          student.last_name,
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
+                        {studentFullName(student)}
                       </b>
                       <small>
                         School ID: {student.student_id}

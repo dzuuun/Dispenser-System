@@ -45,7 +45,7 @@ export async function listPasswordResetRequests(req, res) {
   const filter = requestPermissionFilter(req.admin?.requestPermissions || []);
   const searchFields = [
     "s.student_id",
-    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(s.middle_name, ''), NULLIF(s.last_name, ''))",
+    "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(NULLIF(TRIM(s.middle_name), '-'), ''), NULLIF(s.last_name, ''))",
     "c.code",
     "pr.credential_type",
     "CASE WHEN pr.credential_type='VOUCHER' THEN 'WiFi Voucher' ELSE pr.credential_type END",
@@ -72,6 +72,7 @@ export async function listPasswordResetRequests(req, res) {
   const [rows] = await pool.query(
     `SELECT pr.id, pr.credential_type, pr.request_kind, pr.request_reason, pr.status, pr.kiosk_code,
             pr.requested_at, pr.resolved_at,
+            COALESCE(NULLIF(TRIM(k.location), ''), 'Unassigned') AS kiosk_location,
             reviewer.full_name reviewing_by_name, review.expires_at reviewing_until,
             s.student_id school_id, s.first_name, s.middle_name, s.last_name,
             c.code course_code, au.full_name resolved_by_name,
@@ -103,6 +104,7 @@ export async function listPasswordResetRequests(req, res) {
        FROM password_reset_requests pr
        JOIN students s ON s.id=pr.student_id
        JOIN courses c ON c.id=s.course_id
+       LEFT JOIN kiosks k ON k.kiosk_code=pr.kiosk_code
        LEFT JOIN admin_users au ON au.id=pr.resolved_by
        LEFT JOIN credential_request_reviews review ON review.request_id=pr.id
          AND pr.status='PENDING' AND review.expires_at>NOW()

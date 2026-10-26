@@ -1,3 +1,4 @@
+import { displayMiddleName } from "../../shared/student-name.mjs";
 import sql from "mssql";
 import { config } from "../config/env.js";
 import { pool } from "../config/db.js";
@@ -131,7 +132,7 @@ const previewRecords = (result) =>
       kind: item.status,
       row: item.row,
       schoolId: item.schoolId,
-      name: [item.lastName, item.firstName, item.middleName]
+      name: [item.lastName, item.firstName, displayMiddleName(item.middleName)]
         .filter(Boolean)
         .join(", "),
       courseCode: item.courseCode,
