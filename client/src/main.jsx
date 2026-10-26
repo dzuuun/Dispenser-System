@@ -10,6 +10,7 @@ import ndmuLogo from "./assets/ndmu-logo.png";
 import { generateRandomPassword } from "./password-generator.js";
 import { createPendingRequestTitle } from "./pending-request-title.js";
 import { createKioskActivityTracker } from "./kiosk-activity.js";
+import { useNewRowHighlights } from "./use-new-row-highlights.js";
 import { credentialSummaryState } from "./credential-summary.js";
 import { createAdminApi } from "./admin-api.js";
 import {
@@ -1216,6 +1217,9 @@ function Dashboard({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const { observe: observeActivity, isNew: isNewActivity } = useNewRowHighlights(token);
+  const { observe: observeDashboardRequests, isNew: isNewDashboardRequest } = useNewRowHighlights(token);
+  const { observe: observeDashboardKiosks, isNew: isNewDashboardKiosk } = useNewRowHighlights(token);
   useEffect(() => {
     let active = true;
     let loading = false;
@@ -1227,6 +1231,9 @@ function Dashboard({ token }) {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (active) {
+          observeActivity(next.recentActivity, next.academicPeriod?.id ?? "");
+          observeDashboardRequests(next.recentRequests);
+          observeDashboardKiosks(next.kiosks?.rows);
           setData(next);
           setError("");
         }
@@ -1246,10 +1253,10 @@ function Dashboard({ token }) {
       removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [token, refreshVersion]);
+  }, [token, refreshVersion, observeActivity, observeDashboardRequests, observeDashboardKiosks]);
   const credentials = Array.isArray(data?.credentials) ? data.credentials : [];
   const activity = Array.isArray(data?.recentActivity)
-    ? data.recentActivity
+    ? data.recentActivity.slice(0, 5)
     : [];
   const vouchers = data?.vouchers || { available: 0, assigned: 0 };
   const kiosks = data?.kiosks || { online: 0, total: 0 };
@@ -1297,17 +1304,20 @@ function Dashboard({ token }) {
     0,
   );
   return (
-    <>
+    <div className="dashboard-page">
       <PageHeader
         title="Dashboard"
-        description="Operational overview for the NDMU Credentials Dispenser."
+        description="Live requests, credential activity, voucher stock, and kiosk usage."
         actions={
-          <Button
-            variant="secondary"
-            onClick={() => setRefreshVersion((version) => version + 1)}
-          >
-            Refresh
-          </Button>
+          <div className="dashboard-refresh-actions">
+            <span className="dashboard-live-indicator" title="Updates every 3 seconds"><i /> Live · 3s</span>
+            <Button
+              variant="secondary"
+              onClick={() => setRefreshVersion((version) => version + 1)}
+            >
+              Refresh
+            </Button>
+          </div>
         }
       />
       {error && <p className="error">{error}</p>}
@@ -1315,31 +1325,6 @@ function Dashboard({ token }) {
         <p>Loading dashboard...</p>
       ) : (
         <>
-          <section className="dashboard-hero panel">
-            <div>
-              <p className="eyebrow">SYSTEM STATUS</p>
-              <h2>
-                {data.pendingRequests
-                  ? `${data.pendingRequests} request${data.pendingRequests === 1 ? "" : "s"} need attention`
-                  : "Everything is up to date"}
-              </h2>
-              <p>
-                {data.pendingRequests
-                  ? "Review incoming account, password, and voucher requests before they affect student access."
-                  : "No pending credential requests. Kiosk activity and stock are being monitored below."}
-              </p>
-            </div>
-            <div className="dashboard-hero-actions">
-              {data.pendingRequests > 0 && (
-                <Button onClick={() => go("/admin/password-resets")}>
-                  <AppIcon name="assignment" /> Review requests
-                </Button>
-              )}
-              <Button variant="secondary" onClick={() => go("/admin/imports")}>
-                <AppIcon name="upload_file" /> Import records
-              </Button>
-            </div>
-          </section>
           <section className="dashboard-metric-grid">
             <Metric
               icon="students"
@@ -1371,14 +1356,68 @@ function Dashboard({ token }) {
               label="Kiosks online"
               value={`${kiosks.online} / ${kiosks.total}`}
               note={
-                kiosks.online === kiosks.total
-                  ? "All registered kiosks reachable"
-                  : "Check kiosk connection status"
+                kiosks.total
+                  ? `${kiosks.inUse || 0} in use · ${kiosks.idle || 0} idle`
+                  : "No kiosks detected"
               }
               tone="blue"
             />
           </section>
-          <section className="dashboard-layout">
+          <section className="dashboard-layout dashboard-overview-grid">
+            <DashboardRequestActivity
+              requests={Array.isArray(data.recentRequests)
+                ? data.recentRequests.filter((item) => item.status === "PENDING").slice(0, 5)
+                : []}
+              isNew={isNewDashboardRequest}
+            />
+            <article className="panel dashboard-activity-panel">
+              <header>
+                <div>
+                  <p className="eyebrow">LATEST 5 REVEALS</p>
+                  <h2>Recent credential reveals</h2>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => go("/admin/transactions")}
+                >
+                  View all
+                </Button>
+              </header>
+              {activity.length ? (
+                activity.map((a, i) => (
+                  <div
+                    className={`dashboard-activity-row${isNewActivity(a.id) ? " live-row-new" : ""}`}
+                    key={a.id ?? i}
+                  >
+                    <span className="activity-icon">
+                      <AppIcon name="visibility" size={18} />
+                    </span>
+                    <span>
+                      <b>
+                        {a.first_name
+                          ? [a.first_name, a.middle_name, a.last_name]
+                              .filter(Boolean)
+                              .join(" ")
+                          : "Student credentials viewed"}
+                      </b>
+                      <small>
+                        {a.student_id || "Unknown student"}
+                        {a.kiosk_code ? ` · ${a.kiosk_code}` : ""}
+                      </small>
+                    </span>
+                    <time dateTime={a.created_at} title={new Date(a.created_at).toLocaleString()}>
+                      {new Date(a.created_at).toLocaleTimeString()}
+                      <small>{new Date(a.created_at).toLocaleDateString()}</small>
+                    </time>
+                  </div>
+                ))
+              ) : (
+                <Empty
+                  title="No activity yet"
+                  detail="Credential reveals appear here after a student confirms Show All."
+                />
+              )}
+            </article>
             <article className="panel dashboard-stock-panel">
               <header>
                 <div>
@@ -1428,11 +1467,11 @@ function Dashboard({ token }) {
                 <span>{assignedRate}% in use</span>
               </div>
               <p className="dashboard-panel-note">
-                Counts cover active students and vouchers in the current
-                academic period. Released and inactive vouchers are excluded
-                from available stock.
+                Active students and vouchers in the current period. Stock
+                excludes inactive and released vouchers.
               </p>
             </article>
+            <DashboardKioskMonitor kiosks={kiosks} isNew={isNewDashboardKiosk} />
             <article className="panel dashboard-coverage-panel">
               <header>
                 <div>
@@ -1442,15 +1481,17 @@ function Dashboard({ token }) {
                 <span className="coverage-total">{accountTotal} linked</span>
               </header>
               {credentials.length ? (
-                credentials.map((c) => (
-                  <div className="coverage-row" key={c.credential_type}>
-                    <span>
-                      <AppIcon name="key" size={17} />
-                      {c.credential_type}
-                    </span>
-                    <b>{c.total}</b>
-                  </div>
-                ))
+                <div className="dashboard-coverage-grid">
+                  {credentials.map((c) => (
+                    <div className="coverage-row" key={c.credential_type}>
+                      <span>
+                        <AppIcon name="key" size={15} />
+                        {c.credential_type}
+                      </span>
+                      <b>{c.total}</b>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <Empty
                   title="No credential records"
@@ -1458,52 +1499,98 @@ function Dashboard({ token }) {
                 />
               )}
             </article>
-            <article className="panel dashboard-activity-panel">
-              <header>
-                <div>
-                  <p className="eyebrow">LIVE ACTIVITY</p>
-                  <h2>Recent credential reveals</h2>
-                </div>
-                <Button
-                  variant="secondary"
-                  onClick={() => go("/admin/transactions")}
-                >
-                  View all
-                </Button>
-              </header>
-              {activity.length ? (
-                activity.map((a, i) => (
-                  <div className="dashboard-activity-row" key={i}>
-                    <span className="activity-icon">
-                      <AppIcon name="visibility" size={18} />
-                    </span>
-                    <span>
-                      <b>
-                        {a.first_name
-                          ? [a.first_name, a.middle_name, a.last_name]
-                              .filter(Boolean)
-                              .join(" ")
-                          : "Student credentials viewed"}
-                      </b>
-                      <small>
-                        {a.student_id || "Unknown student"}
-                        {a.kiosk_code ? ` · ${a.kiosk_code}` : ""}
-                      </small>
-                    </span>
-                    <time>{new Date(a.created_at).toLocaleString()}</time>
-                  </div>
-                ))
-              ) : (
-                <Empty
-                  title="No activity yet"
-                  detail="Credential reveals appear here after a student confirms Show All."
-                />
-              )}
-            </article>
           </section>
         </>
       )}
-    </>
+    </div>
+  );
+}
+function DashboardRequestActivity({ requests, isNew }) {
+  const requestLabels = {
+    PASSWORD_RESET: "Password reset",
+    ACCOUNT_CREATION: "Account creation",
+    VOUCHER_REQUEST: "Voucher replacement",
+  };
+  const accountLabels = {
+    EMAIL: "Email", KUMOSOFT: "Kumosoft", SCHOOLOGY: "Schoology", SATP: "SATP", VOUCHER: "WiFi",
+  };
+  return (
+    <article className="panel dashboard-requests-panel">
+      <header>
+        <div>
+          <p className="eyebrow">LATEST 5 PENDING</p>
+          <h2>Pending requests</h2>
+        </div>
+        <Button variant="secondary" onClick={() => go("/admin/password-resets")}>View all</Button>
+      </header>
+      {requests.length ? requests.map((item) => {
+        const name = [item.first_name, item.middle_name, item.last_name].filter(Boolean).join(" ") || "Unknown student";
+        const date = new Date(item.requested_at);
+        return (
+          <div className={`dashboard-request-row${isNew(item.id) ? " live-row-new" : ""}`} key={item.id}>
+            <div className="dashboard-request-student">
+              <b title={name}>{name}</b>
+              <span className="dashboard-request-kind">
+                <span title={item.course_code}>{item.school_id}</span>
+                <span className="request-account-badge" data-account={item.credential_type}>
+                  {accountLabels[item.credential_type] || item.credential_type}
+                </span>
+                <span>{requestLabels[item.request_kind] || "Credential request"}</span>
+              </span>
+            </div>
+            <div className="dashboard-request-state">
+              <Status tone="gold">Pending</Status>
+              <time dateTime={item.requested_at} title={date.toLocaleString()}>
+                {date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </time>
+            </div>
+          </div>
+        );
+      }) : <Empty title="No pending requests" detail="New requests awaiting administrator action will appear here." />}
+    </article>
+  );
+}
+function DashboardKioskMonitor({ kiosks, isNew }) {
+  const devices = Array.isArray(kiosks.rows) ? kiosks.rows.slice(0, 5) : [];
+  return (
+    <article className="panel dashboard-kiosks-panel">
+      <header>
+        <div>
+          <p className="eyebrow">KIOSK MONITOR</p>
+          <h2>Live kiosk usage</h2>
+        </div>
+        <div className="dashboard-kiosk-heading-actions">
+          <span>{kiosks.inUse || 0} in use <i /> {kiosks.online || 0} online</span>
+          <Button variant="secondary" onClick={() => go("/admin/kiosks")}>View all</Button>
+        </div>
+      </header>
+      {devices.length ? (
+        <>
+          <div className="dashboard-kiosk-list" role="list">
+            {devices.map((kiosk) => (
+              <div
+                className={`dashboard-kiosk-item${isNew(kiosk.id) ? " live-row-new" : ""}`}
+                data-usage={kiosk.usage_status}
+                role="listitem"
+                key={kiosk.id}
+              >
+                <div className="dashboard-kiosk-name">
+                  <b title={kiosk.location || kiosk.kiosk_name || kiosk.kiosk_code}>
+                    {kiosk.location || kiosk.kiosk_name || kiosk.kiosk_code}
+                  </b>
+                  <small><i data-online={Boolean(kiosk.is_online)} />{kiosk.kiosk_code} · {kiosk.is_online ? "Online" : "Offline"}</small>
+                </div>
+                <KioskUsageStatus kiosk={kiosk} />
+              </div>
+            ))}
+          </div>
+          <p className="dashboard-kiosk-note">
+            Idle after 30 seconds without interaction.
+            {kiosks.total > devices.length && ` Showing ${devices.length} of ${kiosks.total} kiosks.`}
+          </p>
+        </>
+      ) : <Empty title="No kiosks detected" detail="Connected student kiosks will appear here with their usage status." />}
+    </article>
   );
 }
 function Metric({ icon, label, value, note, tone = "green" }) {
@@ -5739,11 +5826,14 @@ function KiosksPage({ token }) {
     [detailsLoading, setDetailsLoading] = useState(false),
     [pendingAction, setPendingAction] = useState(""),
     [toast, setToast] = useState("");
+  const { observe: observeKiosks, isNew: isNewKiosk } = useNewRowHighlights(token);
   const headers = { Authorization: `Bearer ${token}` };
   const load = async ({ quiet = false } = {}) => {
     if (!quiet) setLoading(true);
     try {
-      setKiosks(await request("/admin/kiosks", { headers }));
+      const next = await request("/admin/kiosks", { headers });
+      observeKiosks(next);
+      setKiosks(next);
       setError("");
     } catch (err) {
       setError(err.message);
@@ -5895,7 +5985,10 @@ function KiosksPage({ token }) {
                   {filtered.map((item) => (
                     <tr
                       key={item.id}
-                      className={item.id === selectedId ? "selected" : ""}
+                      className={[
+                        item.id === selectedId ? "selected" : "",
+                        isNewKiosk(item.id) ? "live-row-new" : "",
+                      ].filter(Boolean).join(" ")}
                       onClick={() => openKiosk(item.id)}
                     >
                       <td>
@@ -7822,6 +7915,9 @@ function TransactionsPage({ token }) {
   const periodQuery = periodId
     ? `academicPeriodId=${encodeURIComponent(periodId)}`
     : "";
+  const { observe: observeTransactions, isNew: isNewTransaction } = useNewRowHighlights(
+    JSON.stringify([token, page, limit, periodId, appliedSearch]),
+  );
   useEffect(() => {
     const term = search.trim().replace(/\s+/g, " ");
     if (term === appliedSearch) return;
@@ -7912,6 +8008,7 @@ function TransactionsPage({ token }) {
         const snapshot = JSON.stringify(next);
         if (snapshot !== lastSnapshot) {
           lastSnapshot = snapshot;
+          observeTransactions(next.rows);
           setListing(next);
           if (next.page !== page) setPage(next.page);
         }
@@ -7933,7 +8030,7 @@ function TransactionsPage({ token }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [token, page, limit, periodQuery, appliedSearch]);
+  }, [token, page, limit, periodQuery, appliedSearch, observeTransactions]);
   return (
     <>
       <PageHeader
@@ -8050,7 +8147,7 @@ function TransactionsPage({ token }) {
               </thead>
               <tbody>
                 {transactions.map((item) => (
-                  <tr key={item.id}>
+                  <tr key={item.id} className={isNewTransaction(item.id) ? "live-row-new" : undefined}>
                     <td>
                       {item.student_id ? (
                         <span className="student-cell">
@@ -8472,6 +8569,9 @@ function PasswordResetRequestsPage({ token }) {
       emailAddress: "",
       password: "",
     });
+  const { observe: observeRequests, isNew: isNewRequest } = useNewRowHighlights(
+    JSON.stringify([token, appliedSearch]),
+  );
   useEffect(() => {
     if (!selected) return;
     const previousOverflow = document.body.style.overflow;
@@ -8611,6 +8711,7 @@ function PasswordResetRequestsPage({ token }) {
         const snapshot = JSON.stringify(next);
         if (snapshot !== lastSnapshot) {
           lastSnapshot = snapshot;
+          observeRequests(next);
           setRequests(next);
         }
         setRefreshError("");
@@ -8638,7 +8739,7 @@ function PasswordResetRequestsPage({ token }) {
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [token, appliedSearch]);
+  }, [token, appliedSearch, observeRequests]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4000);
@@ -9004,7 +9105,10 @@ function PasswordResetRequestsPage({ token }) {
                   <tr
                     key={item.id}
                     className={
-                      item.status === "PENDING" ? "request-row-pending" : ""
+                      [
+                        item.status === "PENDING" ? "request-row-pending" : "",
+                        isNewRequest(item.id) ? "live-row-new" : "",
+                      ].filter(Boolean).join(" ")
                     }
                   >
                     <td>

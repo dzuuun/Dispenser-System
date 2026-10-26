@@ -1,6 +1,7 @@
 import { pool } from "../config/db.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
 import { requestPermissionFilter } from "../../shared/request-permissions.mjs";
+import { withKioskUsage } from "../services/kiosk-activity.service.js";
 import ExcelJS from "exceljs";
 import {
   tableSearch,
@@ -129,6 +130,7 @@ export async function dashboard(req, res) {
     credentials,
     [requests],
     [courses],
+    [recentRequests],
   ] = await Promise.all([
     pool.execute(
       `SELECT COUNT(*) total, COALESCE(SUM(voucher_id IS NULL), 0) withoutVoucher
@@ -140,7 +142,7 @@ export async function dashboard(req, res) {
       [periodId],
     ),
     pool.query(
-      `SELECT t.transaction_type, t.created_at, t.kiosk_code, s.student_id,
+      `SELECT t.id, t.transaction_type, t.created_at, t.kiosk_code, s.student_id,
                 s.first_name, s.middle_name, s.last_name
            FROM credential_transactions t
            LEFT JOIN students s ON s.id=t.student_id
@@ -149,7 +151,12 @@ export async function dashboard(req, res) {
       [periodId],
     ),
     pool.query(
-      "SELECT COUNT(*) total, SUM(is_active=1 AND last_seen >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)) online FROM kiosks",
+      `SELECT id, kiosk_code, kiosk_name, location, last_seen, activity_state,
+              (is_active=1 AND last_seen >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)) is_online,
+              (activity_reported_at >= DATE_SUB(NOW(), INTERVAL 20 SECOND)) activity_is_fresh,
+              (last_interaction_at > DATE_SUB(NOW(), INTERVAL 30 SECOND)) has_recent_interaction
+         FROM kiosks WHERE is_active=1
+        ORDER BY is_online DESC, last_seen DESC, id DESC`,
     ),
     pool.query(
       "SELECT 'SATP' credential_type, COUNT(*) total FROM satp_accounts WHERE is_active=1 UNION ALL SELECT 'SCHOOLOGY', COUNT(*) FROM schoology_accounts WHERE is_active=1 UNION ALL SELECT 'KUMOSOFT', COUNT(*) FROM kumosoft_accounts WHERE is_active=1 UNION ALL SELECT 'EMAIL', COUNT(*) FROM institutional_email_accounts WHERE is_active=1",
@@ -159,7 +166,22 @@ export async function dashboard(req, res) {
       requestFilter.values,
     ),
     pool.query("SELECT COUNT(*) total FROM courses WHERE is_active=1"),
+    pool.query(
+      `SELECT pr.id, pr.credential_type, pr.request_kind, pr.status,
+              pr.requested_at, pr.resolved_at, s.student_id school_id,
+              s.first_name, s.middle_name, s.last_name, c.code course_code
+         FROM password_reset_requests pr
+         JOIN students s ON s.id=pr.student_id
+         JOIN courses c ON c.id=s.course_id
+        WHERE pr.status='PENDING' AND ${requestFilter.sql}
+        ORDER BY pr.requested_at DESC, pr.id DESC LIMIT 5`,
+      requestFilter.values,
+    ),
   ]);
+  const usageRank = { IN_USE: 0, IDLE: 1, UNKNOWN: 2, OFFLINE: 3 };
+  const devices = kiosks.map(withKioskUsage).sort(
+    (left, right) => usageRank[left.usage_status] - usageRank[right.usage_status],
+  );
   res.set("Cache-Control", "no-store").json({
     academicPeriod: period
       ? {
@@ -179,11 +201,15 @@ export async function dashboard(req, res) {
       studentsWithoutVoucher: Number(students[0].withoutVoucher || 0),
     },
     kiosks: {
-      total: Number(kiosks[0].total || 0),
-      online: Number(kiosks[0].online || 0),
+      total: devices.length,
+      online: devices.filter((kiosk) => kiosk.is_online).length,
+      inUse: devices.filter((kiosk) => kiosk.usage_status === "IN_USE").length,
+      idle: devices.filter((kiosk) => kiosk.usage_status === "IDLE").length,
+      rows: devices.slice(0, 5),
     },
     credentials: Array.isArray(credentials[0]) ? credentials[0] : [],
     recentActivity: Array.isArray(transactions) ? transactions : [],
+    recentRequests: recentRequests.slice(0, 5),
   });
 }
 
