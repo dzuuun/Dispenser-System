@@ -215,6 +215,10 @@ export function createImportStore(options = {}) {
       data.students.find((s) => s.id === values[1]).kumosoft_id = values[0];
       return done();
     }
+    if (text.startsWith("UPDATE students SET year_level=?")) {
+      data.students.find((s) => s.student_id === values[1]).year_level = values[0];
+      return done();
+    }
     if (text.startsWith("INSERT INTO pending_account_imports")) {
       const [
         type,
@@ -277,17 +281,18 @@ export function createImportStore(options = {}) {
           code: "ER_DUP_ENTRY",
         });
       let row = data.accounts[table].find((a) => a.student_id === studentId);
-      if (!row) {
+      const isNew = !row;
+      if (isNew) {
         row = { student_id: studentId };
         data.accounts[table].push(row);
       }
       Object.assign(row, {
         account_name: login,
-        encrypted_password,
-        password_iv,
-        password_auth_tag,
         is_active: 1,
       });
+      if (isNew || text.includes("encrypted_password=VALUES(encrypted_password)")) {
+        Object.assign(row, { encrypted_password, password_iv, password_auth_tag });
+      }
       return done();
     }
     if (text.startsWith("DELETE p FROM pending_account_imports")) {

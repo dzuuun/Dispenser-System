@@ -25,6 +25,7 @@ async function setup(
     course_code: "BSIT",
     course_name: "Information Technology",
     email_account_active: index ? null : 1,
+    email_address: index ? null : "student@example.edu",
     kumosoft_account_active: index ? null : 0,
     schoology_account_active: null,
     satp_account_active: index ? null : 1,
@@ -102,7 +103,7 @@ test("student workbook names omit dash middle names and preserve real hyphenated
   assert.equal(rows[0].middle_name, "-");
 });
 
-test("student workbook exports all matching rows with Yes/No account links and preserves IDs as text", async (t) => {
+test("student workbook exports email addresses and other account links while preserving IDs as text", async (t) => {
   const { rows, calls, get } = await setup(t);
   const response = await get("/students/export?page=2&limit=10");
   assert.equal(response.status, 200);
@@ -124,7 +125,7 @@ test("student workbook exports all matching rows with Yes/No account links and p
     "BSIT",
     "Information Technology",
     "Active",
-    "Yes",
+    "student@example.edu",
     "Yes",
     "No",
     "Yes",
@@ -152,10 +153,26 @@ test("student workbook exports all matching rows with Yes/No account links and p
   assert.equal(sheet.autoFilter, "A1:J1");
   const exported = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
   assert.deepEqual(exported.values, [7]);
+  assert.match(exported.sql, /email_account\.email_address AS email_address/);
   assert.doesNotMatch(
     exported.sql,
     /LIMIT|OFFSET|encrypted_password|password_iv|password_auth_tag|birth_date/i,
   );
+});
+
+test("Email export retains inactive account addresses and shows No for students without email", async (t) => {
+  const { rows, get } = await setup(t, { count: 3 });
+  rows[1].email_account_active = 0;
+  rows[1].email_address = "inactive@example.edu";
+  const response = await get("/students/export");
+  assert.equal(response.status, 200);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
+  const sheet = workbook.worksheets[0];
+  assert.deepEqual([2, 3, 4].map((row) => sheet.getRow(row).getCell(7).text), [
+    "student@example.edu", "inactive@example.edu", "No",
+  ]);
+  assert.ok(sheet.getColumn(7).width >= 30);
 });
 
 test("export and table share search, missing account, status, academic period and sort filters", async (t) => {

@@ -4870,7 +4870,7 @@ const importTypes = [
     id: "students",
     title: "Students",
     detail:
-      "SchoolID, optional KumosoftID, LastName, FirstName, MiddleName, BirthDate, and CourseCode",
+      "SchoolID, FirstName, LastName, BirthDate (YYYY-MM-DD), and CourseCode. Optional: MiddleName, KumosoftID, YearLevel, email, and passwords",
     endpoint: "/admin/imports/students",
   },
   {
@@ -5369,6 +5369,14 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
                   : `Required columns: ${type.detail}`}
               </small>
             </label>
+            {type.id === "students" && (
+              <p className="import-account-guidance">
+                Optional account columns: <strong>EmailAddress</strong>, <strong>EmailPassword</strong>,{" "}
+                <strong>SATPPassword</strong>, <strong>SchoologyPassword</strong>, and <strong>KumosoftPassword</strong>.
+                Blank passwords keep saved passwords. An email address or Kumosoft ID can be imported without a password.
+                Kumosoft ID is optional; a new Kumosoft account uses the School ID when it is blank.
+              </p>
+            )}
             <p className="template-link">
               Need the format?{" "}
               <button

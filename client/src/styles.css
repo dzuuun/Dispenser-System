@@ -10007,6 +10007,12 @@ body,
 .kiosk-location-editor .error { color: #b53636; }
 .kiosk-location-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .kiosk-location-actions .btn { padding: 9px 13px; font-size: 0.75rem; }
+.import-hub-modal .import-account-guidance {
+  margin: 12px 0;
+  color: #60786b;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
 .kiosk-detail-usage {
   display: flex;
   align-items: center;

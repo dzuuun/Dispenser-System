@@ -101,6 +101,7 @@ function studentListQuery(query) {
 }
 
 const studentListSelect = `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, s.is_active, c.code course_code, c.name course_name,
+      email_account.email_address AS email_address,
       ${studentAccountTypes.map(({ alias }) => `${alias}.is_active AS ${alias}_active`).join(", ")}
      FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins}`;
 
@@ -184,7 +185,7 @@ export async function exportStudentAccounts(req, res) {
     ...studentAccountTypes.map(({ type, label }) => ({
       header: label,
       key: type,
-      width: 16,
+      width: type === "EMAIL" ? 38 : 16,
     })),
   ];
   for (const student of students)
@@ -198,7 +199,9 @@ export async function exportStudentAccounts(req, res) {
       ...Object.fromEntries(
         studentAccountTypes.map(({ type, alias }) => [
           type,
-          student[`${alias}_active`] != null ? "Yes" : "No",
+          type === "EMAIL"
+            ? student.email_address || "No"
+            : student[`${alias}_active`] != null ? "Yes" : "No",
         ]),
       ),
     });

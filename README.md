@@ -113,6 +113,14 @@ Opening **Review request** reserves that pending request for the administrator a
 
 Most state-changing administrator functions require the **Super Admin** role, including imports, credential-request processing, voucher operations, module controls, kiosk commands, and administrator management.
 
+### Student XLSX import with accounts
+
+The **Students** import accepts student details and optional linked accounts in one XLSX file. Download its updated template from **Imports → Students**. Required columns are `SchoolID`, `FirstName`, `LastName`, `BirthDate` (`YYYY-MM-DD`), and `CourseCode`. Optional columns are `MiddleName`, `KumosoftID`, `YearLevel`, `EmailAddress`, `EmailPassword`, `SATPPassword`, `SchoologyPassword`, and `KumosoftPassword`.
+
+All passwords and Kumosoft ID are optional. Blank passwords preserve saved passwords. Email addresses and Kumosoft IDs can create linked accounts without a saved password. A supplied SATP or Schoology password creates or updates that account using the School ID as its username. Kumosoft uses the supplied ID, an existing account/ID, or the School ID when neither is available. An email password without an address uses the existing email account; a new email account needs an address. Blank email and account fields leave existing accounts intact. A blank year level or Kumosoft ID preserves its saved value.
+
+The preview includes account and year-level changes when classifying updated students. Password changes are described without displaying passwords, and identical rows remain unchanged. Student and account changes are saved in the same transaction. Existing enrollment-only files remain supported.
+
 ### SQL Server student import
 
 The **SQL Server students** import card uses the current academic period to preview and synchronize enrolled students. New students are created, matching school IDs are updated, and active local students absent from the source list are deactivated. The preview shows the pending deactivation count before the import runs; rows whose course is not an active course in this system are reported as invalid.
