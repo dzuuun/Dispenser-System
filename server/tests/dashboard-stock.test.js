@@ -13,7 +13,9 @@ async function loadDashboard(
     vouchers = { available: "90", assigned: "400" },
     recentActivity = [],
     recentRequests = [],
-    devices = [{ id: 1, is_online: 1, activity_state: "IDLE", activity_is_fresh: 1 }],
+    devices = [
+      { id: 1, is_online: 1, activity_state: "IDLE", activity_is_fresh: 1 },
+    ],
     permissions = [],
   } = {},
 ) {
@@ -27,7 +29,8 @@ async function loadDashboard(
     if (sql.includes("FROM kiosks")) return [devices];
     if (sql.includes("FROM satp_accounts")) return [[]];
     if (sql.includes("FROM password_reset_requests"))
-      return sql.includes("COUNT(*)") ? [[{ total: 0 }]]
+      return sql.includes("COUNT(*)")
+        ? [[{ total: 0 }]]
         : [recentRequests.filter((item) => item.status === "PENDING")];
     if (sql.includes("FROM courses")) return [[{ total: 3 }]];
     throw new Error(`Unexpected query: ${sql}`);
@@ -84,7 +87,10 @@ test("dashboard returns populated reveal rows as an array instead of discarding 
   assert.deepEqual(query.values, [7]);
   assert.match(query.sql, /SELECT t\.id,/);
   assert.match(query.sql, /LEFT JOIN kiosks k ON k\.kiosk_code=t\.kiosk_code/);
-  assert.match(query.sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/);
+  assert.match(
+    query.sql,
+    /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/,
+  );
   assert.match(
     query.sql,
     /t\.academic_period_id=\? AND t\.transaction_type='VIEW_CREDENTIALS' AND t\.success=1/,
@@ -188,11 +194,20 @@ test("dashboard pending requests are limited to the latest five with stable orde
   });
   assert.deepEqual(body.recentRequests, recentRequests.slice(0, 5));
   const query = calls.find(({ sql }) => sql.includes("SELECT pr.id"));
-  assert.match(query.sql, /ORDER BY pr\.requested_at DESC, pr\.id DESC LIMIT 5/);
+  assert.match(
+    query.sql,
+    /ORDER BY pr\.requested_at DESC, pr\.id DESC LIMIT 5/,
+  );
   assert.match(query.sql, /s\.student_id school_id/);
   assert.match(query.sql, /pr\.status/);
-  assert.doesNotMatch(query.sql, /encrypted_password|password_iv|password_auth_tag|default_password|SELECT \*/);
-  assert.match(query.sql, /WHERE pr\.status='PENDING' AND \(\(pr\.credential_type=\? AND pr\.request_kind=\?\)\)/);
+  assert.doesNotMatch(
+    query.sql,
+    /encrypted_password|password_iv|password_auth_tag|default_password|SELECT \*/,
+  );
+  assert.match(
+    query.sql,
+    /WHERE pr\.status='PENDING' AND \(\(pr\.credential_type=\? AND pr\.request_kind=\?\)\)/,
+  );
   assert.deepEqual(query.values, ["SCHOOLOGY", "PASSWORD_RESET"]);
 });
 
@@ -207,40 +222,71 @@ test("resolved and rejected requests are excluded from the dashboard pending pre
     recentRequests,
     permissions: ["SCHOOLOGY:PASSWORD_RESET"],
   });
-  assert.deepEqual(body.recentRequests.map((item) => item.id), [3, 1]);
+  assert.deepEqual(
+    body.recentRequests.map((item) => item.id),
+    [3, 1],
+  );
   const query = calls.find(({ sql }) => sql.includes("SELECT pr.id"));
   assert.match(query.sql, /WHERE pr\.status='PENDING' AND/);
-  assert.ok(query.sql.indexOf("pr.status='PENDING'") < query.sql.indexOf("LIMIT 5"));
+  assert.ok(
+    query.sql.indexOf("pr.status='PENDING'") < query.sql.indexOf("LIMIT 5"),
+  );
 });
 
 test("dashboard counts and request previews use the same administrator permissions", async (t) => {
   const permissions = ["EMAIL:PASSWORD_RESET", "KUMOSOFT:ACCOUNT_CREATION"];
   const { calls } = await loadDashboard(t, { permissions });
-  const requests = calls.filter(({ sql }) => sql.includes("FROM password_reset_requests"));
+  const requests = calls.filter(({ sql }) =>
+    sql.includes("FROM password_reset_requests"),
+  );
   assert.equal(requests.length, 2);
   for (const query of requests) {
-    assert.match(query.sql, /\(pr\.credential_type=\? AND pr\.request_kind=\?\) OR/);
-    assert.deepEqual(query.values, ["EMAIL", "PASSWORD_RESET", "KUMOSOFT", "ACCOUNT_CREATION"]);
+    assert.match(
+      query.sql,
+      /\(pr\.credential_type=\? AND pr\.request_kind=\?\) OR/,
+    );
+    assert.deepEqual(query.values, [
+      "EMAIL",
+      "PASSWORD_RESET",
+      "KUMOSOFT",
+      "ACCOUNT_CREATION",
+    ]);
   }
 });
 
 test("administrators without request permissions receive an empty request preview", async (t) => {
   const { body, calls } = await loadDashboard(t);
   assert.deepEqual(body.recentRequests, []);
-  for (const query of calls.filter(({ sql }) => sql.includes("FROM password_reset_requests"))) {
+  for (const query of calls.filter(({ sql }) =>
+    sql.includes("FROM password_reset_requests"),
+  )) {
     assert.match(query.sql, /WHERE (?:pr\.status='PENDING' AND )?1=0/);
     assert.deepEqual(query.values, []);
   }
 });
 
 test("dashboard kiosk usage shares live activity rules and prioritizes in-use devices", async (t) => {
-  const base = { is_online: 1, activity_is_fresh: 1, has_recent_interaction: 1 };
+  const base = {
+    is_online: 1,
+    activity_is_fresh: 1,
+    has_recent_interaction: 1,
+  };
   const devices = [
     { ...base, id: 1, activity_state: "IDLE" },
     { ...base, id: 2, activity_state: "ENTERING_DETAILS" },
     { ...base, id: 3, activity_state: "VIEWING_CREDENTIALS" },
-    { ...base, id: 4, activity_state: "VIEWING_CREDENTIALS", has_recent_interaction: 0 },
-    { ...base, id: 5, activity_state: "VIEWING_CREDENTIALS", activity_is_fresh: 0 },
+    {
+      ...base,
+      id: 4,
+      activity_state: "VIEWING_CREDENTIALS",
+      has_recent_interaction: 0,
+    },
+    {
+      ...base,
+      id: 5,
+      activity_state: "VIEWING_CREDENTIALS",
+      activity_is_fresh: 0,
+    },
     { ...base, id: 6, activity_state: "VIEWING_CREDENTIALS", is_online: 0 },
     { ...base, id: 7, activity_state: "IDLE" },
   ];
@@ -250,9 +296,20 @@ test("dashboard kiosk usage shares live activity rules and prioritizes in-use de
   assert.equal(body.kiosks.inUse, 2);
   assert.equal(body.kiosks.idle, 3);
   assert.equal(body.kiosks.rows.length, 5);
-  assert.deepEqual(body.kiosks.rows.map((row) => row.id), [2, 3, 1, 4, 7]);
-  assert.deepEqual(body.kiosks.rows.map((row) => row.usage_status), ["IN_USE", "IN_USE", "IDLE", "IDLE", "IDLE"]);
-  assert.ok(body.kiosks.rows.every((row) => !("activity_is_fresh" in row) && !("has_recent_interaction" in row)));
+  assert.deepEqual(
+    body.kiosks.rows.map((row) => row.id),
+    [2, 3, 1, 4, 7],
+  );
+  assert.deepEqual(
+    body.kiosks.rows.map((row) => row.usage_status),
+    ["IN_USE", "IN_USE", "IDLE", "IDLE", "IDLE"],
+  );
+  assert.ok(
+    body.kiosks.rows.every(
+      (row) =>
+        !("activity_is_fresh" in row) && !("has_recent_interaction" in row),
+    ),
+  );
   const query = calls.find(({ sql }) => sql.includes("FROM kiosks"));
   assert.match(query.sql, /WHERE is_active=1/);
   assert.match(query.sql, /INTERVAL 5 MINUTE/);
@@ -261,15 +318,38 @@ test("dashboard kiosk usage shares live activity rules and prioritizes in-use de
 });
 
 test("offline and stale kiosk reports do not claim a student is currently using the kiosk", async (t) => {
-  const { body } = await loadDashboard(t, { devices: [
-    { id: 1, is_online: 0, activity_state: "VIEWING_CREDENTIALS", activity_is_fresh: 1, has_recent_interaction: 1 },
-    { id: 2, is_online: 1, activity_state: "VIEWING_CREDENTIALS", activity_is_fresh: 0, has_recent_interaction: 1 },
-  ] });
+  const { body } = await loadDashboard(t, {
+    devices: [
+      {
+        id: 1,
+        is_online: 0,
+        activity_state: "VIEWING_CREDENTIALS",
+        activity_is_fresh: 1,
+        has_recent_interaction: 1,
+      },
+      {
+        id: 2,
+        is_online: 1,
+        activity_state: "VIEWING_CREDENTIALS",
+        activity_is_fresh: 0,
+        has_recent_interaction: 1,
+      },
+    ],
+  });
   assert.equal(body.kiosks.inUse, 0);
-  assert.deepEqual(body.kiosks.rows.map((row) => row.usage_status), ["UNKNOWN", "OFFLINE"]);
+  assert.deepEqual(
+    body.kiosks.rows.map((row) => row.usage_status),
+    ["UNKNOWN", "OFFLINE"],
+  );
 });
 
 test("dashboard supports an empty kiosk inventory without inventing an online or idle device", async (t) => {
   const { body } = await loadDashboard(t, { devices: [] });
-  assert.deepEqual(body.kiosks, { total: 0, online: 0, inUse: 0, idle: 0, rows: [] });
+  assert.deepEqual(body.kiosks, {
+    total: 0,
+    online: 0,
+    inUse: 0,
+    idle: 0,
+    rows: [],
+  });
 });

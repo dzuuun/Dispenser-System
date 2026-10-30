@@ -92,8 +92,7 @@ export async function exportTransactions(req, res) {
       schoolYear: period.school_year,
       semester: period.semester,
       studentId: row.student_id || "",
-      studentName:
-        studentFullName(row) || "Unknown student",
+      studentName: studentFullName(row) || "Unknown student",
       kiosk: row.kiosk_location || "Unassigned",
       result: "Revealed",
       createdAt: row.created_at
@@ -182,9 +181,12 @@ export async function dashboard(req, res) {
     ),
   ]);
   const usageRank = { IN_USE: 0, IDLE: 1, UNKNOWN: 2, OFFLINE: 3 };
-  const devices = kiosks.map(withKioskUsage).sort(
-    (left, right) => usageRank[left.usage_status] - usageRank[right.usage_status],
-  );
+  const devices = kiosks
+    .map(withKioskUsage)
+    .sort(
+      (left, right) =>
+        usageRank[left.usage_status] - usageRank[right.usage_status],
+    );
   res.set("Cache-Control", "no-store").json({
     academicPeriod: period
       ? {

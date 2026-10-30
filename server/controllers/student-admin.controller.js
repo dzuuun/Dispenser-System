@@ -201,7 +201,9 @@ export async function exportStudentAccounts(req, res) {
           type,
           type === "EMAIL"
             ? student.email_address || "No"
-            : student[`${alias}_active`] != null ? "Yes" : "No",
+            : student[`${alias}_active`] != null
+              ? "Yes"
+              : "No",
         ]),
       ),
     });

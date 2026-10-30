@@ -8,5 +8,7 @@ export function studentFullName(student) {
     String(student.first_name ?? student.firstName ?? "").trim(),
     displayMiddleName(student.middle_name ?? student.middleName),
     String(student.last_name ?? student.lastName ?? "").trim(),
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 }

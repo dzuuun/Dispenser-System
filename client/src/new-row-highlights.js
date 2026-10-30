@@ -23,19 +23,22 @@ export function createNewRowHighlighter({
   const scheduleExpiry = () => {
     if (disposed || timer !== null || !highlighted.size) return;
     const expiresAt = Math.min(...highlighted.values());
-    timer = setTimeout(() => {
-      timer = null;
-      const time = now();
-      let changed = false;
-      for (const [id, expiry] of highlighted) {
-        if (expiry <= time) {
-          highlighted.delete(id);
-          changed = true;
+    timer = setTimeout(
+      () => {
+        timer = null;
+        const time = now();
+        let changed = false;
+        for (const [id, expiry] of highlighted) {
+          if (expiry <= time) {
+            highlighted.delete(id);
+            changed = true;
+          }
         }
-      }
-      if (changed) emit();
-      scheduleExpiry();
-    }, Math.max(0, expiresAt - now()));
+        if (changed) emit();
+        scheduleExpiry();
+      },
+      Math.max(0, expiresAt - now()),
+    );
   };
 
   return {

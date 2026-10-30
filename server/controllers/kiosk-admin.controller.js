@@ -58,9 +58,8 @@ export async function getKiosk(req, res) {
 export async function updateKioskLocation(req, res) {
   if (!validId(req.params.id))
     return res.status(400).json({ message: "Invalid kiosk." });
-  const location = typeof req.body?.location === "string"
-    ? req.body.location.trim()
-    : "";
+  const location =
+    typeof req.body?.location === "string" ? req.body.location.trim() : "";
   if (!location || location.length > 160)
     return res.status(400).json({
       message: "Enter a kiosk location between 1 and 160 characters.",

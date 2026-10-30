@@ -27,7 +27,10 @@ async function setup(t) {
       return [kiosk?.is_active ? [{ ...kiosk }] : []];
     }
     if (sql.startsWith("UPDATE kiosks SET location=")) {
-      assert.equal(sql, "UPDATE kiosks SET location=? WHERE id=? AND is_active=1");
+      assert.equal(
+        sql,
+        "UPDATE kiosks SET location=? WHERE id=? AND is_active=1",
+      );
       const kiosk = kiosks.get(Number(values[1]));
       if (!kiosk?.is_active) return [{ affectedRows: 0 }];
       kiosk.location = values[0];
@@ -39,7 +42,9 @@ async function setup(t) {
   const app = express();
   app.use(express.json());
   app.use("/admin", adminRouter);
-  app.use((err, req, res, next) => res.status(500).json({ message: err.message }));
+  app.use((err, req, res, next) =>
+    res.status(500).json({ message: err.message }),
+  );
   const server = await new Promise((resolve) => {
     const instance = app.listen(0, "127.0.0.1", () => resolve(instance));
   });
@@ -47,14 +52,23 @@ async function setup(t) {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   });
-  const send = async (id, body, { authenticated = true, asRole = "Super Admin" } = {}) => {
+  const send = async (
+    id,
+    body,
+    { authenticated = true, asRole = "Super Admin" } = {},
+  ) => {
     role = asRole;
     const headers = { "Content-Type": "application/json" };
     if (authenticated)
       headers.Authorization = `Bearer ${jwt.sign({ sub: 1 }, config().accessSecret, { expiresIn: "5m" })}`;
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/admin/kiosks/${encodeURIComponent(id)}/location`, {
-      method: "PATCH", headers, body: JSON.stringify(body),
-    });
+    const response = await fetch(
+      `http://127.0.0.1:${server.address().port}/admin/kiosks/${encodeURIComponent(id)}/location`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(body),
+      },
+    );
     return { status: response.status, body: await response.json() };
   };
   return { kiosks, calls, send };
@@ -62,45 +76,99 @@ async function setup(t) {
 
 test("super administrators can set and edit a kiosk location without changing another kiosk", async (t) => {
   const { send, kiosks, calls } = await setup(t);
-  const result = await send(5, { location: "  ICT/MIS Office  ", is_active: 0, kioskId: 6 });
+  const result = await send(5, {
+    location: "  ICT/MIS Office  ",
+    is_active: 0,
+    kioskId: 6,
+  });
   assert.equal(result.status, 200);
-  assert.deepEqual(result.body, { id: 5, location: "ICT/MIS Office", message: "Kiosk location saved." });
+  assert.deepEqual(result.body, {
+    id: 5,
+    location: "ICT/MIS Office",
+    message: "Kiosk location saved.",
+  });
   assert.equal(kiosks.get(5).location, "ICT/MIS Office");
   assert.equal(kiosks.get(5).is_active, 1);
   assert.equal(kiosks.get(6).location, "Library");
   const edited = await send(5, { location: "Registrar's Office" });
   assert.equal(edited.status, 200);
   assert.equal(kiosks.get(5).location, "Registrar's Office");
-  assert.deepEqual(calls.find(({ sql }) => sql.startsWith("UPDATE kiosks")).values, ["ICT/MIS Office", 5]);
-  assert.ok(calls.some(({ sql, values }) => sql.startsWith("INSERT INTO audit_logs") && values[1] === "UPDATE_LOCATION" && values[2] === "KIOSK" && values[3] === "5"));
+  assert.deepEqual(
+    calls.find(({ sql }) => sql.startsWith("UPDATE kiosks")).values,
+    ["ICT/MIS Office", 5],
+  );
+  assert.ok(
+    calls.some(
+      ({ sql, values }) =>
+        sql.startsWith("INSERT INTO audit_logs") &&
+        values[1] === "UPDATE_LOCATION" &&
+        values[2] === "KIOSK" &&
+        values[3] === "5",
+    ),
+  );
 });
 
 test("saving an unchanged location succeeds without a redundant write", async (t) => {
   const { send, calls } = await setup(t);
   assert.equal((await send(6, { location: "Library" })).status, 200);
-  assert.equal(calls.filter(({ sql }) => sql.startsWith("UPDATE kiosks")).length, 0);
+  assert.equal(
+    calls.filter(({ sql }) => sql.startsWith("UPDATE kiosks")).length,
+    0,
+  );
 });
 
 test("location requires an authenticated super administrator", async (t) => {
   const { send, calls } = await setup(t);
-  assert.equal((await send(5, { location: "Library" }, { authenticated: false })).status, 401);
+  assert.equal(
+    (await send(5, { location: "Library" }, { authenticated: false })).status,
+    401,
+  );
   for (const asRole of ["Admin", "Request Staff"])
-    assert.equal((await send(5, { location: "Library" }, { asRole })).status, 403);
-  assert.equal(calls.filter(({ sql }) => sql.includes("kiosks") || sql.includes("audit_logs")).length, 0);
+    assert.equal(
+      (await send(5, { location: "Library" }, { asRole })).status,
+      403,
+    );
+  assert.equal(
+    calls.filter(
+      ({ sql }) => sql.includes("kiosks") || sql.includes("audit_logs"),
+    ).length,
+    0,
+  );
 });
 
 test("blank, malformed and oversized locations fail before accessing kiosk records", async (t) => {
   const { send, calls } = await setup(t);
-  for (const location of [undefined, null, "", "   ", 123, true, {}, [], "x".repeat(161)])
+  for (const location of [
+    undefined,
+    null,
+    "",
+    "   ",
+    123,
+    true,
+    {},
+    [],
+    "x".repeat(161),
+  ])
     assert.equal((await send(5, { location })).status, 400);
-  assert.equal(calls.filter(({ sql }) => sql.includes("kiosks") || sql.includes("audit_logs")).length, 0);
+  assert.equal(
+    calls.filter(
+      ({ sql }) => sql.includes("kiosks") || sql.includes("audit_logs"),
+    ).length,
+    0,
+  );
 });
 
 test("unknown and inactive kiosks are not modified", async (t) => {
   const { send, calls, kiosks } = await setup(t);
-  for (const id of [7, 999]) assert.equal((await send(id, { location: "Library" })).status, 404);
+  for (const id of [7, 999])
+    assert.equal((await send(id, { location: "Library" })).status, 404);
   assert.equal(kiosks.get(7).location, "Old location");
-  assert.equal(calls.filter(({ sql }) => sql.startsWith("UPDATE") || sql.includes("audit_logs")).length, 0);
+  assert.equal(
+    calls.filter(
+      ({ sql }) => sql.startsWith("UPDATE") || sql.includes("audit_logs"),
+    ).length,
+    0,
+  );
 });
 
 test("invalid kiosk IDs cannot reach a kiosk query", async (t) => {
@@ -127,12 +195,26 @@ test("heartbeat location is only a default for unassigned kiosks and cannot over
     calls.push({ sql, values });
     return sql.startsWith("SELECT") ? [[]] : [{ affectedRows: 1 }];
   });
-  await kioskHeartbeat({
-    kioskId: 5, headers: {}, socket: {}, get: () => "Chrome",
-    body: { location: "Old build location", activity: { state: "IDLE" } },
-  }, { set() { return this; }, json() {} });
+  await kioskHeartbeat(
+    {
+      kioskId: 5,
+      headers: {},
+      socket: {},
+      get: () => "Chrome",
+      body: { location: "Old build location", activity: { state: "IDLE" } },
+    },
+    {
+      set() {
+        return this;
+      },
+      json() {},
+    },
+  );
   const update = calls[0];
-  assert.match(update.sql, /location=CASE WHEN location IS NULL OR TRIM\(location\) IN \('', 'Unassigned'\)\s+THEN COALESCE\(\?, location\) ELSE location END/);
+  assert.match(
+    update.sql,
+    /location=CASE WHEN location IS NULL OR TRIM\(location\) IN \('', 'Unassigned'\)\s+THEN COALESCE\(\?, location\) ELSE location END/,
+  );
   assert.equal(update.values[7], "Old build location");
   assert.equal(update.values.at(-1), 5);
 });

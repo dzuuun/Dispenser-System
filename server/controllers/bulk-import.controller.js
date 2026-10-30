@@ -148,7 +148,9 @@ const rowValue = (row, ...aliases) => {
 };
 
 const rowPassword = (row, column) => {
-  const key = Object.keys(row).find((key) => normalizeColumnName(key) === normalizeColumnName(column));
+  const key = Object.keys(row).find(
+    (key) => normalizeColumnName(key) === normalizeColumnName(column),
+  );
   const value = key === undefined ? "" : String(row[key] ?? "");
   return value.trim() ? value : null;
 };
@@ -398,7 +400,11 @@ export async function reviewStudentRows(
         message: `Active course ${courseCode} was not found.`,
       });
     if (year && (!/^\d+$/.test(year) || yearLevel < 1 || yearLevel > 255))
-      return errors.push({ row: rowNumber, message: "YearLevel must be a whole number between 1 and 255, or blank." });
+      return errors.push({
+        row: rowNumber,
+        message:
+          "YearLevel must be a whole number between 1 and 255, or blank.",
+      });
     if (seen.has(schoolId))
       return errors.push({
         row: rowNumber,
@@ -427,7 +433,8 @@ export async function reviewStudentRows(
             importChange("First name", current.first_name, firstName),
             importChange("Middle name", current.middle_name, middleName),
             importChange("Last name", current.last_name, lastName),
-            yearLevel !== null && importChange("Year level", current.year_level, yearLevel),
+            yearLevel !== null &&
+              importChange("Year level", current.year_level, yearLevel),
             importChange(
               "Kumosoft ID",
               current.kumosoft_id,
@@ -716,19 +723,36 @@ const studentAccountFields = [
 
 async function reviewStudentAccounts(rows, result, executor) {
   const accountColumns = new Set([
-    "emailaddress", "email", ...studentAccountFields.map((field) => normalizeColumnName(field.password)),
+    "emailaddress",
+    "email",
+    ...studentAccountFields.map((field) => normalizeColumnName(field.password)),
   ]);
-  if (!rows.some((row) => Object.keys(row).some((key) => accountColumns.has(normalizeColumnName(key))))) return;
+  if (
+    !rows.some((row) =>
+      Object.keys(row).some((key) =>
+        accountColumns.has(normalizeColumnName(key)),
+      ),
+    )
+  )
+    return;
   const requested = (item, field) => {
     const row = rows[item.row - 2];
-    return rowValue(row, field.password) ||
+    return (
+      rowValue(row, field.password) ||
       (field.type === "email" && rowValue(row, "EmailAddress", "Email")) ||
-      (field.type === "kumosoft" && item.kumosoftId);
+      (field.type === "kumosoft" && item.kumosoftId)
+    );
   };
-  const fields = studentAccountFields.filter((field) => result.items.some((item) => requested(item, field)));
+  const fields = studentAccountFields.filter((field) =>
+    result.items.some((item) => requested(item, field)),
+  );
   if (!fields.length) return;
-  const [students] = await executor.query("SELECT id, student_id, kumosoft_id FROM students");
-  const studentMap = new Map(students.map((student) => [student.student_id, student]));
+  const [students] = await executor.query(
+    "SELECT id, student_id, kumosoft_id FROM students",
+  );
+  const studentMap = new Map(
+    students.map((student) => [student.student_id, student]),
+  );
   const accountsByType = new Map();
   for (const field of fields) {
     const config = TYPES[field.type];
@@ -736,49 +760,96 @@ async function reviewStudentAccounts(rows, result, executor) {
       `SELECT student_id, ${config.column} AS account_name, encrypted_password, password_iv, password_auth_tag, is_active FROM ${config.table}`,
     );
     accountsByType.set(field.type, {
-      byStudent: new Map(accounts.map((account) => [Number(account.student_id), account])),
-      owners: new Map(accounts.map((account) => [String(account.account_name).toLowerCase(), Number(account.student_id)])),
+      byStudent: new Map(
+        accounts.map((account) => [Number(account.student_id), account]),
+      ),
+      owners: new Map(
+        accounts.map((account) => [
+          String(account.account_name).toLowerCase(),
+          Number(account.student_id),
+        ]),
+      ),
       seen: new Map(),
     });
   }
   result.items = result.items.filter((item) => {
     const student = studentMap.get(item.schoolId);
-    const updates = [], changes = [], claims = [];
+    const updates = [],
+      changes = [],
+      claims = [];
     for (const field of fields) {
       if (!requested(item, field)) continue;
       const row = rows[item.row - 2];
       const stored = accountsByType.get(field.type);
       const account = stored.byStudent.get(Number(student?.id));
       const password = rowPassword(row, field.password);
-      const login = field.type === "email"
-        ? (rowValue(row, "EmailAddress", "Email") || account?.account_name || "").toLowerCase()
-        : field.type === "kumosoft"
-          ? item.kumosoftId || account?.account_name || student?.kumosoft_id || item.schoolId
-          : item.schoolId;
+      const login =
+        field.type === "email"
+          ? (
+              rowValue(row, "EmailAddress", "Email") ||
+              account?.account_name ||
+              ""
+            ).toLowerCase()
+          : field.type === "kumosoft"
+            ? item.kumosoftId ||
+              account?.account_name ||
+              student?.kumosoft_id ||
+              item.schoolId
+            : item.schoolId;
       let message;
       if (field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(login))
-        message = "Enter a valid EmailAddress. EmailPassword needs an email address or an existing email account.";
+        message =
+          "Enter a valid EmailAddress. EmailPassword needs an email address or an existing email account.";
       else if (login.length > 255)
         message = `${field.label} account name is too long.`;
-      else if (stored.owners.has(login.toLowerCase()) && stored.owners.get(login.toLowerCase()) !== Number(student?.id))
+      else if (
+        stored.owners.has(login.toLowerCase()) &&
+        stored.owners.get(login.toLowerCase()) !== Number(student?.id)
+      )
         message = `${field.label} account ${login} is already linked to another student.`;
-      else if (stored.seen.has(login.toLowerCase()) && stored.seen.get(login.toLowerCase()) !== item.schoolId)
+      else if (
+        stored.seen.has(login.toLowerCase()) &&
+        stored.seen.get(login.toLowerCase()) !== item.schoolId
+      )
         message = `${field.label} account ${login} appears more than once in the file.`;
       if (message) {
         result.errors.push({ row: item.row, message });
         return false;
       }
       claims.push([stored, login.toLowerCase()]);
-      const passwordChanged = password !== null && (!account || !sameImportedPassword(account, password));
-      if (account && account.account_name === login && Number(account.is_active) === 1 && !passwordChanged) continue;
+      const passwordChanged =
+        password !== null &&
+        (!account || !sameImportedPassword(account, password));
+      if (
+        account &&
+        account.account_name === login &&
+        Number(account.is_active) === 1 &&
+        !passwordChanged
+      )
+        continue;
       updates.push({ type: field.type, login, password });
-      if (!account) changes.push({ field: `${field.label} account`, message: "Will be created." });
+      if (!account)
+        changes.push({
+          field: `${field.label} account`,
+          message: "Will be created.",
+        });
       else {
-        const loginChange = importChange(`${field.label} ${field.type === "email" ? "address" : "username"}`, account.account_name, login);
+        const loginChange = importChange(
+          `${field.label} ${field.type === "email" ? "address" : "username"}`,
+          account.account_name,
+          login,
+        );
         if (loginChange) changes.push(loginChange);
-        if (Number(account.is_active) !== 1) changes.push(importChange(`${field.label} status`, "Inactive", "Active"));
+        if (Number(account.is_active) !== 1)
+          changes.push(
+            importChange(`${field.label} status`, "Inactive", "Active"),
+          );
       }
-      if (passwordChanged) changes.push({ field: `${field.label} password`, message: "Will be replaced." });
+      if (passwordChanged)
+        changes.push({
+          field: `${field.label} password`,
+          message: "Will be replaced.",
+        });
     }
     for (const [stored, login] of claims) stored.seen.set(login, item.schoolId);
     item.accounts = updates;
@@ -795,17 +866,25 @@ async function importStudentAccounts(items, connection) {
     `SELECT id, student_id FROM students WHERE student_id IN (${changed.map(() => "?").join(", ")})`,
     changed.map((item) => item.schoolId),
   );
-  const ids = new Map(students.map((student) => [student.student_id, student.id]));
+  const ids = new Map(
+    students.map((student) => [student.student_id, student.id]),
+  );
   for (const item of changed) {
     const studentId = ids.get(item.schoolId);
-    if (!studentId) throw new Error("An imported student could not be found. No changes were saved.");
+    if (!studentId)
+      throw new Error(
+        "An imported student could not be found. No changes were saved.",
+      );
     for (const account of item.accounts) {
       const config = TYPES[account.type];
       const [owners] = await connection.query(
         `SELECT student_id FROM ${config.table} WHERE ${config.column}=? AND student_id<>? LIMIT 1 FOR UPDATE`,
         [account.login, studentId],
       );
-      if (owners.length) throw new Error(`${config.label} account is already linked to another student. No changes were saved.`);
+      if (owners.length)
+        throw new Error(
+          `${config.label} account is already linked to another student. No changes were saved.`,
+        );
       // An empty encrypted value represents an account without a saved password,
       // and also works on older schemas where password columns are NOT NULL.
       const encrypted = encryptPassword(account.password || "");
@@ -814,7 +893,13 @@ async function importStudentAccounts(items, connection) {
          VALUES (?, ?, ?, ?, ?, 1)
          ON DUPLICATE KEY UPDATE ${config.column}=VALUES(${config.column}),
          ${account.password !== null ? "encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag)," : ""} is_active=1`,
-        [studentId, account.login, encrypted.encrypted_password, encrypted.password_iv, encrypted.password_auth_tag],
+        [
+          studentId,
+          account.login,
+          encrypted.encrypted_password,
+          encrypted.password_iv,
+          encrypted.password_auth_tag,
+        ],
       );
     }
   }
@@ -887,7 +972,10 @@ export async function upsertStudentRows(
   }
   await attachPendingAccounts(connection);
   for (const item of items.filter((item) => item.yearLevel != null)) {
-    await connection.query("UPDATE students SET year_level=? WHERE student_id=?", [item.yearLevel, item.schoolId]);
+    await connection.query(
+      "UPDATE students SET year_level=? WHERE student_id=?",
+      [item.yearLevel, item.schoolId],
+    );
   }
 }
 
@@ -937,7 +1025,9 @@ export async function validateDataImport(req, res) {
       invalid: result.errors.length,
       errors: result.errors,
       errorReport: await buildErrorReport(result.rows, result.errors),
-      preview: result.items.slice(0, 20).map(({ password, accounts, ...item }) => item),
+      preview: result.items
+        .slice(0, 20)
+        .map(({ password, accounts, ...item }) => item),
     });
   } catch (error) {
     res

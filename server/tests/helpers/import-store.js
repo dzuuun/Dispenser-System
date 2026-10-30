@@ -216,7 +216,8 @@ export function createImportStore(options = {}) {
       return done();
     }
     if (text.startsWith("UPDATE students SET year_level=?")) {
-      data.students.find((s) => s.student_id === values[1]).year_level = values[0];
+      data.students.find((s) => s.student_id === values[1]).year_level =
+        values[0];
       return done();
     }
     if (text.startsWith("INSERT INTO pending_account_imports")) {
@@ -290,8 +291,15 @@ export function createImportStore(options = {}) {
         account_name: login,
         is_active: 1,
       });
-      if (isNew || text.includes("encrypted_password=VALUES(encrypted_password)")) {
-        Object.assign(row, { encrypted_password, password_iv, password_auth_tag });
+      if (
+        isNew ||
+        text.includes("encrypted_password=VALUES(encrypted_password)")
+      ) {
+        Object.assign(row, {
+          encrypted_password,
+          password_iv,
+          password_auth_tag,
+        });
       }
       return done();
     }

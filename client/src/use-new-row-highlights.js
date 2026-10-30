@@ -14,12 +14,16 @@ export function useNewRowHighlights(scope) {
       if (tracker.current?.current === current) tracker.current = null;
     };
   }, [scope]);
-  const observe = useCallback((rows, snapshotScope = "") => {
-    if (tracker.current?.scope === scope)
-      tracker.current.current.update(rows, snapshotScope);
-  }, [scope]);
+  const observe = useCallback(
+    (rows, snapshotScope = "") => {
+      if (tracker.current?.scope === scope)
+        tracker.current.current.update(rows, snapshotScope);
+    },
+    [scope],
+  );
   return {
     observe,
-    isNew: (id) => highlighted.scope === scope && highlighted.ids.has(String(id)),
+    isNew: (id) =>
+      highlighted.scope === scope && highlighted.ids.has(String(id)),
   };
 }

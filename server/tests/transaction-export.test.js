@@ -97,7 +97,10 @@ test("transaction workbook omits a dash middle name from the student name", asyn
   assert.equal(response.status, 200);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
-  assert.equal(workbook.worksheets[0].getRow(2).getCell(5).text, "Test Student");
+  assert.equal(
+    workbook.worksheets[0].getRow(2).getCell(5).text,
+    "Test Student",
+  );
   assert.equal(rows[0].middle_name, " - ");
 });
 
@@ -162,9 +165,14 @@ test("transaction exports display saved locations and use Unassigned without fal
   const sheet = workbook.worksheets[0];
   assert.equal(sheet.getRow(2).getCell(6).text, "Library");
   assert.equal(sheet.getRow(3).getCell(6).text, "Unassigned");
-  const query = calls.find(({ sql }) => sql.includes("FROM credential_transactions t"));
+  const query = calls.find(({ sql }) =>
+    sql.includes("FROM credential_transactions t"),
+  );
   assert.match(query.sql, /LEFT JOIN kiosks k ON k\.kiosk_code=t\.kiosk_code/);
-  assert.match(query.sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/);
+  assert.match(
+    query.sql,
+    /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/,
+  );
   assert.doesNotMatch(query.sql, /k\.is_active/);
 });
 
@@ -246,7 +254,10 @@ test("search applies all displayed transaction fields before counting and pagina
         /CONCAT_WS\(' ', NULLIF\(s.first_name, ''\), NULLIF\(NULLIF\(TRIM\(s.middle_name\), '-'\), ''\), NULLIF\(s.last_name, ''\)\) LIKE \? ESCAPE '!'/,
       );
       assert.match(sql, /LEFT JOIN kiosks k ON k\.kiosk_code=t\.kiosk_code/);
-      assert.match(sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) LIKE \? ESCAPE '!'/);
+      assert.match(
+        sql,
+        /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) LIKE \? ESCAPE '!'/,
+      );
       assert.match(sql, /LEFT JOIN courses c ON c.id=s.course_id/);
       assert.match(sql, /c\.code LIKE \? ESCAPE '!'/);
       assert.match(sql, /'Revealed' LIKE \? ESCAPE '!'/);

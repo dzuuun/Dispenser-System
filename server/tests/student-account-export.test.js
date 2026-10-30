@@ -95,11 +95,14 @@ test("student workbook names omit dash middle names and preserve real hyphenated
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
   const sheet = workbook.worksheets[0];
-  assert.deepEqual([2, 3, 4].map((row) => sheet.getRow(row).getCell(3).text), [
-    "Ana-Maria Santos-Cruz",
-    "Ana-Maria Santos-Cruz",
-    "Ana-Maria De-la-Pena Santos-Cruz",
-  ]);
+  assert.deepEqual(
+    [2, 3, 4].map((row) => sheet.getRow(row).getCell(3).text),
+    [
+      "Ana-Maria Santos-Cruz",
+      "Ana-Maria Santos-Cruz",
+      "Ana-Maria De-la-Pena Santos-Cruz",
+    ],
+  );
   assert.equal(rows[0].middle_name, "-");
 });
 
@@ -169,9 +172,10 @@ test("Email export retains inactive account addresses and shows No for students 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
   const sheet = workbook.worksheets[0];
-  assert.deepEqual([2, 3, 4].map((row) => sheet.getRow(row).getCell(7).text), [
-    "student@example.edu", "inactive@example.edu", "No",
-  ]);
+  assert.deepEqual(
+    [2, 3, 4].map((row) => sheet.getRow(row).getCell(7).text),
+    ["student@example.edu", "inactive@example.edu", "No"],
+  );
   assert.ok(sheet.getColumn(7).width >= 30);
 });
 

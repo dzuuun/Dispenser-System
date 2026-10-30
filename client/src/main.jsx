@@ -1,4 +1,7 @@
-import { displayMiddleName, studentFullName } from "../../shared/student-name.mjs";
+import {
+  displayMiddleName,
+  studentFullName,
+} from "../../shared/student-name.mjs";
 import React, { Component, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -372,10 +375,11 @@ function CredentialRequestInfoModal({
               <span>
                 <b>Alternative: reset using your institutional email</b>
                 <small>
-                  Instead of submitting this request, you can reset your password
-                  yourself. On the Schoology sign-in page, select <strong>Forgot password</strong>,
-                  enter your institutional email address, and check your
-                  institutional email inbox for password reset instructions.
+                  Instead of submitting this request, you can reset your
+                  password yourself. On the Schoology sign-in page, select{" "}
+                  <strong>Forgot password</strong>, enter your institutional
+                  email address, and check your institutional email inbox for
+                  password reset instructions.
                 </small>
               </span>
             </article>
@@ -1229,9 +1233,12 @@ function Dashboard({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const { observe: observeActivity, isNew: isNewActivity } = useNewRowHighlights(token);
-  const { observe: observeDashboardRequests, isNew: isNewDashboardRequest } = useNewRowHighlights(token);
-  const { observe: observeDashboardKiosks, isNew: isNewDashboardKiosk } = useNewRowHighlights(token);
+  const { observe: observeActivity, isNew: isNewActivity } =
+    useNewRowHighlights(token);
+  const { observe: observeDashboardRequests, isNew: isNewDashboardRequest } =
+    useNewRowHighlights(token);
+  const { observe: observeDashboardKiosks, isNew: isNewDashboardKiosk } =
+    useNewRowHighlights(token);
   useEffect(() => {
     let active = true;
     let loading = false;
@@ -1265,7 +1272,13 @@ function Dashboard({ token }) {
       removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [token, refreshVersion, observeActivity, observeDashboardRequests, observeDashboardKiosks]);
+  }, [
+    token,
+    refreshVersion,
+    observeActivity,
+    observeDashboardRequests,
+    observeDashboardKiosks,
+  ]);
   const credentials = Array.isArray(data?.credentials) ? data.credentials : [];
   const activity = Array.isArray(data?.recentActivity)
     ? data.recentActivity.slice(0, 5)
@@ -1322,7 +1335,12 @@ function Dashboard({ token }) {
         description="Live requests, credential activity, voucher stock, and kiosk usage."
         actions={
           <div className="dashboard-refresh-actions">
-            <span className="dashboard-live-indicator" title="Updates every 3 seconds"><i /> Live · 3s</span>
+            <span
+              className="dashboard-live-indicator"
+              title="Updates every 3 seconds"
+            >
+              <i /> Live · 3s
+            </span>
             <Button
               variant="secondary"
               onClick={() => setRefreshVersion((version) => version + 1)}
@@ -1377,9 +1395,13 @@ function Dashboard({ token }) {
           </section>
           <section className="dashboard-layout dashboard-overview-grid">
             <DashboardRequestActivity
-              requests={Array.isArray(data.recentRequests)
-                ? data.recentRequests.filter((item) => item.status === "PENDING").slice(0, 5)
-                : []}
+              requests={
+                Array.isArray(data.recentRequests)
+                  ? data.recentRequests
+                      .filter((item) => item.status === "PENDING")
+                      .slice(0, 5)
+                  : []
+              }
               isNew={isNewDashboardRequest}
             />
             <article className="panel dashboard-activity-panel">
@@ -1415,9 +1437,14 @@ function Dashboard({ token }) {
                         {` · ${a.kiosk_location || "Unassigned"}`}
                       </small>
                     </span>
-                    <time dateTime={a.created_at} title={new Date(a.created_at).toLocaleString()}>
+                    <time
+                      dateTime={a.created_at}
+                      title={new Date(a.created_at).toLocaleString()}
+                    >
                       {new Date(a.created_at).toLocaleTimeString()}
-                      <small>{new Date(a.created_at).toLocaleDateString()}</small>
+                      <small>
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </small>
                     </time>
                   </div>
                 ))
@@ -1481,7 +1508,10 @@ function Dashboard({ token }) {
                 excludes inactive and released vouchers.
               </p>
             </article>
-            <DashboardKioskMonitor kiosks={kiosks} isNew={isNewDashboardKiosk} />
+            <DashboardKioskMonitor
+              kiosks={kiosks}
+              isNew={isNewDashboardKiosk}
+            />
             <article className="panel dashboard-coverage-panel">
               <header>
                 <div>
@@ -1522,7 +1552,11 @@ function DashboardRequestActivity({ requests, isNew }) {
     VOUCHER_REQUEST: "Voucher replacement",
   };
   const accountLabels = {
-    EMAIL: "Email", KUMOSOFT: "Kumosoft", SCHOOLOGY: "Schoology", SATP: "SATP", VOUCHER: "WiFi",
+    EMAIL: "Email",
+    KUMOSOFT: "Kumosoft",
+    SCHOOLOGY: "Schoology",
+    SATP: "SATP",
+    VOUCHER: "WiFi",
   };
   return (
     <article className="panel dashboard-requests-panel">
@@ -1531,32 +1565,61 @@ function DashboardRequestActivity({ requests, isNew }) {
           <p className="eyebrow">LATEST 5 PENDING</p>
           <h2>Pending requests</h2>
         </div>
-        <Button variant="secondary" onClick={() => go("/admin/password-resets")}>View all</Button>
+        <Button
+          variant="secondary"
+          onClick={() => go("/admin/password-resets")}
+        >
+          View all
+        </Button>
       </header>
-      {requests.length ? requests.map((item) => {
-        const name = studentFullName(item) || "Unknown student";
-        const date = new Date(item.requested_at);
-        return (
-          <div className={`dashboard-request-row${isNew(item.id) ? " live-row-new" : ""}`} key={item.id}>
-            <div className="dashboard-request-student">
-              <b title={name}>{name}</b>
-              <span className="dashboard-request-kind">
-                <span title={item.course_code}>{item.school_id}</span>
-                <span className="request-account-badge" data-account={item.credential_type}>
-                  {accountLabels[item.credential_type] || item.credential_type}
+      {requests.length ? (
+        requests.map((item) => {
+          const name = studentFullName(item) || "Unknown student";
+          const date = new Date(item.requested_at);
+          return (
+            <div
+              className={`dashboard-request-row${isNew(item.id) ? " live-row-new" : ""}`}
+              key={item.id}
+            >
+              <div className="dashboard-request-student">
+                <b title={name}>{name}</b>
+                <span className="dashboard-request-kind">
+                  <span title={item.course_code}>{item.school_id}</span>
+                  <span
+                    className="request-account-badge"
+                    data-account={item.credential_type}
+                  >
+                    {accountLabels[item.credential_type] ||
+                      item.credential_type}
+                  </span>
+                  <span>
+                    {requestLabels[item.request_kind] || "Credential request"}
+                  </span>
                 </span>
-                <span>{requestLabels[item.request_kind] || "Credential request"}</span>
-              </span>
+              </div>
+              <div className="dashboard-request-state">
+                <Status tone="gold">Pending</Status>
+                <time
+                  dateTime={item.requested_at}
+                  title={date.toLocaleString()}
+                >
+                  {date.toLocaleString([], {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </div>
             </div>
-            <div className="dashboard-request-state">
-              <Status tone="gold">Pending</Status>
-              <time dateTime={item.requested_at} title={date.toLocaleString()}>
-                {date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-              </time>
-            </div>
-          </div>
-        );
-      }) : <Empty title="No pending requests" detail="New requests awaiting administrator action will appear here." />}
+          );
+        })
+      ) : (
+        <Empty
+          title="No pending requests"
+          detail="New requests awaiting administrator action will appear here."
+        />
+      )}
     </article>
   );
 }
@@ -1570,8 +1633,12 @@ function DashboardKioskMonitor({ kiosks, isNew }) {
           <h2>Live kiosk usage</h2>
         </div>
         <div className="dashboard-kiosk-heading-actions">
-          <span>{kiosks.inUse || 0} in use <i /> {kiosks.online || 0} online</span>
-          <Button variant="secondary" onClick={() => go("/admin/kiosks")}>View all</Button>
+          <span>
+            {kiosks.inUse || 0} in use <i /> {kiosks.online || 0} online
+          </span>
+          <Button variant="secondary" onClick={() => go("/admin/kiosks")}>
+            View all
+          </Button>
         </div>
       </header>
       {devices.length ? (
@@ -1588,7 +1655,11 @@ function DashboardKioskMonitor({ kiosks, isNew }) {
                   <b title={kiosk.location || "Unassigned"}>
                     {kiosk.location || "Unassigned"}
                   </b>
-                  <small><i data-online={Boolean(kiosk.is_online)} />{kiosk.kiosk_name || "Kiosk"} · {kiosk.is_online ? "Online" : "Offline"}</small>
+                  <small>
+                    <i data-online={Boolean(kiosk.is_online)} />
+                    {kiosk.kiosk_name || "Kiosk"} ·{" "}
+                    {kiosk.is_online ? "Online" : "Offline"}
+                  </small>
                 </div>
                 <KioskUsageStatus kiosk={kiosk} />
               </div>
@@ -1596,10 +1667,16 @@ function DashboardKioskMonitor({ kiosks, isNew }) {
           </div>
           <p className="dashboard-kiosk-note">
             Idle after 30 seconds without interaction.
-            {kiosks.total > devices.length && ` Showing ${devices.length} of ${kiosks.total} kiosks.`}
+            {kiosks.total > devices.length &&
+              ` Showing ${devices.length} of ${kiosks.total} kiosks.`}
           </p>
         </>
-      ) : <Empty title="No kiosks detected" detail="Connected student kiosks will appear here with their usage status." />}
+      ) : (
+        <Empty
+          title="No kiosks detected"
+          detail="Connected student kiosks will appear here with their usage status."
+        />
+      )}
     </article>
   );
 }
@@ -1881,9 +1958,7 @@ function LegacyStudentsPageV3({ token }) {
                     onClick={() => open(s.id)}
                   >
                     <td>
-                      <b>
-                        {studentFullName(s)}
-                      </b>
+                      <b>{studentFullName(s)}</b>
                       <small>{s.kumosoft_id || "No Kumosoft ID"}</small>
                     </td>
                     <td>{s.student_id}</td>
@@ -4191,9 +4266,7 @@ function LegacyStudentsPageV5({ token }) {
             slots={{
               0: (_data, row) => (
                 <span className="student-cell">
-                  <b>
-                    {studentFullName(row)}
-                  </b>
+                  <b>{studentFullName(row)}</b>
                   <small>{row.kumosoft_id || "No Kumosoft ID"}</small>
                 </span>
               ),
@@ -4421,9 +4494,7 @@ function LegacyStudentsPage({ token }) {
                 {result.rows.map((student) => (
                   <tr key={student.id}>
                     <td>
-                      <b>
-                        {studentFullName(student)}
-                      </b>
+                      <b>{studentFullName(student)}</b>
                       <small>{student.kumosoft_id || "No Kumosoft ID"}</small>
                     </td>
                     <td>{student.student_id}</td>
@@ -4803,9 +4874,7 @@ function LegacyStudentsPageV2({ token }) {
                     onClick={() => open(s.id)}
                   >
                     <td>
-                      <b>
-                        {studentFullName(s)}
-                      </b>
+                      <b>{studentFullName(s)}</b>
                       <small>{s.kumosoft_id || "No Kumosoft ID"}</small>
                     </td>
                     <td>{s.student_id}</td>
@@ -5371,10 +5440,13 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
             </label>
             {type.id === "students" && (
               <p className="import-account-guidance">
-                Optional account columns: <strong>EmailAddress</strong>, <strong>EmailPassword</strong>,{" "}
-                <strong>SATPPassword</strong>, <strong>SchoologyPassword</strong>, and <strong>KumosoftPassword</strong>.
-                Blank passwords keep saved passwords. An email address or Kumosoft ID can be imported without a password.
-                Kumosoft ID is optional; a new Kumosoft account uses the School ID when it is blank.
+                Optional account columns: <strong>EmailAddress</strong>,{" "}
+                <strong>EmailPassword</strong>, <strong>SATPPassword</strong>,{" "}
+                <strong>SchoologyPassword</strong>, and{" "}
+                <strong>KumosoftPassword</strong>. Blank passwords keep saved
+                passwords. An email address or Kumosoft ID can be imported
+                without a password. Kumosoft ID is optional; a new Kumosoft
+                account uses the School ID when it is blank.
               </p>
             )}
             <p className="template-link">
@@ -5832,7 +5904,9 @@ function KioskLocationEditor({ kiosk, token, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const submitting = useRef(false);
-  const assigned = Boolean(kiosk.location?.trim()) && kiosk.location.trim().toLowerCase() !== "unassigned";
+  const assigned =
+    Boolean(kiosk.location?.trim()) &&
+    kiosk.location.trim().toLowerCase() !== "unassigned";
   const save = async (event) => {
     event.preventDefault();
     if (submitting.current || !location.trim()) return;
@@ -5842,7 +5916,10 @@ function KioskLocationEditor({ kiosk, token, onSaved }) {
     try {
       const updated = await request(`/admin/kiosks/${kiosk.id}/location`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ location: location.trim() }),
       });
       setEditing(false);
@@ -5876,10 +5953,24 @@ function KioskLocationEditor({ kiosk, token, onSaved }) {
               if (event.key === "Escape" && !saving) setEditing(false);
             }}
           />
-          {error && <p className="error" id="kiosk-location-error" role="alert">{error}</p>}
+          {error && (
+            <p className="error" id="kiosk-location-error" role="alert">
+              {error}
+            </p>
+          )}
           <div className="kiosk-location-actions">
-            <Button variant="secondary" disabled={saving} onClick={() => setEditing(false)}>Cancel</Button>
-            <button className="btn primary" type="submit" disabled={saving || !location.trim()}>
+            <Button
+              variant="secondary"
+              disabled={saving}
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </Button>
+            <button
+              className="btn primary"
+              type="submit"
+              disabled={saving || !location.trim()}
+            >
               {saving ? "Saving..." : "Save location"}
             </button>
           </div>
@@ -5887,15 +5978,21 @@ function KioskLocationEditor({ kiosk, token, onSaved }) {
       ) : (
         <>
           <div>
-            <span><AppIcon name="location_on" size={17} /> Location</span>
+            <span>
+              <AppIcon name="location_on" size={17} /> Location
+            </span>
             <p>{kiosk.location || "Unassigned"}</p>
           </div>
-          <Button variant="secondary" onClick={() => {
-            setLocation(assigned ? kiosk.location : "");
-            setError("");
-            setEditing(true);
-          }}>
-            <AppIcon name="edit" size={16} /> {assigned ? "Edit location" : "Set location"}
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setLocation(assigned ? kiosk.location : "");
+              setError("");
+              setEditing(true);
+            }}
+          >
+            <AppIcon name="edit" size={16} />{" "}
+            {assigned ? "Edit location" : "Set location"}
           </Button>
         </>
       )}
@@ -5915,7 +6012,8 @@ function KiosksPage({ token }) {
     [detailsRevision, setDetailsRevision] = useState(0),
     [pendingAction, setPendingAction] = useState(""),
     [toast, setToast] = useState("");
-  const { observe: observeKiosks, isNew: isNewKiosk } = useNewRowHighlights(token);
+  const { observe: observeKiosks, isNew: isNewKiosk } =
+    useNewRowHighlights(token);
   const headers = { Authorization: `Bearer ${token}` };
   const listRequestId = useRef(0);
   const listFetching = useRef(false);
@@ -6025,10 +6123,19 @@ function KiosksPage({ token }) {
   );
   const selected = details?.kiosk?.id === selectedId ? details.kiosk : null;
   const locationSaved = (updated) => {
-    setKiosks((items) => items.map((item) => item.id === updated.id ? { ...item, location: updated.location } : item));
-    setDetails((current) => current?.kiosk?.id === updated.id
-      ? { ...current, kiosk: { ...current.kiosk, location: updated.location } }
-      : current);
+    setKiosks((items) =>
+      items.map((item) =>
+        item.id === updated.id ? { ...item, location: updated.location } : item,
+      ),
+    );
+    setDetails((current) =>
+      current?.kiosk?.id === updated.id
+        ? {
+            ...current,
+            kiosk: { ...current.kiosk, location: updated.location },
+          }
+        : current,
+    );
     setToast(updated.message);
     listRequestId.current += 1;
     listFetching.current = false;
@@ -6042,7 +6149,8 @@ function KiosksPage({ token }) {
     shutdown: "Shut down device",
   };
   const duration = (seconds) => {
-    if (seconds == null || !Number.isFinite(Number(seconds))) return "Not reported";
+    if (seconds == null || !Number.isFinite(Number(seconds)))
+      return "Not reported";
     const value = Math.max(0, Number(seconds));
     const days = Math.floor(value / 86400),
       hours = Math.floor((value % 86400) / 3600),
@@ -6059,11 +6167,17 @@ function KiosksPage({ token }) {
         description="Monitor connected devices, live usage, and remote kiosk controls."
         actions={
           <div className="kiosk-management-refresh">
-            <span className="kiosk-live-indicator"><i /> Live · 3s</span>
-            <Button variant="secondary" disabled={loading} onClick={() => {
-              load({ quiet: true });
-              setDetailsRevision((value) => value + 1);
-            }}>
+            <span className="kiosk-live-indicator">
+              <i /> Live · 3s
+            </span>
+            <Button
+              variant="secondary"
+              disabled={loading}
+              onClick={() => {
+                load({ quiet: true });
+                setDetailsRevision((value) => value + 1);
+              }}
+            >
               <AppIcon name="refresh" /> Refresh
             </Button>
           </div>
@@ -6091,9 +6205,18 @@ function KiosksPage({ token }) {
           <small>No recent connection</small>
         </article>
       </section>
-      {error && <p className="error" role="alert">{error}</p>}
-      <div className={`kiosk-management-layout${selectedId ? " has-selection" : ""}`}>
-        <section className="panel kiosk-admin-panel" aria-labelledby="kiosk-devices-title">
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div
+        className={`kiosk-management-layout${selectedId ? " has-selection" : ""}`}
+      >
+        <section
+          className="panel kiosk-admin-panel"
+          aria-labelledby="kiosk-devices-title"
+        >
           <header className="kiosk-monitor-heading">
             <div>
               <p className="eyebrow">DEVICE MONITOR</p>
@@ -6140,7 +6263,9 @@ function KiosksPage({ token }) {
                         className={[
                           item.id === selectedId ? "selected" : "",
                           isNewKiosk(item.id) ? "live-row-new" : "",
-                        ].filter(Boolean).join(" ")}
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
                         onClick={() => openKiosk(item.id)}
                       >
                         <td data-label="Device">
@@ -6154,14 +6279,18 @@ function KiosksPage({ token }) {
                               openKiosk(item.id);
                             }}
                           >
-                            <span className="kiosk-device-icon"><AppIcon name="desktop_windows" size={20} /></span>
+                            <span className="kiosk-device-icon">
+                              <AppIcon name="desktop_windows" size={20} />
+                            </span>
                             <span className="student-cell">
                               <b>{item.kiosk_name || "Kiosk"}</b>
                             </span>
                           </button>
                         </td>
                         <td data-label="Location">
-                          {item.location || <span className="muted-cell">Unassigned</span>}
+                          {item.location || (
+                            <span className="muted-cell">Unassigned</span>
+                          )}
                         </td>
                         <td data-label="Connection">
                           <span
@@ -6181,10 +6310,13 @@ function KiosksPage({ token }) {
                                 {new Date(item.last_seen).toLocaleDateString()}
                               </b>
                               <small>
-                                {new Date(item.last_seen).toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
+                                {new Date(item.last_seen).toLocaleTimeString(
+                                  [],
+                                  {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  },
+                                )}
                               </small>
                             </span>
                           ) : (
@@ -6197,7 +6329,9 @@ function KiosksPage({ token }) {
                 </table>
               </div>
               {!filtered.length && (
-                <p className="kiosk-no-results">No kiosk matches your search.</p>
+                <p className="kiosk-no-results">
+                  No kiosk matches your search.
+                </p>
               )}
             </>
           ) : (
@@ -6207,20 +6341,40 @@ function KiosksPage({ token }) {
             />
           )}
           <details className="kiosk-monitor-help">
-            <summary><AppIcon name="info" size={16} /> How status and usage are measured</summary>
-            <p>Updates every 3 seconds. In use means a student is typing or viewing credentials. Usage becomes idle after 30 seconds without interaction. Unknown means activity reports are unavailable. A device is online if it connected within the last 5 minutes.</p>
+            <summary>
+              <AppIcon name="info" size={16} /> How status and usage are
+              measured
+            </summary>
+            <p>
+              Updates every 3 seconds. In use means a student is typing or
+              viewing credentials. Usage becomes idle after 30 seconds without
+              interaction. Unknown means activity reports are unavailable. A
+              device is online if it connected within the last 5 minutes.
+            </p>
           </details>
         </section>
         {selectedId && (
-          <section className="panel kiosk-detail-panel" aria-label="Selected kiosk details" aria-busy={detailsLoading}>
+          <section
+            className="panel kiosk-detail-panel"
+            aria-label="Selected kiosk details"
+            aria-busy={detailsLoading}
+          >
             {detailsLoading ? (
               <div className="kiosk-loading" role="status">
                 <span className="loading-spinner" /> Loading kiosk details...
               </div>
             ) : !selected ? (
               <div className="kiosk-detail-error">
-                <Empty title="Unable to load kiosk" detail={detailsError || "Select a device to try again."} />
-                <Button variant="secondary" onClick={() => setDetailsRevision((value) => value + 1)}>Try again</Button>
+                <Empty
+                  title="Unable to load kiosk"
+                  detail={detailsError || "Select a device to try again."}
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() => setDetailsRevision((value) => value + 1)}
+                >
+                  Try again
+                </Button>
               </div>
             ) : (
               <>
@@ -6237,18 +6391,32 @@ function KiosksPage({ token }) {
                     {selected.is_online ? "Online" : "Offline"}
                   </span>
                 </header>
-                {detailsError && <p className="error" role="alert">{detailsError}</p>}
-                <KioskLocationEditor key={selected.id} kiosk={selected} token={token} onSaved={locationSaved} />
-                <div className="kiosk-detail-usage" data-status={selected.usage_status}>
+                {detailsError && (
+                  <p className="error" role="alert">
+                    {detailsError}
+                  </p>
+                )}
+                <KioskLocationEditor
+                  key={selected.id}
+                  kiosk={selected}
+                  token={token}
+                  onSaved={locationSaved}
+                />
+                <div
+                  className="kiosk-detail-usage"
+                  data-status={selected.usage_status}
+                >
                   <div>
                     <span>Current usage</span>
-                    <p>{selected.usage_status === "IN_USE"
-                      ? "A student is using this kiosk."
-                      : selected.usage_status === "IDLE"
-                        ? "Ready for the next student."
-                        : selected.is_online
-                          ? "Waiting for an activity report."
-                          : "This kiosk is not connected."}</p>
+                    <p>
+                      {selected.usage_status === "IN_USE"
+                        ? "A student is using this kiosk."
+                        : selected.usage_status === "IDLE"
+                          ? "Ready for the next student."
+                          : selected.is_online
+                            ? "Waiting for an activity report."
+                            : "This kiosk is not connected."}
+                    </p>
                   </div>
                   <KioskUsageStatus kiosk={selected} />
                 </div>
@@ -6316,21 +6484,35 @@ function KiosksPage({ token }) {
                   >
                     <AppIcon name="restart_alt" /> Reboot
                   </Button>
-                  <Button variant="danger" onClick={() => setPendingAction("shutdown")}>
+                  <Button
+                    variant="danger"
+                    onClick={() => setPendingAction("shutdown")}
+                  >
                     <AppIcon name="power_settings_new" /> Shut down
                   </Button>
                 </div>
                 <div className="kiosk-command-note">
-                  <AppIcon name="info" size={18} /> Reload and restart run in the
-                  browser kiosk. Reboot and shut down require the optional device
-                  agent and will be reported as unsupported until it is installed.
+                  <AppIcon name="info" size={18} /> Reload and restart run in
+                  the browser kiosk. Reboot and shut down require the optional
+                  device agent and will be reported as unsupported until it is
+                  installed.
                 </div>
                 {details.commands?.length > 0 && (
                   <details className="kiosk-command-history">
-                    <summary>Recent commands <span>{details.commands.length}</span></summary>
+                    <summary>
+                      Recent commands <span>{details.commands.length}</span>
+                    </summary>
                     {details.commands.map((command) => (
                       <div key={command.id}>
-                        <span>{({ RELOAD: "Reload dispenser", RESTART_BROWSER: "Restart browser", REBOOT: "Reboot device", SHUTDOWN: "Shut down device" })[command.command] || command.command.replace(/_/g, " ")}</span>
+                        <span>
+                          {{
+                            RELOAD: "Reload dispenser",
+                            RESTART_BROWSER: "Restart browser",
+                            REBOOT: "Reboot device",
+                            SHUTDOWN: "Shut down device",
+                          }[command.command] ||
+                            command.command.replace(/_/g, " ")}
+                        </span>
                         <Status
                           tone={
                             command.status === "COMPLETED"
@@ -7576,7 +7758,8 @@ function Kiosk() {
                       {supportsGoogleSignIn && googleSignIn}
                       {c.type === "SCHOOLOGY" && (
                         <p className="credential-sign-in-help">
-                          Sign in with your username (ID number) or institutional email.
+                          Sign in with your username (ID number) or
+                          institutional email.
                         </p>
                       )}
                       {meta.website && (
@@ -8091,9 +8274,10 @@ function TransactionsPage({ token }) {
   const periodQuery = periodId
     ? `academicPeriodId=${encodeURIComponent(periodId)}`
     : "";
-  const { observe: observeTransactions, isNew: isNewTransaction } = useNewRowHighlights(
-    JSON.stringify([token, page, limit, periodId, appliedSearch]),
-  );
+  const { observe: observeTransactions, isNew: isNewTransaction } =
+    useNewRowHighlights(
+      JSON.stringify([token, page, limit, periodId, appliedSearch]),
+    );
   useEffect(() => {
     const term = search.trim().replace(/\s+/g, " ");
     if (term === appliedSearch) return;
@@ -8323,13 +8507,16 @@ function TransactionsPage({ token }) {
               </thead>
               <tbody>
                 {transactions.map((item) => (
-                  <tr key={item.id} className={isNewTransaction(item.id) ? "live-row-new" : undefined}>
+                  <tr
+                    key={item.id}
+                    className={
+                      isNewTransaction(item.id) ? "live-row-new" : undefined
+                    }
+                  >
                     <td>
                       {item.student_id ? (
                         <span className="student-cell">
-                          <b>
-                            {studentFullName(item)}
-                          </b>
+                          <b>{studentFullName(item)}</b>
                           <small>
                             {[item.student_id, item.course_code]
                               .filter(Boolean)
@@ -9278,18 +9465,16 @@ function PasswordResetRequestsPage({ token }) {
                 {visibleRequests.map((item) => (
                   <tr
                     key={item.id}
-                    className={
-                      [
-                        item.status === "PENDING" ? "request-row-pending" : "",
-                        isNewRequest(item.id) ? "live-row-new" : "",
-                      ].filter(Boolean).join(" ")
-                    }
+                    className={[
+                      item.status === "PENDING" ? "request-row-pending" : "",
+                      isNewRequest(item.id) ? "live-row-new" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   >
                     <td>
                       <span className="student-cell">
-                        <b>
-                          {studentFullName(item)}
-                        </b>
+                        <b>{studentFullName(item)}</b>
                         <small>
                           {item.school_id} · {item.course_code}
                         </small>
@@ -9479,8 +9664,7 @@ function PasswordResetRequestsPage({ token }) {
                       : `${selected.credential_type} account`}
                   </h2>
                   <p>
-                    {studentFullName(selected)}{" "}
-                    · {selected.school_id}
+                    {studentFullName(selected)} · {selected.school_id}
                   </p>
                 </div>
                 <button
@@ -10650,9 +10834,7 @@ function VouchersPage({ token }) {
                   <td>
                     {row.student_id ? (
                       <span className="student-cell">
-                        <b>
-                          {studentFullName(row)}
-                        </b>
+                        <b>{studentFullName(row)}</b>
                         <small>{row.student_id}</small>
                       </span>
                     ) : (
@@ -11110,9 +11292,7 @@ function StudentsPage({ token }) {
                 <tr key={student.id}>
                   <td>
                     <span className="student-cell">
-                      <b>
-                        {studentFullName(student)}
-                      </b>
+                      <b>{studentFullName(student)}</b>
                       <small>
                         School ID: {student.student_id}
                         {student.kumosoft_id &&

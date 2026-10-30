@@ -60,7 +60,10 @@ test("request search covers all displayed fields, dates, statuses and administra
   const [{ sql, values }] = calls;
   assert.equal(res.body[0].kiosk_location, "ICT/MIS Office");
   assert.match(sql, /LEFT JOIN kiosks k ON k\.kiosk_code=pr\.kiosk_code/);
-  assert.match(sql, /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/);
+  assert.match(
+    sql,
+    /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/,
+  );
   const where = sql.slice(sql.indexOf("WHERE "));
   assert.match(where, /s\.student_id LIKE \?/);
   assert.match(

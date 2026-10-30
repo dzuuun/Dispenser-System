@@ -21,8 +21,12 @@ function setup() {
     clearTimeout: (id) => timers.delete(id),
   });
   return {
-    tracker, timers, changes,
-    get ids() { return changes.at(-1) || []; },
+    tracker,
+    timers,
+    changes,
+    get ids() {
+      return changes.at(-1) || [];
+    },
     advance(ms) {
       const end = time + ms;
       while (true) {
@@ -128,7 +132,13 @@ test("numeric and string representations of the same ID are not new entries", ()
 test("missing and malformed IDs do not create highlights or break refreshing", () => {
   const store = setup();
   store.tracker.update(rows(10));
-  store.tracker.update([null, {}, { id: "not-an-id" }, { id: -1 }, { id: 1.5 }]);
+  store.tracker.update([
+    null,
+    {},
+    { id: "not-an-id" },
+    { id: -1 },
+    { id: 1.5 },
+  ]);
   assert.deepEqual(store.ids, []);
   store.tracker.update(rows(11));
   assert.deepEqual(store.ids, ["11"]);
