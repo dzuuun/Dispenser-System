@@ -7,6 +7,7 @@ import {
   exportStudentAccounts,
   listStudents,
 } from "../controllers/student-admin.controller.js";
+import { encryptPassword } from "../services/encryption.service.js";
 
 after(() => pool.end());
 
@@ -14,22 +15,39 @@ async function setup(
   t,
   { count = 1031, noCurrent = false, fail = false } = {},
 ) {
-  const rows = Array.from({ length: count }, (_, index) => ({
-    id: index + 1,
-    student_id: `00${index + 123}`,
-    kumosoft_id: index ? null : "K-0001",
-    first_name: index === 1 ? "=SUM(1,2)" : "Test",
-    middle_name: null,
-    last_name: index === 1 ? "" : "Student",
-    is_active: index % 2 ? 0 : 1,
-    course_code: "BSIT",
-    course_name: "Information Technology",
-    email_account_active: index ? null : 1,
-    email_address: index ? null : "student@example.edu",
-    kumosoft_account_active: index ? null : 0,
-    schoology_account_active: null,
-    satp_account_active: index ? null : 1,
-  }));
+  const rows = Array.from({ length: count }, (_, index) => {
+    const row = {
+      id: index + 1,
+      student_id: `00${index + 123}`,
+      kumosoft_id: index ? null : "K-0001",
+      first_name: index === 1 ? "=SUM(1,2)" : "Test",
+      middle_name: null,
+      last_name: index === 1 ? "" : "Student",
+      is_active: index % 2 ? 0 : 1,
+      course_code: "BSIT",
+      course_name: "Information Technology",
+      email_address: index ? null : "student@example.edu",
+    };
+    for (const [alias, password] of Object.entries(
+      index
+        ? {}
+        : {
+            email_account: "Email password",
+            kumosoft_account: "Kumosoft password",
+            satp_account: "SATP password",
+          },
+    ))
+      Object.assign(
+        row,
+        Object.fromEntries(
+          Object.entries(encryptPassword(password)).map(([key, value]) => [
+            `${alias}_${key}`,
+            value,
+          ]),
+        ),
+      );
+    return row;
+  });
   const calls = [];
   const query = async (sql, values = []) => {
     calls.push({ sql, values });
@@ -78,9 +96,10 @@ const headers = [
   "Course name",
   "Student status",
   "Email",
-  "Kumosoft",
-  "Schoology",
-  "SATP",
+  "Email password",
+  "Kumosoft password",
+  "Schoology password",
+  "SATP password",
 ];
 
 test("student workbook names omit dash middle names and preserve real hyphenated names", async (t) => {
@@ -129,9 +148,10 @@ test("student workbook exports email addresses and other account links while pre
     "Information Technology",
     "Active",
     "student@example.edu",
-    "Yes",
-    "No",
-    "Yes",
+    "Email password",
+    "Kumosoft password",
+    "",
+    "SATP password",
   ]);
   assert.equal(sheet.getRow(2).getCell(1).type, ExcelJS.ValueType.String);
   assert.deepEqual(sheet.getRow(3).values.slice(1), [
@@ -141,10 +161,11 @@ test("student workbook exports email addresses and other account links while pre
     "BSIT",
     "Information Technology",
     "Inactive",
-    "No",
-    "No",
-    "No",
-    "No",
+    "",
+    "",
+    "",
+    "",
+    "",
   ]);
   assert.equal(sheet.getRow(3).getCell(3).type, ExcelJS.ValueType.String);
   assert.equal(
@@ -153,20 +174,25 @@ test("student workbook exports email addresses and other account links while pre
   );
   assert.equal(sheet.views[0].state, "frozen");
   assert.equal(sheet.views[0].ySplit, 1);
-  assert.equal(sheet.autoFilter, "A1:J1");
+  assert.equal(sheet.autoFilter, "A1:K1");
   const exported = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
   assert.deepEqual(exported.values, [7]);
   assert.match(exported.sql, /email_account\.email_address AS email_address/);
-  assert.doesNotMatch(
-    exported.sql,
-    /LIMIT|OFFSET|encrypted_password|password_iv|password_auth_tag|birth_date/i,
-  );
+  assert.match(exported.sql, /email_account\.encrypted_password AS email_account_encrypted_password/);
+  assert.doesNotMatch(exported.sql, /LIMIT|OFFSET|birth_date/i);
 });
 
-test("Email export retains inactive account addresses and shows No for students without email", async (t) => {
+test("Email export retains inactive account addresses and their passwords", async (t) => {
   const { rows, get } = await setup(t, { count: 3 });
-  rows[1].email_account_active = 0;
   rows[1].email_address = "inactive@example.edu";
+  Object.assign(
+    rows[1],
+    Object.fromEntries(
+      Object.entries(encryptPassword("Inactive email password")).map(
+        ([key, value]) => [`email_account_${key}`, value],
+      ),
+    ),
+  );
   const response = await get("/students/export");
   assert.equal(response.status, 200);
   const workbook = new ExcelJS.Workbook();
@@ -174,7 +200,11 @@ test("Email export retains inactive account addresses and shows No for students 
   const sheet = workbook.worksheets[0];
   assert.deepEqual(
     [2, 3, 4].map((row) => sheet.getRow(row).getCell(7).text),
-    ["student@example.edu", "inactive@example.edu", "No"],
+    ["student@example.edu", "inactive@example.edu", ""],
+  );
+  assert.deepEqual(
+    [2, 3, 4].map((row) => sheet.getRow(row).getCell(8).text),
+    ["Email password", "Inactive email password", ""],
   );
   assert.ok(sheet.getColumn(7).width >= 30);
 });
@@ -188,7 +218,11 @@ test("export and table share search, missing account, status, academic period an
   const [listing, exported] = calls.filter(({ sql }) =>
     sql.startsWith("SELECT s.id"),
   );
-  assert.equal(listing.sql.replace(" LIMIT ? OFFSET ?", ""), exported.sql);
+  assert.equal(
+    listing.sql.slice(listing.sql.indexOf("FROM students"))
+      .replace(" LIMIT ? OFFSET ?", ""),
+    exported.sql.slice(exported.sql.indexOf("FROM students")),
+  );
   assert.deepEqual(listing.values.slice(0, -2), exported.values);
   assert.deepEqual(exported.values, [7, ...Array(11).fill("%BSIT%")]);
   assert.match(exported.sql, /AND s\.is_active=0/);

@@ -170,7 +170,15 @@ export async function exportStudentAccounts(req, res) {
   const period = await requireCurrentAcademicPeriod();
   // Use the table's filters and ordering, but export every matching student.
   const [students] = await pool.execute(
-    `${studentListSelect} ${where} ORDER BY ${orderBy} ${direction}`,
+    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.is_active, c.code course_code, c.name course_name,
+      email_account.email_address AS email_address,
+      ${studentAccountTypes
+        .map(
+          ({ alias }) =>
+            `${alias}.encrypted_password AS ${alias}_encrypted_password, ${alias}.password_iv AS ${alias}_password_iv, ${alias}.password_auth_tag AS ${alias}_password_auth_tag`,
+        )
+        .join(", ")}
+     FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins} ${where} ORDER BY ${orderBy} ${direction}`,
     [period.id, ...values],
   );
   const workbook = new ExcelJS.Workbook();
@@ -182,13 +190,32 @@ export async function exportStudentAccounts(req, res) {
     { header: "Course code", key: "courseCode", width: 18 },
     { header: "Course name", key: "courseName", width: 55 },
     { header: "Student status", key: "status", width: 18 },
-    ...studentAccountTypes.map(({ type, label }) => ({
-      header: label,
-      key: type,
-      width: type === "EMAIL" ? 38 : 16,
-    })),
+    { header: "Email", key: "EMAIL", width: 38 },
+    { header: "Email password", key: "EMAIL_PASSWORD", width: 28 },
+    ...studentAccountTypes
+      .filter(({ type }) => type !== "EMAIL")
+      .map(({ type, label }) => ({
+        header: `${label} password`,
+        key: type,
+        width: 28,
+      })),
   ];
-  for (const student of students)
+  const accountPassword = (student, alias) => {
+    const encrypted_password = student[`${alias}_encrypted_password`];
+    if (!encrypted_password) return "";
+    return decryptPassword({
+      encrypted_password,
+      password_iv: student[`${alias}_password_iv`],
+      password_auth_tag: student[`${alias}_password_auth_tag`],
+    });
+  };
+  for (const student of students) {
+    const passwords = Object.fromEntries(
+      studentAccountTypes.map(({ type, alias }) => [
+        type,
+        accountPassword(student, alias),
+      ]),
+    );
     sheet.addRow({
       schoolId: String(student.student_id ?? ""),
       kumosoftId: String(student.kumosoft_id ?? ""),
@@ -196,20 +223,16 @@ export async function exportStudentAccounts(req, res) {
       courseCode: student.course_code || "",
       courseName: student.course_name || "",
       status: student.is_active ? "Active" : "Inactive",
-      ...Object.fromEntries(
-        studentAccountTypes.map(({ type, alias }) => [
-          type,
-          type === "EMAIL"
-            ? student.email_address || "No"
-            : student[`${alias}_active`] != null
-              ? "Yes"
-              : "No",
-        ]),
-      ),
+      EMAIL: student.email_address || "",
+      EMAIL_PASSWORD: passwords.EMAIL,
+      KUMOSOFT: passwords.KUMOSOFT,
+      SCHOOLOGY: passwords.SCHOOLOGY,
+      SATP: passwords.SATP,
     });
+  }
   sheet.getRow(1).font = { bold: true };
   sheet.views = [{ state: "frozen", ySplit: 1 }];
-  sheet.autoFilter = { from: "A1", to: "J1" };
+  sheet.autoFilter = { from: "A1", to: "K1" };
   const label = `${period.school_year}-${period.semester}`.replace(
     /[^a-zA-Z0-9-]+/g,
     "-",
