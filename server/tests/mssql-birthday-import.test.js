@@ -274,6 +274,46 @@ test("enabling birthday updates uses source birthdays in preview and import", as
   );
 });
 
+test("only selected existing birthdays change while other student updates proceed", async (t) => {
+  const store = setup(t);
+  matchExistingStudents(store);
+  store.students[1].birth_date = "2001-01-01";
+  store.students[1].first_name = "Old name";
+  const result = await store.invoke(importMssqlStudents, {
+    body: {
+      updateExistingBirthdays: true,
+      selectedBirthdays: [{ schoolId: "OLD", before: "2005-02-03", after: "1999-01-01" }],
+    },
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(store.students[0].birth_date, "1999-01-01");
+  assert.equal(store.students[1].birth_date, "2001-01-01");
+  assert.equal(store.students[1].first_name, "New");
+});
+
+test("an empty birthday selection preserves existing birthdays", async (t) => {
+  const store = setup(t);
+  const result = await store.invoke(importMssqlStudents, {
+    body: { updateExistingBirthdays: true, selectedBirthdays: [] },
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(store.students.find((s) => s.student_id === "OLD").birth_date, "2005-02-03");
+  assert.equal(store.students.find((s) => s.student_id === "NEW").birth_date, "2006-04-05");
+});
+
+test("changed or invalid birthday selections cannot be imported", async (t) => {
+  const store = setup(t);
+  const before = structuredClone(store.students);
+  const stale = await store.invoke(importMssqlStudents, {
+    body: { updateExistingBirthdays: true, selectedBirthdays: [{ schoolId: "OLD", before: "2000-01-01", after: "1999-01-01" }] },
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.deepEqual(store.students, before);
+  await assert.rejects(store.invoke(importMssqlStudents, {
+    body: { updateExistingBirthdays: true, selectedBirthdays: ["OLD"] },
+  }), { status: 400 });
+});
+
 for (const oldBirthday of ["", "bad-date"]) {
   test(`preservation ignores an existing student's unusable MSSQL birthday: ${JSON.stringify(oldBirthday)}`, async (t) => {
     const store = setup(t, { oldBirthday });

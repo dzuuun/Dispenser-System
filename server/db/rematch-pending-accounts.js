@@ -23,7 +23,7 @@ try {
             p.encrypted_password, p.password_iv, p.password_auth_tag,
             s.id AS student_id
        FROM pending_account_imports p
-       LEFT JOIN students s ON s.student_id=p.school_id
+       LEFT JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
       ORDER BY p.id${apply ? " FOR UPDATE" : ""}`,
   );
   const counts = { linked: 0, ready: 0, unmatched: 0, existing: 0, conflict: 0, invalid: 0 };

@@ -214,6 +214,18 @@ test("student rows report linked accounts including inactive ones without fetchi
   assert.equal(drawResult.draw, 2);
 });
 
+test("student list returns the student's recorded academic period, including when inactive", async (t) => {
+  const { calls, get } = setup(t, [
+    { id: 21, is_active: 0, recorded_academic_period: "2024-2025 · First semester" },
+    { id: 22, is_active: 0, recorded_academic_period: null },
+  ]);
+  const result = await get("");
+  assert.equal(result.rows[0].recorded_academic_period, "2024-2025 · First semester");
+  assert.equal(result.rows[1].recorded_academic_period, null);
+  const listing = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
+  assert.match(listing.sql, /ap\.id=s\.academic_period_id\) AS recorded_academic_period/);
+});
+
 test("search values are normalized and escaped separately from application-owned SQL", () => {
   const search = tableSearch("  A_%!   ' OR 1=1  ", ["s.student_id", "c.code"]);
   assert.equal(search.term, "A_%! ' OR 1=1");

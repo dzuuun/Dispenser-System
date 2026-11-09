@@ -4709,6 +4709,12 @@ function StudentProfileModal({ record, onClose, onEdit }) {
                   {student.current_period_active ? "Active" : "Inactive"}
                 </Status>
               </dd>
+              {!student.current_period_active && (
+                <>
+                  <dt>Last recorded period</dt>
+                  <dd>{student.recorded_academic_period || "Not recorded"}</dd>
+                </>
+              )}
             </dl>
             <div className="voucher-card">
               <span>WiFi voucher</span>
@@ -5062,6 +5068,8 @@ function ImportValidationGroups({
   onLoadMore,
   busy,
   loadingGroup,
+  birthdaySelections,
+  onBirthdaySelection,
 }) {
   return (
     <div className="mssql-validation-groups">
@@ -5113,6 +5121,17 @@ function ImportValidationGroups({
                     ) : (
                       (row.label || row.schoolId) &&
                       row.message && <em>{row.message}</em>
+                    )}
+                    {onBirthdaySelection && row.schoolId && row.changes?.some((change) => change.field === "Birthday") && (
+                      <label className="import-birthday-selection">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(birthdaySelections?.[row.schoolId])}
+                          disabled={busy}
+                          onChange={(event) => onBirthdaySelection(row, event.target.checked)}
+                        />
+                        Update this birthday
+                      </label>
                     )}
                   </article>
                 ))}
@@ -5486,6 +5505,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
     [loadingGroup, setLoadingGroup] = useState(""),
     [confirmDeactivation, setConfirmDeactivation] = useState(false),
     [updateExistingBirthdays, setUpdateExistingBirthdays] = useState(false),
+    [birthdaySelections, setBirthdaySelections] = useState({}),
     [error, setError] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
   useEffect(() => {
@@ -5513,6 +5533,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
         `/admin/imports/mssql-students/preview?${params}`,
         { headers },
       );
+      if (!category) setBirthdaySelections({});
       setPreview((current) =>
         !category
           ? data
@@ -5550,6 +5571,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
         body: JSON.stringify({
           confirmDeactivation,
           updateExistingBirthdays,
+          selectedBirthdays: Object.values(birthdaySelections),
         }),
       });
       onComplete(result.message);
@@ -5563,10 +5585,10 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
   const birthdayToggle = (
     <label className="status-toggle mssql-birthday-toggle">
       <span>
-        <b>Update existing birthdays</b>
+        <b>Review birthday changes</b>
         <small>
           {updateExistingBirthdays
-            ? "Overwrite saved birthdays with SQL Server values."
+            ? "Choose individual birthdays to update in the preview."
             : "Keep birthdays already saved in this system."}{" "}
           New students always use the SQL Server birthday.
         </small>
@@ -5682,8 +5704,16 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 Review all detected rows before updating enrollment records.
                 Each list initially shows up to 250 rows; loading more rows is
                 optional and does not affect the import. Changed fields show
-                saved → imported values.
+                saved → imported values. Only selected birthday changes will be applied.
               </p>
+              {updateExistingBirthdays && (
+                <p className="mssql-validation-copy" role="status">
+                  {Object.keys(birthdaySelections).length} birthday change(s) selected.
+                </p>
+              )}
+              <Button variant="secondary" disabled={busy} onClick={() => loadPreview()}>
+                Refresh preview
+              </Button>
               <ImportValidationGroups
                 groups={preview.groups}
                 sections={[
@@ -5719,6 +5749,16 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 onLoadMore={loadPreview}
                 busy={busy || !previewIsCurrent}
                 loadingGroup={loadingGroup}
+                birthdaySelections={birthdaySelections}
+                onBirthdaySelection={updateExistingBirthdays ? (row, checked) => {
+                  const change = row.changes.find((item) => item.field === "Birthday");
+                  setBirthdaySelections((current) => {
+                    const next = { ...current };
+                    if (checked) next[row.schoolId] = { schoolId: row.schoolId, before: change.before || "", after: change.after || "" };
+                    else delete next[row.schoolId];
+                    return next;
+                  });
+                } : undefined}
               />
               <p className="mssql-sync-warning">
                 <b>{preview.deactivate}</b> currently active student
@@ -11341,6 +11381,11 @@ function StudentsPage({ token }) {
                     <Status tone={student.is_active ? "green" : "danger"}>
                       {student.is_active ? "Active" : "Inactive"}
                     </Status>
+                    {!student.is_active && (
+                      <small>
+                        Last recorded: {student.recorded_academic_period || "Not recorded"}
+                      </small>
+                    )}
                   </td>
                   <td>
                     <span className="row-actions">

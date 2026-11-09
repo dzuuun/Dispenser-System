@@ -44,6 +44,7 @@ const studentAccountJoins = studentAccountTypes
   )
   .join(" ");
 const studentActive = "(s.is_active=1 AND COALESCE(s.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1), 0))";
+const recordedPeriod = "(SELECT CONCAT_WS(' · ', ap.school_year, ap.semester) FROM academic_periods ap WHERE ap.id=s.academic_period_id)";
 
 function studentListQuery(query) {
   const missingAccount = query.missingAccount ?? "";
@@ -101,7 +102,7 @@ function studentListQuery(query) {
   return { search, where, values, orderBy, direction };
 }
 
-const studentListSelect = `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, ${studentActive} AS is_active, c.code course_code, c.name course_name,
+const studentListSelect = `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, ${studentActive} AS is_active, ${recordedPeriod} AS recorded_academic_period, c.code course_code, c.name course_name,
       email_account.email_address AS email_address,
       ${studentAccountTypes.map(({ alias }) => `${alias}.is_active AS ${alias}_active`).join(", ")}
      FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins}`;
@@ -251,7 +252,7 @@ export async function getStudent(req, res) {
   if (!Number.isInteger(id) || id < 1)
     return res.status(400).json({ message: "Invalid student record." });
   const [[student]] = await pool.execute(
-    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.birth_date, s.year_level, s.is_active, ${studentActive} AS current_period_active, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=?`,
+    `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.birth_date, s.year_level, s.is_active, ${studentActive} AS current_period_active, ${recordedPeriod} AS recorded_academic_period, c.code course_code, c.name course_name FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=?`,
     [id],
   );
   if (!student)

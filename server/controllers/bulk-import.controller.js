@@ -108,13 +108,13 @@ export async function attachPendingAccounts(connection) {
     await connection.query(
       `INSERT INTO ${config.table} (student_id, ${config.column}, encrypted_password, password_iv, password_auth_tag, is_active)
        SELECT s.id, p.account_name, p.encrypted_password, p.password_iv, p.password_auth_tag, 1
-         FROM pending_account_imports p JOIN students s ON s.student_id=p.school_id
+         FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
         WHERE p.account_type=?
        ON DUPLICATE KEY UPDATE ${config.column}=VALUES(${config.column}), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag), is_active=1`,
       [type],
     );
     await connection.query(
-      "DELETE p FROM pending_account_imports p JOIN students s ON s.student_id=p.school_id WHERE p.account_type=?",
+      "DELETE p FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci WHERE p.account_type=?",
       [type],
     );
   }
@@ -317,6 +317,7 @@ export async function reviewStudentRows(
   executor = pool,
   {
     updateExistingBirthdays = true,
+    birthdayStudentIds,
     detectUnchanged = false,
     academicPeriodId,
     academicPeriodLabel,
@@ -368,8 +369,10 @@ export async function reviewStudentRows(
     const firstName = rowValue(row, "FirstName", "GivenName");
     const middleName = rowValue(row, "MiddleName", "MiddleInitial");
     const lastName = rowValue(row, "LastName", "Surname");
+    const updateBirthday = updateExistingBirthdays &&
+      (!birthdayStudentIds || birthdayStudentIds.has(schoolId));
     const birthDate =
-      !updateExistingBirthdays && existing.has(schoolId)
+      !updateBirthday && existing.has(schoolId)
         ? existingBirthdays.get(schoolId)
         : rowValue(row, "BirthDate", "Birthday", "DateOfBirth");
     const courseCode = rowValue(row, "CourseCode", "Course").toUpperCase();
@@ -434,7 +437,7 @@ export async function reviewStudentRows(
               current.kumosoft_id,
               kumosoftId || current.kumosoft_id,
             ),
-            updateExistingBirthdays &&
+            updateBirthday &&
               importChange(
                 "Birthday",
                 existingBirthdays.get(schoolId),
@@ -475,6 +478,7 @@ export async function reviewStudentRows(
       status: current ? (unchanged ? "unchanged" : "update") : "new",
       id: existing.get(schoolId),
       changes,
+      updateBirthday,
     });
   });
   return { items, errors };
@@ -933,16 +937,22 @@ async function review(type, file, executor = pool) {
 export async function upsertStudentRows(
   items,
   connection,
-  { updateExistingBirthdays = true } = {},
+  { updateExistingBirthdays = true, birthdayStudentIds } = {},
 ) {
   const period = await requireCurrentAcademicPeriod(connection);
   items = items.filter((item) => item.status !== "unchanged");
-  for (
+  const batches = birthdayStudentIds
+    ? [items.filter((item) => birthdayStudentIds.has(item.schoolId)), items.filter((item) => !birthdayStudentIds.has(item.schoolId))]
+    : [items];
+  for (const group of batches) for (
     let start = 0;
-    start < items.length;
+    start < group.length;
     start += STUDENT_IMPORT_BATCH_SIZE
   ) {
-    const batch = items.slice(start, start + STUDENT_IMPORT_BATCH_SIZE);
+    const batch = group.slice(start, start + STUDENT_IMPORT_BATCH_SIZE);
+    const updateBatchBirthdays = birthdayStudentIds
+      ? birthdayStudentIds.has(batch[0].schoolId)
+      : updateExistingBirthdays;
     const values = [];
     const placeholders = batch.map((item) => {
       values.push(
@@ -960,7 +970,7 @@ export async function upsertStudentRows(
     await connection.query(
       `INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, academic_period_id, is_active)
        VALUES ${placeholders.join(", ")}
-       ON DUPLICATE KEY UPDATE kumosoft_id=COALESCE(VALUES(kumosoft_id), kumosoft_id), first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), ${updateExistingBirthdays ? "birth_date=VALUES(birth_date), " : ""}course_id=VALUES(course_id), academic_period_id=VALUES(academic_period_id), is_active=1`,
+       ON DUPLICATE KEY UPDATE kumosoft_id=COALESCE(VALUES(kumosoft_id), kumosoft_id), first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), ${updateBatchBirthdays ? "birth_date=VALUES(birth_date), " : ""}course_id=VALUES(course_id), academic_period_id=VALUES(academic_period_id), is_active=1`,
       values,
     );
   }

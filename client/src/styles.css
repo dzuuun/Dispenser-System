@@ -8523,6 +8523,17 @@ body,
   overflow-wrap: anywhere;
   font-size: 0.73rem;
 }
+
+.mssql-validation-rows .import-birthday-selection {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #075c3b;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
 .import-field-changes li {
   display: grid;
   gap: 2px;
