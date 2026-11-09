@@ -74,7 +74,7 @@ export async function listPasswordResetRequests(req, res) {
             pr.requested_at, pr.resolved_at,
             COALESCE(NULLIF(TRIM(k.location), ''), 'Unassigned') AS kiosk_location,
             reviewer.full_name reviewing_by_name, review.expires_at reviewing_until,
-            s.student_id school_id, s.first_name, s.middle_name, s.last_name,
+            s.student_id school_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name,
             c.code course_code, au.full_name resolved_by_name,
             CASE pr.credential_type
               WHEN 'SATP' THEN satp.username
@@ -236,7 +236,7 @@ export async function completePasswordResetRequest(req, res) {
       );
       if (!account) {
         const [[student]] = await connection.execute(
-          "SELECT student_id FROM students WHERE id=? AND is_active=1",
+          "SELECT student_id, kumosoft_id FROM students WHERE id=? AND is_active=1",
           [request.student_id],
         );
         if (!student) {
@@ -251,7 +251,10 @@ export async function completePasswordResetRequest(req, res) {
         const login =
           request.credential_type === "EMAIL"
             ? emailAddress
-            : student.student_id;
+            : request.credential_type === "KUMOSOFT" &&
+                student.kumosoft_id?.trim()
+              ? student.kumosoft_id.trim()
+              : student.student_id;
         await connection.execute(
           `INSERT INTO ${accountTables[request.credential_type]}
              (student_id, ${loginColumn}, encrypted_password, password_iv, password_auth_tag, is_active)

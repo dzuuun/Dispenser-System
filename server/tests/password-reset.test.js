@@ -59,6 +59,17 @@ function setup(t, options = {}) {
             ? []
             : [{ id: 10, is_active: options.inactive ? 0 : 1 }],
         ];
+      if (sql === `SELECT id FROM ${expectedTable} WHERE student_id=? FOR UPDATE`)
+        return [[]];
+      if (
+        sql ===
+        "SELECT student_id, kumosoft_id FROM students WHERE id=? AND is_active=1"
+      )
+        return [[{ student_id: "2026001", kumosoft_id: options.kumosoftId }]];
+      if (sql.startsWith(`INSERT INTO ${expectedTable}`)) {
+        assert.equal(values[1], options.expectedLogin);
+        return [{ affectedRows: 1 }];
+      }
       if (sql.startsWith(`UPDATE ${expectedTable} SET encrypted_password=`)) {
         assert.equal(values[3], 10);
         staged.account = {
@@ -164,6 +175,24 @@ for (const type of ["EMAIL", "KUMOSOFT", "SCHOOLOGY"]) {
       assert.equal(stored.completed, false);
     });
   }
+}
+
+for (const [kumosoftId, expectedLogin] of [
+  ["K-001", "K-001"],
+  ["", "2026001"],
+]) {
+  test(`Kumosoft account creation uses ${kumosoftId || "the student ID when no Kumosoft ID exists"} as the username`, async (t) => {
+    const { req, res, stored } = setup(t, {
+      type: "KUMOSOFT",
+      kind: "ACCOUNT_CREATION",
+      kumosoftId,
+      expectedLogin,
+    });
+    req.body = { reviewToken, password: "New test password" };
+    await completePasswordResetRequest(req, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(stored.completed, true);
+  });
 }
 
 for (const options of [

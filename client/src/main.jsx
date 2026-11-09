@@ -9707,9 +9707,20 @@ function PasswordResetRequestsPage({ token }) {
                     ) : (
                       <RequestValueField
                         label="Username"
-                        value={selected.school_id}
+                        value={
+                          selected.credential_type === "KUMOSOFT" &&
+                          selected.kumosoft_id?.trim()
+                            ? selected.kumosoft_id.trim()
+                            : selected.school_id
+                        }
                         onCopy={() =>
-                          copyRequestValue(selected.school_id, "Username")
+                          copyRequestValue(
+                            selected.credential_type === "KUMOSOFT" &&
+                              selected.kumosoft_id?.trim()
+                              ? selected.kumosoft_id.trim()
+                              : selected.school_id,
+                            "Username",
+                          )
                         }
                       />
                     )}

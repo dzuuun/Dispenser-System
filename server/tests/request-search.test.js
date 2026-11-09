@@ -60,6 +60,7 @@ test("request search covers all displayed fields, dates, statuses and administra
   const [{ sql, values }] = calls;
   assert.equal(res.body[0].kiosk_location, "ICT/MIS Office");
   assert.match(sql, /LEFT JOIN kiosks k ON k\.kiosk_code=pr\.kiosk_code/);
+  assert.match(sql, /s\.student_id school_id, s\.kumosoft_id,/);
   assert.match(
     sql,
     /COALESCE\(NULLIF\(TRIM\(k\.location\), ''\), 'Unassigned'\) AS kiosk_location/,
