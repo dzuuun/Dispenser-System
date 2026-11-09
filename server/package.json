@@ -32,6 +32,7 @@
     "rebuild-db": "set ALLOW_DB_REBUILD=true&& node db/rebuild-development.js"
   },
   "dependencies": {
+    "@e965/xlsx": "0.20.3",
     "bcrypt": "6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

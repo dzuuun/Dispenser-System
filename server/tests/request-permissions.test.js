@@ -346,6 +346,7 @@ test("Request Staff cannot use stale Super Admin tokens to manage users or other
     "/admin/transactions/export?academicPeriodId=3",
   ])
     assert.equal((await send(path)).status, 403);
+  assert.equal((await send("/admin/students/match-accounts", "POST")).status, 403);
   assert.equal(
     (
       await send("/admin/admin-users/2", "PATCH", {

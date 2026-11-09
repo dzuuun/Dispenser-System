@@ -102,21 +102,26 @@ const pendingAccountTable = `CREATE TABLE IF NOT EXISTS pending_account_imports 
   UNIQUE KEY pending_account_identity (account_type, school_id)
 )`;
 
-export async function attachPendingAccounts(connection) {
-  for (const [type, config] of Object.entries(TYPES)) {
+export async function attachPendingAccounts(connection, schoolIds) {
+  const ids = [...new Set(schoolIds.filter(Boolean))];
+  for (let start = 0; start < ids.length; start += STUDENT_IMPORT_BATCH_SIZE) {
+    const batch = ids.slice(start, start + STUDENT_IMPORT_BATCH_SIZE);
+    const placeholders = batch.map(() => "?").join(", ");
+    for (const [type, config] of Object.entries(TYPES)) {
     if (!config.table || !config.column) continue;
     await connection.query(
       `INSERT INTO ${config.table} (student_id, ${config.column}, encrypted_password, password_iv, password_auth_tag, is_active)
        SELECT s.id, p.account_name, p.encrypted_password, p.password_iv, p.password_auth_tag, 1
          FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
-        WHERE p.account_type=?
+        WHERE p.account_type=? AND p.school_id IN (${placeholders})${type === "email" ? " AND p.account_name REGEXP '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'" : ""}
        ON DUPLICATE KEY UPDATE ${config.column}=VALUES(${config.column}), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag), is_active=1`,
-      [type],
+      [type, ...batch],
     );
     await connection.query(
-      "DELETE p FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci WHERE p.account_type=?",
-      [type],
+      `DELETE p FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci WHERE p.account_type=? AND p.school_id IN (${placeholders})${type === "email" ? " AND p.account_name REGEXP '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'" : ""}`,
+      [type, ...batch],
     );
+    }
   }
 }
 
@@ -153,6 +158,25 @@ const rowPassword = (row, column) => {
   );
   const value = key === undefined ? "" : String(row[key] ?? "");
   return value.trim() ? value : null;
+};
+
+const isNotFound = (value) => String(value ?? "").trim().toLowerCase() === "not found";
+const studentBirthday = (value) => {
+  const text = String(value ?? "").trim();
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(text);
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (!iso && !us) return "";
+  const year = Number(iso ? iso[1] : us[3]);
+  const month = Number(iso ? iso[2] : us[1]);
+  const day = Number(iso ? iso[3] : us[2]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year < 1000 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
+const emailValue = (row) => {
+  const hasAddress = Object.keys(row).some((key) => normalizeColumnName(key) === "emailaddress");
+  return rowValue(row, hasAddress ? "EmailAddress" : "Email");
 };
 
 const safeExportValue = (value) => {
@@ -374,22 +398,26 @@ export async function reviewStudentRows(
     const birthDate =
       !updateBirthday && existing.has(schoolId)
         ? existingBirthdays.get(schoolId)
-        : rowValue(row, "BirthDate", "Birthday", "DateOfBirth");
+        : studentBirthday(rowValue(row, "BirthDate", "Birthday", "DateOfBirth"));
     const courseCode = rowValue(row, "CourseCode", "Course").toUpperCase();
     const year = rowValue(row, "YearLevel", "Year");
     const yearLevel = year ? Number(year) : null;
     const rowNumber = index + 2;
-    if (
-      !schoolId ||
-      !firstName ||
-      !lastName ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(birthDate) ||
-      !courseCode
-    )
+    const missingFields = [
+      !schoolId && "ID",
+      !firstName && "FirstName",
+      !lastName && "LastName",
+      !courseCode && "CourseCode",
+    ].filter(Boolean);
+    if (missingFields.length)
       return errors.push({
         row: rowNumber,
-        message:
-          "SchoolID, FirstName, LastName, BirthDate (YYYY-MM-DD), and CourseCode are required.",
+        message: `Missing required field${missingFields.length === 1 ? "" : "s"}: ${missingFields.join(", ")}.`,
+      });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate))
+      return errors.push({
+        row: rowNumber,
+        message: "Enter a valid Birthday as an Excel date, YYYY-MM-DD, or MM/DD/YYYY.",
       });
     if (!courseMap.has(courseCode))
       return errors.push({
@@ -576,20 +604,33 @@ async function reviewAccounts(rows, config, executor = pool, type) {
     seenKumosoftIds = new Set(),
     seenLogins = new Set(),
     errors = [],
+    skipped = [],
     items = [];
   rows.forEach((row, index) => {
     const schoolId = rowValue(row, "SchoolID", "StudentID", "ID", "EISID");
-    const password = rowValue(
-      row,
-      "Password",
-      "SATPPassword",
-      "SchoologyPassword",
-      "KumosoftPassword",
-      "EmailPassword",
+    const typePassword = {
+      satp: "SATPPassword",
+      schoology: "SchoologyPassword",
+      kumosoft: "KumosoftPassword",
+      email: "EmailPassword",
+    }[type];
+    const hasColumn = (name) => Object.keys(row).some(
+      (column) => normalizeColumnName(column) === normalizeColumnName(name),
     );
-    const emailAddress = rowValue(row, "EmailAddress", "Email").toLowerCase();
+    const password = rowPassword(row, hasColumn(typePassword) ? typePassword : "Password");
+    const emailAddress = rowValue(
+      row,
+      hasColumn("EmailAddress") ? "EmailAddress" : "Email",
+    ).toLowerCase();
     const kumosoftId = rowValue(row, "KumosoftID", "Kumosoft Id");
     const rowNumber = index + 2;
+    if (
+      (type === "schoology" && isNotFound(password)) ||
+      (type === "email" && (isNotFound(password) || isNotFound(emailAddress)))
+    ) {
+      skipped.push({ row: rowNumber, label: schoolId || `Row ${rowNumber}`, message: "Not Found — this account will be skipped." });
+      return;
+    }
     if (!schoolId || (!password && !config.allowEmptyPassword))
       return errors.push({
         row: rowNumber,
@@ -709,7 +750,7 @@ async function reviewAccounts(rows, config, executor = pool, type) {
       changes,
     });
   });
-  return { items, errors };
+  return { items, errors, skipped };
 }
 
 const studentAccountFields = [
@@ -735,9 +776,11 @@ async function reviewStudentAccounts(rows, result, executor) {
     return;
   const requested = (item, field) => {
     const row = rows[item.row - 2];
+    if (isNotFound(rowValue(row, field.password))) return false;
+    if (field.type === "email" && isNotFound(emailValue(row))) return false;
     return (
       rowValue(row, field.password) ||
-      (field.type === "email" && rowValue(row, "EmailAddress", "Email")) ||
+      (field.type === "email" && emailValue(row)) ||
       (field.type === "kumosoft" && item.kumosoftId)
     );
   };
@@ -784,7 +827,7 @@ async function reviewStudentAccounts(rows, result, executor) {
       const login =
         field.type === "email"
           ? (
-              rowValue(row, "EmailAddress", "Email") ||
+              emailValue(row) ||
               account?.account_name ||
               ""
             ).toLowerCase()
@@ -940,6 +983,7 @@ export async function upsertStudentRows(
   { updateExistingBirthdays = true, birthdayStudentIds } = {},
 ) {
   const period = await requireCurrentAcademicPeriod(connection);
+  const schoolIds = items.map((item) => item.schoolId);
   items = items.filter((item) => item.status !== "unchanged");
   const batches = birthdayStudentIds
     ? [items.filter((item) => birthdayStudentIds.has(item.schoolId)), items.filter((item) => !birthdayStudentIds.has(item.schoolId))]
@@ -974,7 +1018,7 @@ export async function upsertStudentRows(
       values,
     );
   }
-  await attachPendingAccounts(connection);
+  await attachPendingAccounts(connection, schoolIds);
   for (const item of items.filter((item) => item.yearLevel != null)) {
     await connection.query(
       "UPDATE students SET year_level=? WHERE student_id=?",
@@ -990,6 +1034,7 @@ export async function validateDataImport(req, res) {
       new: [],
       update: [],
       unchanged: [],
+      skipped: result.skipped || [],
       error: importErrorPreview(result.errors),
     };
     for (const item of result.items) {
@@ -1026,6 +1071,7 @@ export async function validateDataImport(req, res) {
       new: result.new,
       update: result.update,
       unchanged: result.unchanged,
+      skipped: result.skipped?.length || 0,
       invalid: result.errors.length,
       errors: result.errors,
       errorReport: await buildErrorReport(result.rows, result.errors),
@@ -1049,6 +1095,8 @@ export async function importData(req, res) {
     const result = await review(req.params.type, req.file, connection);
     if (!result.items.length) {
       await connection.rollback();
+      if (result.skipped?.length && !result.errors.length)
+        return res.json({ inserted: 0, updated: 0, unchanged: 0, skipped: result.skipped.length, total: result.total, invalid: 0, pending: 0, errors: [] });
       return res.status(400).json({
         message: "No valid rows are available to import.",
         errors: result.errors,
@@ -1132,6 +1180,10 @@ export async function importData(req, res) {
            ON DUPLICATE KEY UPDATE ${config.column}=VALUES(${config.column}), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag), is_active=1`,
             values,
           );
+          await connection.query(
+            "DELETE FROM pending_account_imports WHERE account_type=? AND school_id=?",
+            [req.params.type, item.schoolId],
+          );
           if (config.requiresKumosoftId)
             await Promise.all(
               batch.map((item) =>
@@ -1195,6 +1247,7 @@ export async function importData(req, res) {
         req.params.type === "student-deactivate" ? result.new : undefined,
       updated: result.update,
       unchanged: result.unchanged,
+      skipped: result.skipped?.length || 0,
       total: result.total,
       invalid: result.errors.length,
       pending: config.table

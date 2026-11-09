@@ -20,6 +20,7 @@ import {
   generateStudentVoucher,
   getStudent,
   listStudents,
+  matchStudentAccounts,
   updateStudent,
 } from "../controllers/student-admin.controller.js";
 import {
@@ -109,9 +110,9 @@ const upload = multer({
     fieldSize: 16 * 1024,
   },
   fileFilter: (_req, file, done) => {
-    const supported = /\.(csv|xlsx)$/i.test(file.originalname || "");
+    const supported = /\.(csv|xlsx|xls)$/i.test(file.originalname || "");
     done(
-      supported ? null : new Error("Only CSV and XLSX files are accepted."),
+      supported ? null : Object.assign(new Error("Only CSV, XLS, and XLSX files are accepted."), { status: 400 }),
       supported,
     );
   },
@@ -266,6 +267,12 @@ adminRouter.post(
   importData,
 );
 adminRouter.get("/students", listStudents);
+adminRouter.post(
+  "/students/match-accounts",
+  requireRoles("Super Admin"),
+  auditAdminMutation("MATCH", "STUDENT_ACCOUNTS"),
+  matchStudentAccounts,
+);
 adminRouter.get(
   "/students/export",
   auditAdminMutation("EXPORT", "STUDENT_ACCOUNTS"),

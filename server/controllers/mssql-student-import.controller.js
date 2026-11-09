@@ -330,7 +330,7 @@ export async function importMssqlStudents(req, res, next) {
       });
     }
     await upsertStudentRows(
-      result.items.filter((item) => item.status !== "unchanged"),
+      result.items,
       connection,
       { ...options, birthdayStudentIds },
     );

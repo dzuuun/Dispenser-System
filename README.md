@@ -107,6 +107,8 @@ Production startup rejects missing or placeholder database, JWT, encryption, and
 5. Process password resets, account-creation requests, and replacement-voucher requests in **Credential requests**.
 6. Review transactions and audit records regularly.
 
+In **Imports**, a Super Admin can select **Match accounts** to link pending account imports to students with matching School IDs. The action covers all students and does not replace existing accounts or accounts owned by another student. The result reports accounts that still need review.
+
 In **Imports**, Super Admins can select **Export all accounts** to download one XLSX sheet containing student details and saved account passwords, including inactive records. Accounts awaiting a matching student import appear as unmatched rows. The workbook contains sensitive credentials and should be stored securely.
 
 In **Transactions**, choose an **Academic period** to view current or historical records, then select **Export Excel** to download every transaction in that period, across all pages. Previous periods remain available even when inactive. Exported timestamps use Philippine time (UTC+08:00).
@@ -117,11 +119,13 @@ Most state-changing administrator functions require the **Super Admin** role, in
 
 ### Student XLSX import with accounts
 
-The **Students** import accepts student details and optional linked accounts in one XLSX file. Download its updated template from **Imports → Students**. Required columns are `SchoolID`, `FirstName`, `LastName`, `BirthDate` (`YYYY-MM-DD`), and `CourseCode`. Optional columns are `MiddleName`, `KumosoftID`, `YearLevel`, `EmailAddress`, `EmailPassword`, `SATPPassword`, `SchoologyPassword`, and `KumosoftPassword`.
+The **Students** import accepts student details and optional linked accounts. Download its template from **Imports → Students**. Required columns are `SchoolID` (or `ID`), `FirstName`, `LastName`, `BirthDate` (or `Birthday`), and `CourseCode`. Birthdays can be Excel date cells, `YYYY-MM-DD`, or `MM/DD/YYYY` text. Optional columns are `MiddleName`, `KumosoftID`, `YearLevel`, `EmailAddress`, `EmailPassword`, `SATPPassword`, `SchoologyPassword`, and `KumosoftPassword`. A `Not Found` account field leaves that account unchanged while the student record can still be imported.
 
 All passwords and Kumosoft ID are optional. Blank passwords preserve saved passwords. Email addresses and Kumosoft IDs can create linked accounts without a saved password. A supplied SATP or Schoology password creates or updates that account using the School ID as its username. Kumosoft uses the supplied ID, an existing account/ID, or the School ID when neither is available. An email password without an address uses the existing email account; a new email account needs an address. Blank email and account fields leave existing accounts intact. A blank year level or Kumosoft ID preserves its saved value.
 
 The preview includes account and year-level changes when classifying updated students. Password changes are described without displaying passwords, and identical rows remain unchanged. Student and account changes are saved in the same transaction. Existing enrollment-only files remain supported.
+
+The **Schoology accounts** and **Institutional email** imports also accept spreadsheets with `ID`, `Schoology Password`, `Email Address`, and `Email Password` columns. Each import reads only its own password column; the separate `EMAIL` column does not replace `Email Address`. Rows with `Not Found` in the actual password or email address are skipped; status columns such as `HAS SCHOOLOGY` and `HAS EMAIL` do not prevent importing valid credentials. Accounts without a matching student are stored pending until the student is imported. The original account-import templates remain supported. Student, course, and account imports accept CSV, XLS, and XLSX files; voucher imports require XLSX.
 
 ### SQL Server student import
 

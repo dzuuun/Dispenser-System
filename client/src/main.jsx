@@ -4945,7 +4945,7 @@ const importTypes = [
     id: "students",
     title: "Students",
     detail:
-      "SchoolID, FirstName, LastName, BirthDate (YYYY-MM-DD), and CourseCode. Optional: MiddleName, KumosoftID, YearLevel, email, and passwords",
+      "ID, FirstName, LastName, Birthday, and CourseCode. Optional: Email Address, Email Password, Schoology Password, SATP Password, and other student details.",
     endpoint: "/admin/imports/students",
   },
   {
@@ -4963,7 +4963,7 @@ const importTypes = [
   {
     id: "schoology",
     title: "Schoology accounts",
-    detail: "SchoolID and Password",
+    detail: "SchoolID or ID, and Password or Schoology Password",
     endpoint: "/admin/imports/schoology",
   },
   {
@@ -4975,7 +4975,7 @@ const importTypes = [
   {
     id: "email",
     title: "Institutional email",
-    detail: "SchoolID, EmailAddress, and Password",
+    detail: "SchoolID or ID, Email Address, and Password or Email Password",
     endpoint: "/admin/imports/email",
   },
   {
@@ -5210,6 +5210,15 @@ function fileImportSections(type, validation) {
     validation.unchanged,
     `No unchanged ${noun} found.`,
   ]);
+  if (validation.skipped) {
+    sections.push([
+      "Not Found — skipped",
+      "unchanged",
+      "skipped",
+      validation.skipped,
+      "No Not Found rows.",
+    ]);
+  }
   sections.push([
     "Errors",
     "errors",
@@ -5269,12 +5278,13 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
       const inserted = Number(result.inserted ?? result.added ?? 0);
       const updated = Number(result.updated ?? 0);
       const unchanged = Number(result.unchanged ?? 0);
+      const notFound = Number(result.skipped ?? 0);
       const skipped = Number(result.invalid ?? result.errors?.length ?? 0);
       if (result.errorReport) downloadErrorReport(result.errorReport, type.id);
       onComplete(
         type.id === "student-deactivate"
           ? `${result.deactivated || 0} student${result.deactivated === 1 ? "" : "s"} deactivated${unchanged ? `, ${unchanged} unchanged` : ""}${skipped ? `; ${skipped} invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`
-          : `${type.title}: ${inserted} added${updated ? `, ${updated} updated` : ""}${unchanged ? `, ${unchanged} unchanged` : ""}${result.duplicates ? `, ${result.duplicates} duplicate rows skipped` : ""}${skipped ? `; ${skipped} unmatched or invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`,
+          : `${type.title}: ${inserted} added${updated ? `, ${updated} updated` : ""}${unchanged ? `, ${unchanged} unchanged` : ""}${notFound ? `, ${notFound} Not Found row${notFound === 1 ? "" : "s"} skipped` : ""}${result.duplicates ? `, ${result.duplicates} duplicate rows skipped` : ""}${skipped ? `; ${skipped} unmatched or invalid row${skipped === 1 ? "" : "s"} skipped` : ""}.`,
       );
       onClose();
     } catch (err) {
@@ -5333,7 +5343,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
         <header>
           <div>
             <p className="eyebrow">
-              {validation ? "VALIDATION COMPLETE" : "BULK IMPORT"}
+              {validation ? (busy && !loadingGroup ? "IMPORT IN PROGRESS" : "VALIDATION COMPLETE") : "BULK IMPORT"}
             </p>
             <h2>
               {validation
@@ -5351,7 +5361,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
           </button>
         </header>
         {validation ? (
-          <div className="validation-result mssql-validation-result">
+          <div className="validation-result mssql-validation-result" aria-busy={busy}>
             <div className="mssql-validation-body">
               <p className="mssql-validation-copy">
                 Review the grouped rows before importing. Each list initially
@@ -5394,22 +5404,17 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
                     <AppIcon name="download" /> Download failed rows
                   </Button>
                 )}
-                {busy && !loadingGroup && (
-                  <p className="import-progress" role="status">
-                    <span
-                      className="import-progress-spinner"
-                      aria-hidden="true"
-                    >
-                      <AppIcon name="progress_activity" size={19} />
-                    </span>
-                    <span>
-                      Importing {changes} records. Please keep this window open.
-                    </span>
-                  </p>
-                )}
               </div>
             </div>
             <footer>
+              {busy && !loadingGroup ? (
+                <p className="import-progress" role="status">
+                  <span className="import-progress-spinner" aria-hidden="true">
+                    <AppIcon name="progress_activity" size={19} />
+                  </span>
+                  <span>Importing {changes} {changes === 1 ? "record" : "records"}. Please keep this window open.</span>
+                </p>
+              ) : <>
               <Button
                 variant="secondary"
                 disabled={busy}
@@ -5431,10 +5436,12 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
                     ? `Deactivate ${changes} students`
                     : `Import ${changes} records`}
               </button>
+              </>}
             </footer>
           </div>
         ) : (
-          <form onSubmit={validate}>
+          <form className="import-file-form" onSubmit={validate}>
+            <div className="import-file-body">
             <label className="bulk-file-picker">
               <input
                 type="file"
@@ -5454,19 +5461,18 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
               <small>
                 {file
                   ? "Ready to validate"
-                  : `Required columns: ${type.detail}`}
+                  : type.id === "students"
+                    ? "CSV, XLS, or XLSX · Up to 2 MB"
+                    : `Required columns: ${type.detail}`}
               </small>
             </label>
             {type.id === "students" && (
-              <p className="import-account-guidance">
-                Optional account columns: <strong>EmailAddress</strong>,{" "}
-                <strong>EmailPassword</strong>, <strong>SATPPassword</strong>,{" "}
-                <strong>SchoologyPassword</strong>, and{" "}
-                <strong>KumosoftPassword</strong>. Blank passwords keep saved
-                passwords. An email address or Kumosoft ID can be imported
-                without a password. Kumosoft ID is optional; a new Kumosoft
-                account uses the School ID when it is blank.
-              </p>
+              <div className="import-account-guidance">
+                <p><strong>Required:</strong> ID, first name, last name, birthday, and course code.</p>
+                <p><strong>Optional:</strong> Email address and passwords for Email, Schoology, SATP, and Kumosoft.</p>
+                <p>Blank passwords keep saved passwords. A new Kumosoft account uses the School ID if no Kumosoft ID is provided.</p>
+                <p>Birthdays can be Excel dates, YYYY-MM-DD, or MM/DD/YYYY.</p>
+              </div>
             )}
             <p className="template-link">
               Need the format?{" "}
@@ -5483,6 +5489,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
               </button>
             </p>
             {error && <p className="error">{error}</p>}
+            </div>
             <footer>
               <Button variant="secondary" onClick={onClose} disabled={busy}>
                 Cancel
@@ -5812,12 +5819,14 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
   );
 }
 
-function ImportsPage({ token }) {
+function ImportsPage({ token, admin }) {
   const [activeType, setActiveType] = useState(null);
   const [mssqlImportOpen, setMssqlImportOpen] = useState(false);
   const [confirmExport, setConfirmExport] = useState(false);
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
+  const [matching, setMatching] = useState(false);
+  const [matchResult, setMatchResult] = useState(null);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 5000);
@@ -5825,6 +5834,23 @@ function ImportsPage({ token }) {
   }, [toast]);
   const template = (type) =>
     downloadImportTemplate(type, token).catch((err) => setError(err.message));
+  const matchAccounts = async () => {
+    if (matching) return;
+    setMatching(true);
+    setMatchResult(null);
+    setError("");
+    try {
+      const result = await request("/admin/students/match-accounts", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setMatchResult(result);
+    } catch (err) {
+      setError(err.message || "Unable to match accounts.");
+    } finally {
+      setMatching(false);
+    }
+  };
   return (
     <>
       {toast && <Toast message={toast} onClose={() => setToast("")} />}
@@ -5832,12 +5858,28 @@ function ImportsPage({ token }) {
         title="Imports"
         description="Download the required template, validate your file, and import records in bulk."
         actions={
-          <Button variant="secondary" onClick={() => setConfirmExport(true)}>
-            <AppIcon name="download" /> Export all accounts
-          </Button>
+          <>
+            {admin?.role === "Super Admin" && (
+              <Button variant="secondary" onClick={matchAccounts} disabled={matching}>
+                <AppIcon name="link" /> {matching ? "Matching accounts..." : "Match accounts"}
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => setConfirmExport(true)}>
+              <AppIcon name="download" /> Export all accounts
+            </Button>
+          </>
         }
       />
       {error && <p className="error imports-page-error">{error}</p>}
+      {matchResult && (
+        <p className="account-match-result" role="status">
+          {matchResult.matched} account{matchResult.matched === 1 ? "" : "s"} matched.
+          {matchResult.unmatched > 0 && ` ${matchResult.unmatched} still waiting for a matching student.`}
+          {matchResult.existing > 0 && ` ${matchResult.existing} already have an account.`}
+          {matchResult.conflicts > 0 && ` ${matchResult.conflicts} have a conflicting account name.`}
+          {matchResult.invalid > 0 && ` ${matchResult.invalid} have invalid or unreadable credentials.`}
+        </p>
+      )}
       <section className="panel import-hub-card mssql-import-card">
         <div className="import-card-icon">SQL</div>
         <div className="import-card-copy">
@@ -5871,7 +5913,7 @@ function ImportsPage({ token }) {
                   ? "Marks matched students inactive"
                   : type.xlsxOnly
                     ? "XLSX format"
-                    : "CSV or XLSX format"}
+                    : "CSV, XLS, or XLSX format"}
               </small>
             </div>
             <footer>
@@ -7016,7 +7058,7 @@ function AdminApp() {
     ) : path === "/admin/release-vouchers" ? (
       <ReleaseVouchersPage token={token} />
     ) : path === "/admin/imports" ? (
-      <ImportsPage token={token} />
+      <ImportsPage token={token} admin={admin} />
     ) : path === "/admin/password-resets" ? (
       <PasswordResetRequestsPage token={token} />
     ) : path === "/admin/reminders" ? (

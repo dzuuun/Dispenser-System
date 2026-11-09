@@ -29,7 +29,7 @@ try {
   const counts = { linked: 0, ready: 0, unmatched: 0, existing: 0, conflict: 0, invalid: 0 };
   for (const row of pending) {
     const type = types[row.account_type];
-    if (!type || !row.account_name || (!row.encrypted_password && row.account_type !== "kumosoft")) {
+    if (!type || !row.account_name || (!row.encrypted_password && row.account_type !== "kumosoft") || (row.account_type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.account_name))) {
       counts.invalid++;
       continue;
     }

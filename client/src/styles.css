@@ -1428,6 +1428,11 @@ button {
   flex: 0 0 auto;
   margin: 0 !important;
 }
+.import-hub-modal .mssql-validation-result > footer > .import-progress {
+  flex: 1 1 auto;
+  width: 100%;
+  margin: 0;
+}
 
 @media (max-width: 560px) {
   .academic-period-directory-header {
@@ -8728,6 +8733,16 @@ body,
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.account-match-result {
+  margin: 0 0 16px;
+  padding: 12px 15px;
+  border: 1px solid #c9e2d3;
+  border-radius: 10px;
+  background: #f1faf5;
+  color: #216447;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
 .records-summary article {
   padding: 14px 20px;
 }
@@ -10176,10 +10191,60 @@ body,
   font-size: 0.75rem;
 }
 .import-hub-modal .import-account-guidance {
-  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 15px;
+  border: 1px solid #dce9e1;
+  border-radius: 10px;
+  background: #f7faf8;
   color: #60786b;
   font-size: 0.8rem;
-  line-height: 1.6;
+  line-height: 1.45;
+}
+.import-hub-modal .import-file-form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.import-file-body {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  padding: 22px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.import-file-body .bulk-file-picker {
+  margin: 0;
+  padding: 28px 18px;
+}
+.import-file-body .bulk-file-picker:focus-within {
+  outline: 3px solid #8cc9a9;
+  outline-offset: 2px;
+}
+.import-file-body .import-account-guidance p {
+  margin: 0;
+}
+.import-file-body .import-account-guidance strong {
+  color: #174c3b;
+}
+.import-file-body .template-link,
+.import-file-body .error {
+  margin: 0;
+}
+.import-hub-modal .import-file-form > footer {
+  flex: 0 0 auto;
+}
+@media (max-width: 520px) {
+  .import-file-body {
+    padding: 18px;
+  }
+  .import-file-body .bulk-file-picker {
+    padding: 22px 14px;
+  }
 }
 .kiosk-detail-usage {
   display: flex;

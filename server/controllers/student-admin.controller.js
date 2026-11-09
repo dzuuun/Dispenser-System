@@ -5,6 +5,7 @@ import { decryptPassword } from "../services/encryption.service.js";
 import { encryptPassword } from "../services/encryption.service.js";
 import { auditAdminAction } from "../services/audit.service.js";
 import { tableSearch } from "../services/table-search.service.js";
+import { matchPendingAccounts } from "../services/match-pending-accounts.service.js";
 import {
   currentAcademicPeriod,
   requireCurrentAcademicPeriod,
@@ -106,6 +107,21 @@ const studentListSelect = `SELECT s.id, s.student_id, s.kumosoft_id, s.first_nam
       email_account.email_address AS email_address,
       ${studentAccountTypes.map(({ alias }) => `${alias}.is_active AS ${alias}_active`).join(", ")}
      FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins}`;
+
+export async function matchStudentAccounts(_req, res) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await matchPendingAccounts(connection);
+    await connection.commit();
+    res.set("Cache-Control", "no-store").json(result);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
 
 export async function listStudents(req, res) {
   const {
