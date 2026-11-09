@@ -7142,36 +7142,36 @@ body,
 /* Credentials are read at kiosk distance, so their essential text is larger
    than the surrounding supporting copy. */
 .credential-summary-panel h2 {
-  font-size: 1.12rem;
+  font-size: 1.18rem;
 }
 
 .credential-summary-panel p {
-  font-size: 0.9rem;
+  font-size: 0.96rem;
   line-height: 1.4;
 }
 
 .voucher-summary b,
 .voucher-summary code {
-  font-size: 1rem;
+  font-size: 1.06rem;
 }
 
 .credential-summary-card > h2 {
-  font-size: 1.02rem;
+  font-size: 1.08rem;
 }
 
 .credential-card-body > p,
 .credential-summary-card .credential-password {
-  font-size: 0.94rem;
+  font-size: 1rem;
   line-height: 1.45;
 }
 
 .credential-card-body p > b,
 .credential-summary-card .credential-password > b {
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .credential-summary-card .credential-password code {
-  font-size: 1rem;
+  font-size: 1.06rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -7179,18 +7179,64 @@ body,
 .credential-summary-card .credential-reset-button,
 .credential-module-maintenance,
 .credential-module-unavailable {
-  font-size: 0.9rem;
+  font-size: 0.96rem;
 }
 
 @media (min-width: 761px) and (max-height: 950px) {
   .credential-card-body > p,
   .credential-summary-card .credential-password {
-    font-size: 0.88rem;
+    font-size: 0.93rem;
   }
 
   .credential-summary-card .credential-password code {
-    font-size: 0.94rem;
+    font-size: 1rem;
   }
+}
+
+/* Keep the main kiosk at the same easy-to-read scale as the credential
+   summary. These rules are scoped to the student kiosk, not admin screens. */
+.kiosk-site-brand b {
+  font-size: 1.02rem;
+}
+
+.kiosk-site-brand small,
+.kiosk-mode {
+  font-size: 0.82rem;
+}
+
+.kiosk-hero > p {
+  font-size: 1.05rem;
+}
+
+.kiosk-reminder-banner b,
+.kiosk-card > h2 {
+  font-size: 1.06rem;
+}
+
+.kiosk-reminder-banner small,
+.accepted-id,
+.kiosk-guidelines aside {
+  font-size: 0.88rem;
+}
+
+.kiosk-form-card .field {
+  font-size: 0.92rem;
+}
+
+.kiosk-form-card .field input,
+.kiosk-form-card .field select,
+.kiosk-form-actions .btn {
+  font-size: 1rem;
+}
+
+.kiosk-course-results button b,
+.guideline-list article p {
+  font-size: 0.9rem;
+}
+
+.kiosk-course-results button span,
+.kiosk-course-results > p {
+  font-size: 0.84rem;
 }
 
 /* Kiosk state transitions. The shell remains stationary while the working
