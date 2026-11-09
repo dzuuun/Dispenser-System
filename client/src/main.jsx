@@ -4705,8 +4705,8 @@ function StudentProfileModal({ record, onClose, onEdit }) {
               <dd>{new Date(student.birth_date).toLocaleDateString()}</dd>
               <dt>Status</dt>
               <dd>
-                <Status tone={student.is_active ? "green" : "danger"}>
-                  {student.is_active ? "Active" : "Inactive"}
+                <Status tone={student.current_period_active ? "green" : "danger"}>
+                  {student.current_period_active ? "Active" : "Inactive"}
                 </Status>
               </dd>
             </dl>
@@ -5793,7 +5793,7 @@ function ImportsPage({ token }) {
         description="Download the required template, validate your file, and import records in bulk."
         actions={
           <Button variant="secondary" onClick={() => setConfirmExport(true)}>
-            <AppIcon name="download" /> Export account workbook
+            <AppIcon name="download" /> Export all accounts
           </Button>
         }
       />
@@ -5861,7 +5861,7 @@ function ImportsPage({ token }) {
       {confirmExport && (
         <ConfirmModal
           title="Export account credentials?"
-          message="This downloads all active usernames and passwords in one XLSX workbook. It contains separate sheets for SATP, Schoology, Kumosoft, and Email, and the export is recorded in the audit log."
+          message="This downloads student details and saved account passwords in one XLSX sheet, including inactive records and unmatched imports. The export is recorded in the audit log."
           confirmLabel="Download workbook"
           onClose={() => setConfirmExport(false)}
           onConfirm={() => {
@@ -11059,7 +11059,7 @@ function StudentsPage({ token }) {
     [pages, setPages] = useState(1),
     [limit, setLimit] = useState(25),
     [search, setSearch] = useState(""),
-    [status, setStatus] = useState("active"),
+    [status, setStatus] = useState("all"),
     [missingAccount, setMissingAccount] = useState(""),
     [exporting, setExporting] = useState(false),
     [exportError, setExportError] = useState(""),

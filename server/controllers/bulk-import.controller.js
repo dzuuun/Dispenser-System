@@ -1,4 +1,4 @@
-import { displayMiddleName } from "../../shared/student-name.mjs";
+import { displayMiddleName, studentFullName } from "../../shared/student-name.mjs";
 import {
   multiSheetWorkbookBuffer,
   readWorkbookRows,
@@ -230,75 +230,69 @@ export async function downloadImportTemplate(req, res) {
 
 export async function exportAccountCredentials(req, res) {
   try {
-    const sheets = [];
+    const headers = ["School ID", "Kumosoft ID", "Student name", "Course code", "Course name", "Student status", "Email", "Email password", "Kumosoft password", "Schoology password", "SATP password"];
+    const [students] = await pool.query(
+      `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name,
+              s.last_name,
+              (s.is_active=1 AND COALESCE(s.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1), 0)) AS is_active,
+              c.code course_code, c.name course_name
+         FROM students s JOIN courses c ON c.id=s.course_id
+        ORDER BY s.last_name, s.first_name, s.student_id`,
+    );
+    const byId = new Map();
+    const bySchoolId = new Map();
+    const exportRows = students.map((student) => {
+      const row = {
+        "School ID": String(student.student_id ?? ""),
+        "Kumosoft ID": student.kumosoft_id || "",
+        "Student name": studentFullName(student),
+        "Course code": student.course_code || "",
+        "Course name": student.course_name || "",
+        "Student status": student.is_active ? "Active" : "Inactive",
+      };
+      byId.set(String(student.id), row);
+      bySchoolId.set(String(student.student_id), row);
+      return row;
+    });
+    const passwordColumns = { satp: "SATP password", schoology: "Schoology password", kumosoft: "Kumosoft password", email: "Email password" };
     const accountTypes = Object.values(TYPES).filter(
       (config) => config.table && config.column,
     );
     for (const config of accountTypes) {
       const [rows] = await pool.query(
-        `SELECT s.student_id, s.kumosoft_id, s.last_name, s.first_name, s.middle_name,
-                c.code AS course_code, a.${config.column} AS account_name,
+        `SELECT a.student_id, a.${config.column} AS account_name,
                 a.encrypted_password, a.password_iv, a.password_auth_tag
-           FROM ${config.table} a
-           JOIN students s ON s.id=a.student_id
-           JOIN courses c ON c.id=s.course_id
-          WHERE a.is_active=1
-          ORDER BY s.last_name, s.first_name, s.student_id`,
+           FROM ${config.table} a`,
       );
-      const exportRows = rows.map((row) => ({
-        SchoolID: row.student_id,
-        ...(config.requiresKumosoftId
-          ? { KumosoftID: row.account_name }
-          : {
-              [config.column === "email_address" ? "EmailAddress" : "Username"]:
-                row.account_name,
-            }),
-        LastName: row.last_name,
-        FirstName: row.first_name,
-        MiddleName: row.middle_name || "",
-        CourseCode: row.course_code,
-        Password: decryptPassword(row),
-      }));
-      sheets.push({ rows: exportRows, name: config.label });
+      const type = Object.keys(TYPES).find((key) => TYPES[key] === config);
+      for (const account of rows) {
+        const row = byId.get(String(account.student_id));
+        if (!row) continue;
+        row[passwordColumns[type]] = decryptPassword(account) || "";
+        if (type === "email") row.Email = account.account_name || "";
+      }
     }
-    // Account imports can arrive before the student import. Keep those
-    // records visible in the credential export instead of silently omitting
-    // them just because they are waiting for a matching School ID.
-    let unmatchedRows = [];
     try {
       const [pending] = await pool.query(
-        `SELECT account_type, school_id, account_name,
-                encrypted_password, password_iv, password_auth_tag,
-                created_at
-           FROM pending_account_imports
-          ORDER BY account_type, school_id`,
+        `SELECT account_type, school_id, account_name, encrypted_password, password_iv, password_auth_tag
+           FROM pending_account_imports ORDER BY school_id, account_type`,
       );
-      unmatchedRows = pending.map((row) => {
-        const config = TYPES[row.account_type];
-        const accountColumn = config?.requiresKumosoftId
-          ? "KumosoftID"
-          : config?.column === "email_address"
-            ? "EmailAddress"
-            : "Username";
-        return {
-          AccountType: config?.label || row.account_type,
-          SchoolID: row.school_id,
-          [accountColumn]: row.account_name,
-          Password: decryptPassword(row) || "",
-          Status: "Unmatched - waiting for student import",
-          ImportedAt: row.created_at
-            ? new Date(row.created_at).toISOString()
-            : "",
-        };
-      });
+      for (const account of pending) {
+        const column = passwordColumns[account.account_type];
+        if (!column) continue;
+        const schoolId = String(account.school_id);
+        let row = bySchoolId.get(schoolId);
+        if (!row) {
+          row = { "School ID": schoolId, "Student status": "Unmatched" };
+          bySchoolId.set(schoolId, row);
+          exportRows.push(row);
+        }
+        if (row[column] === undefined) row[column] = decryptPassword(account) || "";
+        if (account.account_type === "email" && !row.Email) row.Email = account.account_name || "";
+        if (account.account_type === "kumosoft" && !row["Kumosoft ID"]) row["Kumosoft ID"] = account.account_name || "";
+      }
     } catch (error) {
-      // Older deployments that have never imported an unmatched account may
-      // not have this optional holding table yet; their regular export stays
-      // available and simply has no unmatched-account sheet.
       if (error.code !== "ER_NO_SUCH_TABLE") throw error;
-    }
-    if (unmatchedRows.length) {
-      sheets.push({ rows: unmatchedRows, name: "Unmatched accounts" });
     }
     res
       .set({
@@ -308,7 +302,7 @@ export async function exportAccountCredentials(req, res) {
           "attachment; filename=credential-account-export.xlsx",
         "Cache-Control": "no-store",
       })
-      .send(await multiSheetWorkbookBuffer(sheets));
+      .send(await multiSheetWorkbookBuffer([{ rows: exportRows, name: "Student accounts", headers }]));
   } catch (error) {
     res.status(error.status || 500).json({
       message: error.status

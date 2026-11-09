@@ -13,7 +13,6 @@ function setup(t, records = [{ id: 11, course_code: "MIT" }]) {
   const calls = [];
   const query = async (sql, values) => {
     calls.push({ sql, values });
-    if (sql.includes("FROM academic_periods")) return [[{ id: 7 }]];
     if (sql.startsWith("SELECT COUNT(*)"))
       return [[{ total: 31, active_total: 20 }]];
     if (sql.startsWith("SELECT s.id")) return [records];
@@ -60,13 +59,13 @@ test("student search covers IDs, full names, course code/name, and displayed sta
       .filter(({ sql }) => sql.includes("FROM students s"));
     for (const { sql } of [count, listing]) {
       assert.match(sql, /JOIN courses c ON c.id=s.course_id/);
-      assert.match(sql, /s\.academic_period_id=\?/);
+      assert.match(sql, /s\.academic_period_id=\(SELECT id FROM academic_periods/);
       for (const field of ["s.student_id", "s.kumosoft_id", "c.code", "c.name"])
         assert.ok(sql.includes(`${field} LIKE ? ESCAPE '!'`));
       assert.match(sql, /NULLIF\(NULLIF\(TRIM\(s.middle_name\), '-'\), ''\)/);
       assert.match(
         sql,
-        /CASE WHEN s.is_active=1 THEN 'Active' ELSE 'Inactive' END LIKE \?/,
+        /THEN 'Active' ELSE 'Inactive' END LIKE \?/,
       );
       for (const table of [
         "institutional_email_accounts",
@@ -80,7 +79,6 @@ test("student search covers IDs, full names, course code/name, and displayed sta
     }
     const internalId = /^\d+$/.test(term) ? [Number(term)] : [];
     assert.deepEqual(count.values, [
-      7,
       ...Array(11).fill(`%${term}%`),
       ...internalId,
     ]);
@@ -92,8 +90,8 @@ test("student search preserves status filters and treats LIKE wildcard character
   const { calls, get } = setup(t);
   await get("  COURSE_100%!  ", { status: "inactive" });
   const count = calls.find(({ sql }) => sql.startsWith("SELECT COUNT(*)"));
-  assert.match(count.sql, /AND s.is_active=0/);
-  assert.deepEqual(count.values, [7, ...Array(11).fill("%COURSE!_100!%!!%")]);
+  assert.match(count.sql, /AND NOT \(s.is_active=1 AND COALESCE/);
+  assert.deepEqual(count.values, [...Array(11).fill("%COURSE!_100!%!!%")]);
 });
 
 test("empty student search retains the lightweight unjoined count", async (t) => {
@@ -101,7 +99,7 @@ test("empty student search retains the lightweight unjoined count", async (t) =>
   await get("   ");
   const count = calls.find(({ sql }) => sql.startsWith("SELECT COUNT(*)"));
   assert.doesNotMatch(count.sql, /JOIN|LIKE/);
-  assert.deepEqual(count.values, [7]);
+  assert.deepEqual(count.values, []);
 });
 
 test("invalid student searches are rejected before a database query", async (t) => {
@@ -131,12 +129,12 @@ test("missing account filters apply to both counts and pages and combine with se
         ),
       );
       assert.equal((sql.match(/NOT EXISTS/g) || []).length, 1);
-      assert.match(sql, /s\.academic_period_id=\?/);
-      assert.match(sql, /AND s\.is_active=0/);
+      assert.match(sql, /s\.academic_period_id=\(SELECT id FROM academic_periods/);
+      assert.match(sql, /AND NOT \(s\.is_active=1 AND COALESCE/);
       // An inactive linked account still exists; it must not count as missing.
       assert.doesNotMatch(sql, /missing_account\.is_active/);
     }
-    assert.deepEqual(count.values, [7, ...Array(11).fill("%BSIT%")]);
+    assert.deepEqual(count.values, [...Array(11).fill("%BSIT%")]);
     assert.deepEqual(listing.values, [...count.values, 10, 10]);
   }
 });
@@ -150,8 +148,8 @@ test("no linked accounts requires every account to be absent without adding join
   for (const { sql } of [count, listing])
     assert.equal((sql.match(/NOT EXISTS/g) || []).length, 4);
   assert.doesNotMatch(count.sql, /JOIN/);
-  assert.deepEqual(count.values, [7]);
-  assert.deepEqual(listing.values, [7, 10, 0]);
+  assert.deepEqual(count.values, []);
+  assert.deepEqual(listing.values, [10, 0]);
 });
 
 test("invalid missing account filters are rejected before querying the database", async (t) => {
@@ -210,7 +208,7 @@ test("student rows report linked accounts including inactive ones without fetchi
     listing.sql,
     /encrypted_password|password_iv|password_auth_tag/,
   );
-  assert.deepEqual(listing.values, [7, 10, 10]);
+  assert.deepEqual(listing.values, [10, 10]);
   const drawResult = await get("", { draw: "2", start: "0", length: "10" });
   assert.deepEqual(drawResult.data, result.rows);
   assert.equal(drawResult.draw, 2);

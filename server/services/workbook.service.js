@@ -39,11 +39,11 @@ export async function workbookBuffer(rows, sheetName) {
 
 export async function multiSheetWorkbookBuffer(sheets) {
   const workbook = new ExcelJS.Workbook();
-  sheets.forEach(({ rows, name }, index) => {
+  sheets.forEach(({ rows, name, headers: providedHeaders }, index) => {
     const sheet = workbook.addWorksheet(
       String(name).slice(0, 31) || `Sheet${index + 1}`,
     );
-    const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    const headers = providedHeaders || [...new Set(rows.flatMap((row) => Object.keys(row)))];
     sheet.columns = headers.map((header) => ({
       header,
       key: header,

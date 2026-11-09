@@ -51,7 +51,7 @@ async function setup(
   const calls = [];
   const query = async (sql, values = []) => {
     calls.push({ sql, values });
-    if (sql.includes("FROM academic_periods"))
+    if (sql.trimStart().startsWith("SELECT id, school_year, semester"))
       return [
         noCurrent
           ? []
@@ -176,10 +176,10 @@ test("student workbook exports email addresses and other account links while pre
   assert.equal(sheet.views[0].ySplit, 1);
   assert.equal(sheet.autoFilter, "A1:K1");
   const exported = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
-  assert.deepEqual(exported.values, [7]);
+  assert.deepEqual(exported.values, []);
   assert.match(exported.sql, /email_account\.email_address AS email_address/);
   assert.match(exported.sql, /email_account\.encrypted_password AS email_account_encrypted_password/);
-  assert.doesNotMatch(exported.sql, /LIMIT|OFFSET|birth_date/i);
+  assert.doesNotMatch(exported.sql, /LIMIT \? OFFSET \?|birth_date/i);
 });
 
 test("Email export retains inactive account addresses and their passwords", async (t) => {
@@ -224,8 +224,8 @@ test("export and table share search, missing account, status, academic period an
     exported.sql.slice(exported.sql.indexOf("FROM students")),
   );
   assert.deepEqual(listing.values.slice(0, -2), exported.values);
-  assert.deepEqual(exported.values, [7, ...Array(11).fill("%BSIT%")]);
-  assert.match(exported.sql, /AND s\.is_active=0/);
+  assert.deepEqual(exported.values, [...Array(11).fill("%BSIT%")]);
+  assert.match(exported.sql, /AND NOT \(s\.is_active=1 AND COALESCE/);
   assert.match(
     exported.sql,
     /NOT EXISTS \(SELECT 1 FROM institutional_email_accounts/,
@@ -258,15 +258,11 @@ test("invalid export filters fail before querying the database", async (t) => {
   assert.equal(calls.length, 0);
 });
 
-test("export reports a missing current period instead of exporting another period", async (t) => {
-  const { calls, get } = await setup(t, { noCurrent: true });
+test("export remains available when no academic period is current", async (t) => {
+  const { get } = await setup(t, { noCurrent: true, count: 0 });
   const response = await get("/students/export");
-  assert.equal(response.status, 409);
-  assert.match(
-    (await response.json()).message,
-    /active school year and semester/,
-  );
-  assert.ok(calls.every(({ sql }) => sql.includes("FROM academic_periods")));
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-disposition"), /no-current-period/);
 });
 
 test("export database failures return an error without a downloadable workbook", async (t) => {
