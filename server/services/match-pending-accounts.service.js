@@ -10,7 +10,13 @@ const accountTypes = {
 // The caller owns the transaction. Match only exact school IDs and never
 // replace an account already linked to a student or owned by someone else.
 export async function matchPendingAccounts(connection) {
-  const counts = { matched: 0, unmatched: 0, existing: 0, conflicts: 0, invalid: 0 };
+  const counts = {
+    matched: 0,
+    unmatched: 0,
+    existing: 0,
+    conflicts: 0,
+    invalid: 0,
+  };
   let pending;
   try {
     [pending] = await connection.query(
@@ -22,12 +28,21 @@ export async function matchPendingAccounts(connection) {
     throw error;
   }
   if (!pending.length) return counts;
-  const [students] = await connection.query("SELECT id, student_id FROM students");
-  const studentIds = new Map(students.map((student) => [student.student_id, student.id]));
+  const [students] = await connection.query(
+    "SELECT id, student_id FROM students",
+  );
+  const studentIds = new Map(
+    students.map((student) => [student.student_id, student.id]),
+  );
   for (const row of pending) {
     const type = accountTypes[row.account_type];
-    if (!type || !row.account_name || (!row.encrypted_password && row.account_type !== "kumosoft") ||
-        (row.account_type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.account_name))) {
+    if (
+      !type ||
+      !row.account_name ||
+      (!row.encrypted_password && row.account_type !== "kumosoft") ||
+      (row.account_type === "email" &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.account_name))
+    ) {
       counts.invalid++;
       continue;
     }
@@ -46,7 +61,11 @@ export async function matchPendingAccounts(connection) {
       `SELECT student_id FROM ${type.table} WHERE student_id=? OR ${type.column}=?`,
       [studentId, row.account_name],
     );
-    if (existing.some((account) => String(account.student_id) === String(studentId))) {
+    if (
+      existing.some(
+        (account) => String(account.student_id) === String(studentId),
+      )
+    ) {
       counts.existing++;
       continue;
     }
@@ -57,14 +76,22 @@ export async function matchPendingAccounts(connection) {
     try {
       await connection.execute(
         `INSERT INTO ${type.table} (student_id, ${type.column}, encrypted_password, password_iv, password_auth_tag, is_active) VALUES (?, ?, ?, ?, ?, 1)`,
-        [studentId, row.account_name, row.encrypted_password, row.password_iv, row.password_auth_tag],
+        [
+          studentId,
+          row.account_name,
+          row.encrypted_password,
+          row.password_iv,
+          row.password_auth_tag,
+        ],
       );
     } catch (error) {
       if (error.code !== "ER_DUP_ENTRY") throw error;
       counts.conflicts++;
       continue;
     }
-    await connection.execute("DELETE FROM pending_account_imports WHERE id=?", [row.id]);
+    await connection.execute("DELETE FROM pending_account_imports WHERE id=?", [
+      row.id,
+    ]);
     counts.matched++;
   }
   return counts;

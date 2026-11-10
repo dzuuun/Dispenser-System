@@ -11,6 +11,34 @@ const parsePeriod = (body) => {
   return { schoolYear, semester };
 };
 
+async function makeCurrent(connection, id) {
+  const [[current]] = await connection.query(
+    "SELECT id FROM academic_periods WHERE is_current=1 FOR UPDATE",
+  );
+  await connection.query("UPDATE academic_periods SET is_current=0");
+  await connection.execute(
+    "UPDATE academic_periods SET is_current=1, is_active=1 WHERE id=?",
+    [id],
+  );
+  // Only a change of period reactivates students; editing the already-current
+  // period must not undo a subsequent manual deactivation.
+  if (Number(current?.id) !== id) {
+    await connection.execute(
+      "UPDATE students SET is_active=1 WHERE academic_period_id=? AND is_active=0",
+      [id],
+    );
+  }
+  // Preserve the existing migration behavior for records without a period.
+  await connection.execute(
+    "UPDATE students SET academic_period_id=? WHERE academic_period_id IS NULL",
+    [id],
+  );
+  await connection.execute(
+    "UPDATE wifi_vouchers SET academic_period_id=? WHERE academic_period_id IS NULL",
+    [id],
+  );
+}
+
 export async function listAcademicPeriods(_req, res) {
   const [rows] = await pool.query(
     `SELECT p.id, p.school_year schoolYear, p.semester, p.is_current isCurrent,
@@ -72,22 +100,7 @@ export async function activateAcademicPeriod(req, res) {
       await connection.rollback();
       return res.status(404).json({ message: "Academic period not found." });
     }
-    await connection.query("UPDATE academic_periods SET is_current=0");
-    await connection.execute(
-      "UPDATE academic_periods SET is_current=1, is_active=1 WHERE id=?",
-      [id],
-    );
-    // Records created before academic periods existed have no period. Adopt
-    // them when the administrator establishes a current period so they remain
-    // visible and usable after the migration.
-    await connection.execute(
-      "UPDATE students SET academic_period_id=? WHERE academic_period_id IS NULL",
-      [id],
-    );
-    await connection.execute(
-      "UPDATE wifi_vouchers SET academic_period_id=? WHERE academic_period_id IS NULL",
-      [id],
-    );
+    await makeCurrent(connection, id);
     await connection.commit();
     res.json({
       ...period,
@@ -120,19 +133,7 @@ export async function updateAcademicPeriod(req, res) {
       return res.status(404).json({ message: "Academic period not found." });
     }
     if (setCurrent) {
-      await connection.query("UPDATE academic_periods SET is_current=0");
-      await connection.execute(
-        "UPDATE academic_periods SET is_current=1 WHERE id=?",
-        [id],
-      );
-      await connection.execute(
-        "UPDATE students SET academic_period_id=? WHERE academic_period_id IS NULL",
-        [id],
-      );
-      await connection.execute(
-        "UPDATE wifi_vouchers SET academic_period_id=? WHERE academic_period_id IS NULL",
-        [id],
-      );
+      await makeCurrent(connection, id);
     }
     await connection.commit();
     res.json({ id, schoolYear, semester, isCurrent: setCurrent });

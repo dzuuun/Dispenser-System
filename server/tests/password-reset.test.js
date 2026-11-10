@@ -59,7 +59,9 @@ function setup(t, options = {}) {
             ? []
             : [{ id: 10, is_active: options.inactive ? 0 : 1 }],
         ];
-      if (sql === `SELECT id FROM ${expectedTable} WHERE student_id=? FOR UPDATE`)
+      if (
+        sql === `SELECT id FROM ${expectedTable} WHERE student_id=? FOR UPDATE`
+      )
         return [[]];
       if (
         sql ===

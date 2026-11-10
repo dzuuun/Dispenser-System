@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { credentialRequestOptions } from "../../shared/credential-request-controls.mjs";
+import {
+  credentialRequestOptions,
+  voucherRequestsEnabled,
+} from "../../shared/credential-request-controls.mjs";
+
+test("voucher requests default to enabled and respect the independent switch", () => {
+  assert.equal(voucherRequestsEnabled(), true);
+  assert.equal(voucherRequestsEnabled({ accept_voucher_requests: 0 }), false);
+  assert.equal(voucherRequestsEnabled({ accept_voucher_requests: 1 }), true);
+});
 
 test("credential request switches preserve defaults and operate independently", () => {
   for (const type of ["EMAIL", "KUMOSOFT", "SCHOOLOGY"]) {

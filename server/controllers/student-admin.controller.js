@@ -44,8 +44,10 @@ const studentAccountJoins = studentAccountTypes
       `LEFT JOIN ${table} ${alias} ON ${alias}.student_id=s.id`,
   )
   .join(" ");
-const studentActive = "(s.is_active=1 AND COALESCE(s.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1), 0))";
-const recordedPeriod = "(SELECT CONCAT_WS(' · ', ap.school_year, ap.semester) FROM academic_periods ap WHERE ap.id=s.academic_period_id)";
+const studentActive =
+  "(s.is_active=1 AND COALESCE(s.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1), 0))";
+const recordedPeriod =
+  "(SELECT CONCAT_WS(' · ', ap.school_year, ap.semester) FROM academic_periods ap WHERE ap.id=s.academic_period_id)";
 
 function studentListQuery(query) {
   const missingAccount = query.missingAccount ?? "";

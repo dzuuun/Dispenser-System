@@ -291,6 +291,8 @@ CREATE TABLE credential_module_controls (
   is_maintenance BOOLEAN NOT NULL DEFAULT FALSE,
   accept_password_resets BOOLEAN NOT NULL DEFAULT TRUE,
   accept_account_requests BOOLEAN NOT NULL DEFAULT TRUE,
+  accept_voucher_requests BOOLEAN NOT NULL DEFAULT TRUE,
+  voucher_paused_message VARCHAR(500) NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 

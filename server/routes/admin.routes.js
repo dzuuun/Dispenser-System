@@ -58,6 +58,10 @@ import {
   previewMssqlStudentImport,
 } from "../controllers/mssql-student-import.controller.js";
 import {
+  getMssqlSyncSchedule,
+  updateMssqlSyncSchedule,
+} from "../services/mssql-sync-schedule.service.js";
+import {
   completePasswordResetRequest,
   listPasswordResetRequests,
   pendingCredentialRequestCount,
@@ -112,7 +116,12 @@ const upload = multer({
   fileFilter: (_req, file, done) => {
     const supported = /\.(csv|xlsx|xls)$/i.test(file.originalname || "");
     done(
-      supported ? null : Object.assign(new Error("Only CSV, XLS, and XLSX files are accepted."), { status: 400 }),
+      supported
+        ? null
+        : Object.assign(
+            new Error("Only CSV, XLS, and XLSX files are accepted."),
+            { status: 400 },
+          ),
       supported,
     );
   },
@@ -243,6 +252,17 @@ adminRouter.get(
   exportAccountCredentials,
 );
 adminRouter.get("/imports/:type/template", downloadImportTemplate);
+adminRouter.get(
+  "/imports/mssql-schedule",
+  requireRoles("Super Admin"),
+  getMssqlSyncSchedule,
+);
+adminRouter.put(
+  "/imports/mssql-schedule",
+  requireRoles("Super Admin"),
+  auditAdminMutation("UPDATE_MSSQL_SCHEDULE", "STUDENTS"),
+  updateMssqlSyncSchedule,
+);
 adminRouter.get(
   "/imports/mssql-students/preview",
   requireRoles("Super Admin"),

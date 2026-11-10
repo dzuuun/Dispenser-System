@@ -282,10 +282,32 @@ export async function importMssqlStudents(req, res, next) {
   try {
     const options = birthdayImportOptions(req.body?.updateExistingBirthdays);
     const selectedBirthdays = req.body?.selectedBirthdays;
-    if (selectedBirthdays !== undefined && (!Array.isArray(selectedBirthdays) || selectedBirthdays.length > 10000 || selectedBirthdays.some((item) => !item || typeof item.schoolId !== "string" || !item.schoolId.trim() || item.schoolId.length > 40 || typeof item.before !== "string" || typeof item.after !== "string")))
-      throw Object.assign(new Error("Invalid birthday selections."), { status: 400 });
-    if (selectedBirthdays && (!options.updateExistingBirthdays && selectedBirthdays.length || new Set(selectedBirthdays.map((item) => item.schoolId)).size !== selectedBirthdays.length))
-      throw Object.assign(new Error("Invalid birthday selections."), { status: 400 });
+    if (
+      selectedBirthdays !== undefined &&
+      (!Array.isArray(selectedBirthdays) ||
+        selectedBirthdays.length > 10000 ||
+        selectedBirthdays.some(
+          (item) =>
+            !item ||
+            typeof item.schoolId !== "string" ||
+            !item.schoolId.trim() ||
+            item.schoolId.length > 40 ||
+            typeof item.before !== "string" ||
+            typeof item.after !== "string",
+        ))
+    )
+      throw Object.assign(new Error("Invalid birthday selections."), {
+        status: 400,
+      });
+    if (
+      selectedBirthdays &&
+      ((!options.updateExistingBirthdays && selectedBirthdays.length) ||
+        new Set(selectedBirthdays.map((item) => item.schoolId)).size !==
+          selectedBirthdays.length)
+    )
+      throw Object.assign(new Error("Invalid birthday selections."), {
+        status: 400,
+      });
     const period = await importPeriod();
     const rows = await readMssqlStudents(period);
     const sourceIds = sourceStudentIds(rows);
@@ -298,18 +320,44 @@ export async function importMssqlStudents(req, res, next) {
       academicPeriodLabel: `${period.schoolYear} · ${period.term}`,
     };
     if (selectedBirthdays?.length) {
-      const candidateReview = await reviewStudentRows(rows, connection, reviewOptions);
-      const candidates = new Map(candidateReview.items.map((item) => [item.schoolId, item.changes.find((change) => change.field === "Birthday")]));
-      if (selectedBirthdays.some((item) => {
-        const change = candidates.get(item.schoolId);
-        return !change || change.before !== item.before || change.after !== item.after;
-      })) {
+      const candidateReview = await reviewStudentRows(
+        rows,
+        connection,
+        reviewOptions,
+      );
+      const candidates = new Map(
+        candidateReview.items.map((item) => [
+          item.schoolId,
+          item.changes.find((change) => change.field === "Birthday"),
+        ]),
+      );
+      if (
+        selectedBirthdays.some((item) => {
+          const change = candidates.get(item.schoolId);
+          return (
+            !change ||
+            change.before !== item.before ||
+            change.after !== item.after
+          );
+        })
+      ) {
         await connection.rollback();
-        return res.status(409).json({ message: "A selected birthday or student record changed since the preview. Refresh the preview and select the birthdays again." });
+        return res
+          .status(409)
+          .json({
+            message:
+              "A selected birthday or student record changed since the preview. Refresh the preview and select the birthdays again.",
+          });
       }
     }
-    const birthdayStudentIds = selectedBirthdays === undefined ? undefined : new Set(selectedBirthdays.map((item) => item.schoolId));
-    const result = await reviewStudentRows(rows, connection, { ...reviewOptions, birthdayStudentIds });
+    const birthdayStudentIds =
+      selectedBirthdays === undefined
+        ? undefined
+        : new Set(selectedBirthdays.map((item) => item.schoolId));
+    const result = await reviewStudentRows(rows, connection, {
+      ...reviewOptions,
+      birthdayStudentIds,
+    });
     if (!result.items.length) {
       await connection.rollback();
       return res.status(400).json({
@@ -318,10 +366,9 @@ export async function importMssqlStudents(req, res, next) {
         ...summary(result),
       });
     }
-    const pendingDeactivations = await countStudentsToDeactivate(
-      sourceIds,
-      connection,
-    );
+    const pendingDeactivations = req.scheduledImport
+      ? 0
+      : await countStudentsToDeactivate(sourceIds, connection);
     if (pendingDeactivations && req.body?.confirmDeactivation !== true) {
       await connection.rollback();
       return res.status(409).json({
@@ -329,11 +376,10 @@ export async function importMssqlStudents(req, res, next) {
         deactivated: pendingDeactivations,
       });
     }
-    await upsertStudentRows(
-      result.items,
-      connection,
-      { ...options, birthdayStudentIds },
-    );
+    await upsertStudentRows(result.items, connection, {
+      ...options,
+      birthdayStudentIds,
+    });
     const deactivated = await deactivateStudentsMissingFromSource(
       sourceIds,
       connection,

@@ -12,6 +12,10 @@ import { ensureAdminRequestPermissionsSchema } from "./services/admin-request-pe
 import { ensureRequestReviewSchema } from "./services/request-review.service.js";
 import { ensureKioskActivitySchema } from "./services/kiosk-activity.service.js";
 import { ensureCredentialRequestControlsSchema } from "./services/credential-request-controls.service.js";
+import {
+  ensureMssqlSyncScheduleSchema,
+  startMssqlSyncScheduler,
+} from "./services/mssql-sync-schedule.service.js";
 const app = express(),
   cfg = config();
 const BASE_PATH = "/dispenser";
@@ -64,6 +68,8 @@ await ensureAdminRequestPermissionsSchema();
 await ensureRequestReviewSchema();
 await ensureKioskActivitySchema();
 await ensureCredentialRequestControlsSchema();
+await ensureMssqlSyncScheduleSchema();
+startMssqlSyncScheduler();
 app.listen(cfg.port, cfg.listenHost, () =>
   console.log(
     `Credentials API listening on http://${cfg.listenHost}:${cfg.port}`,

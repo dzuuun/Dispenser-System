@@ -59,14 +59,14 @@ test("student search covers IDs, full names, course code/name, and displayed sta
       .filter(({ sql }) => sql.includes("FROM students s"));
     for (const { sql } of [count, listing]) {
       assert.match(sql, /JOIN courses c ON c.id=s.course_id/);
-      assert.match(sql, /s\.academic_period_id=\(SELECT id FROM academic_periods/);
+      assert.match(
+        sql,
+        /s\.academic_period_id=\(SELECT id FROM academic_periods/,
+      );
       for (const field of ["s.student_id", "s.kumosoft_id", "c.code", "c.name"])
         assert.ok(sql.includes(`${field} LIKE ? ESCAPE '!'`));
       assert.match(sql, /NULLIF\(NULLIF\(TRIM\(s.middle_name\), '-'\), ''\)/);
-      assert.match(
-        sql,
-        /THEN 'Active' ELSE 'Inactive' END LIKE \?/,
-      );
+      assert.match(sql, /THEN 'Active' ELSE 'Inactive' END LIKE \?/);
       for (const table of [
         "institutional_email_accounts",
         "kumosoft_accounts",
@@ -129,7 +129,10 @@ test("missing account filters apply to both counts and pages and combine with se
         ),
       );
       assert.equal((sql.match(/NOT EXISTS/g) || []).length, 1);
-      assert.match(sql, /s\.academic_period_id=\(SELECT id FROM academic_periods/);
+      assert.match(
+        sql,
+        /s\.academic_period_id=\(SELECT id FROM academic_periods/,
+      );
       assert.match(sql, /AND NOT \(s\.is_active=1 AND COALESCE/);
       // An inactive linked account still exists; it must not count as missing.
       assert.doesNotMatch(sql, /missing_account\.is_active/);
@@ -216,14 +219,24 @@ test("student rows report linked accounts including inactive ones without fetchi
 
 test("student list returns the student's recorded academic period, including when inactive", async (t) => {
   const { calls, get } = setup(t, [
-    { id: 21, is_active: 0, recorded_academic_period: "2024-2025 · First semester" },
+    {
+      id: 21,
+      is_active: 0,
+      recorded_academic_period: "2024-2025 · First semester",
+    },
     { id: 22, is_active: 0, recorded_academic_period: null },
   ]);
   const result = await get("");
-  assert.equal(result.rows[0].recorded_academic_period, "2024-2025 · First semester");
+  assert.equal(
+    result.rows[0].recorded_academic_period,
+    "2024-2025 · First semester",
+  );
   assert.equal(result.rows[1].recorded_academic_period, null);
   const listing = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
-  assert.match(listing.sql, /ap\.id=s\.academic_period_id\) AS recorded_academic_period/);
+  assert.match(
+    listing.sql,
+    /ap\.id=s\.academic_period_id\) AS recorded_academic_period/,
+  );
 });
 
 test("search values are normalized and escaped separately from application-owned SQL", () => {

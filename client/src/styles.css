@@ -2120,6 +2120,14 @@ button {
   font-weight: 700;
   letter-spacing: 1.4px;
 }
+.kiosk-results .credential-summary-panel .voucher-exhausted-notice {
+  max-width: 520px;
+  margin: 5px 0 0;
+  color: #815714;
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
 
 .credential-grid.credential-summary-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6095,6 +6103,52 @@ strong {
 .mssql-import-card {
   margin-bottom: 18px;
 }
+.mssql-schedule {
+  grid-column: 1 / -1;
+  padding: 16px;
+  border: 1px solid #d8e8df;
+  border-radius: 10px;
+  background: #f7fbf8;
+  color: #294b3d;
+}
+.mssql-schedule-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mssql-schedule-heading span {
+  font-size: 0.8rem;
+  color: #527668;
+}
+.mssql-schedule p {
+  margin: 8px 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.mssql-schedule-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.mssql-schedule-controls label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.83rem;
+}
+.mssql-schedule-controls select {
+  border: 1px solid #cbded3;
+  border-radius: 6px;
+  padding: 7px;
+  background: white;
+  color: inherit;
+}
+.mssql-schedule .mssql-schedule-status {
+  margin-bottom: 0;
+  color: #587064;
+}
 
 .import-hub-card {
   display: grid;
@@ -6632,6 +6686,130 @@ strong {
   overflow: hidden;
 }
 
+.module-control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 20px;
+  background: #f6faf8;
+}
+.module-control-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #dce9e1;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.module-control-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 15px;
+  border-bottom: 1px solid #e6eee9;
+}
+.module-control-card-header h2 {
+  margin: 0;
+  color: #153f31;
+  font-size: 1rem;
+}
+.module-control-card-header p {
+  margin: 5px 0 0;
+  color: #70877c;
+  font-size: 0.78rem;
+}
+.module-control-card-body {
+  flex: 1;
+  padding: 2px 18px;
+}
+.module-control-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 65px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2ee;
+}
+.module-control-setting:last-child {
+  border-bottom: 0;
+}
+.module-control-setting b {
+  display: block;
+  color: #345446;
+  font-size: 0.82rem;
+}
+.module-control-setting small {
+  display: block;
+  margin-top: 4px;
+  color: #788d82;
+  font-size: 0.74rem;
+}
+.module-control-no-requests {
+  margin: 16px 0;
+  color: #788d82;
+  font-size: 0.76rem;
+}
+.voucher-message-editor {
+  padding: 14px 0 16px;
+  border-top: 1px solid #edf2ee;
+}
+.voucher-message-editor label {
+  color: #345446;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.voucher-message-editor p {
+  margin: 5px 0 9px;
+  color: #788d82;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+.voucher-message-editor textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 9px;
+  border: 1px solid #cadbd1;
+  border-radius: 7px;
+  color: #294b3d;
+  font: inherit;
+  font-size: 0.82rem;
+}
+.voucher-message-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.voucher-message-editor-footer small {
+  color: #788d82;
+  font-size: 0.72rem;
+}
+.voucher-message-editor-footer .btn {
+  padding: 7px 11px;
+  font-size: 0.75rem;
+}
+.module-control-card .module-control-actions {
+  justify-content: flex-start;
+  padding: 13px 18px;
+  border-top: 1px solid #e6eee9;
+  background: #fbfdfc;
+}
+@media (max-width: 1200px) {
+  .module-control-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .module-control-grid {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+}
+
 .module-control-table-wrap {
   overflow-x: auto;
   padding: 18px;
@@ -6723,6 +6901,7 @@ strong {
 .module-control-actions {
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 7px;
 }
 

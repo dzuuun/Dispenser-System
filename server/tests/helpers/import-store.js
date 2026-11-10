@@ -247,7 +247,9 @@ export function createImportStore(options = {}) {
     if (text.startsWith("INSERT INTO") && table) {
       if (text.includes("SELECT s.id")) {
         for (const pending of data.pending.filter(
-          (p) => p.account_type === values[0] && values.slice(1).includes(p.school_id),
+          (p) =>
+            p.account_type === values[0] &&
+            values.slice(1).includes(p.school_id),
         )) {
           const student = data.students.find(
             (s) => s.student_id === pending.school_id,
@@ -312,8 +314,12 @@ export function createImportStore(options = {}) {
       );
       return done();
     }
-    if (text.startsWith("DELETE FROM pending_account_imports WHERE account_type=")) {
-      data.pending = data.pending.filter((p) => p.account_type !== values[0] || p.school_id !== values[1]);
+    if (
+      text.startsWith("DELETE FROM pending_account_imports WHERE account_type=")
+    ) {
+      data.pending = data.pending.filter(
+        (p) => p.account_type !== values[0] || p.school_id !== values[1],
+      );
       return done();
     }
     if (text.startsWith("INSERT INTO courses")) {

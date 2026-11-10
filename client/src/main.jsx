@@ -26,6 +26,8 @@ import {
   ACCOUNT_REQUEST_MODULES,
   PASSWORD_RESET_MODULES,
   credentialRequestOptions,
+  voucherRequestsEnabled,
+  voucherPausedMessage,
 } from "../../shared/credential-request-controls.mjs";
 import {
   DEFAULT_PASSWORD_RESET_FOLLOW_UP,
@@ -4705,7 +4707,9 @@ function StudentProfileModal({ record, onClose, onEdit }) {
               <dd>{new Date(student.birth_date).toLocaleDateString()}</dd>
               <dt>Status</dt>
               <dd>
-                <Status tone={student.current_period_active ? "green" : "danger"}>
+                <Status
+                  tone={student.current_period_active ? "green" : "danger"}
+                >
                   {student.current_period_active ? "Active" : "Inactive"}
                 </Status>
               </dd>
@@ -5122,17 +5126,25 @@ function ImportValidationGroups({
                       (row.label || row.schoolId) &&
                       row.message && <em>{row.message}</em>
                     )}
-                    {onBirthdaySelection && row.schoolId && row.changes?.some((change) => change.field === "Birthday") && (
-                      <label className="import-birthday-selection">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(birthdaySelections?.[row.schoolId])}
-                          disabled={busy}
-                          onChange={(event) => onBirthdaySelection(row, event.target.checked)}
-                        />
-                        Update this birthday
-                      </label>
-                    )}
+                    {onBirthdaySelection &&
+                      row.schoolId &&
+                      row.changes?.some(
+                        (change) => change.field === "Birthday",
+                      ) && (
+                        <label className="import-birthday-selection">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(
+                              birthdaySelections?.[row.schoolId],
+                            )}
+                            disabled={busy}
+                            onChange={(event) =>
+                              onBirthdaySelection(row, event.target.checked)
+                            }
+                          />
+                          Update this birthday
+                        </label>
+                      )}
                   </article>
                 ))}
               </div>
@@ -5343,7 +5355,11 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
         <header>
           <div>
             <p className="eyebrow">
-              {validation ? (busy && !loadingGroup ? "IMPORT IN PROGRESS" : "VALIDATION COMPLETE") : "BULK IMPORT"}
+              {validation
+                ? busy && !loadingGroup
+                  ? "IMPORT IN PROGRESS"
+                  : "VALIDATION COMPLETE"
+                : "BULK IMPORT"}
             </p>
             <h2>
               {validation
@@ -5361,33 +5377,52 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
           </button>
         </header>
         {validation ? (
-          <div className="validation-result mssql-validation-result" aria-busy={busy}>
+          <div
+            className="validation-result mssql-validation-result"
+            aria-busy={busy}
+          >
             <div className="mssql-validation-body">
               <div className="mssql-review-overview">
-              <p className="mssql-review-period">{file?.name}</p>
-              <div className="validation-summary">
-                <span><b>{validation.total ?? 0}</b> source rows</span>
-                <span><b>{validation.new ?? 0}</b> {type.id === "student-deactivate" ? "to deactivate" : "new"}</span>
-                {type.id !== "student-deactivate" && type.id !== "vouchers" && (
-                  <span><b>{validation.update ?? 0}</b> updates</span>
-                )}
-                <span><b>{validation.unchanged ?? 0}</b> unchanged</span>
-                {type.id === "vouchers" && (
-                  <span><b>{validation.duplicates ?? 0}</b> duplicates</span>
-                )}
-                {validation.skipped > 0 && (
-                  <span><b>{validation.skipped}</b> not found</span>
-                )}
-                <span className={invalid ? "has-errors" : ""}><b>{invalid}</b> invalid</span>
-              </div>
-              <p className="mssql-validation-copy">
-                Review changes before importing. Lists show up to 250 rows at a
-                time; loading more does not affect the import. Rows with errors
-                will be skipped.
-              </p>
-              <div className="mssql-review-toolbar">
-                <span>Changed fields show saved → imported values.</span>
-              </div>
+                <p className="mssql-review-period">{file?.name}</p>
+                <div className="validation-summary">
+                  <span>
+                    <b>{validation.total ?? 0}</b> source rows
+                  </span>
+                  <span>
+                    <b>{validation.new ?? 0}</b>{" "}
+                    {type.id === "student-deactivate" ? "to deactivate" : "new"}
+                  </span>
+                  {type.id !== "student-deactivate" &&
+                    type.id !== "vouchers" && (
+                      <span>
+                        <b>{validation.update ?? 0}</b> updates
+                      </span>
+                    )}
+                  <span>
+                    <b>{validation.unchanged ?? 0}</b> unchanged
+                  </span>
+                  {type.id === "vouchers" && (
+                    <span>
+                      <b>{validation.duplicates ?? 0}</b> duplicates
+                    </span>
+                  )}
+                  {validation.skipped > 0 && (
+                    <span>
+                      <b>{validation.skipped}</b> not found
+                    </span>
+                  )}
+                  <span className={invalid ? "has-errors" : ""}>
+                    <b>{invalid}</b> invalid
+                  </span>
+                </div>
+                <p className="mssql-validation-copy">
+                  Review changes before importing. Lists show up to 250 rows at
+                  a time; loading more does not affect the import. Rows with
+                  errors will be skipped.
+                </p>
+                <div className="mssql-review-toolbar">
+                  <span>Changed fields show saved → imported values.</span>
+                </div>
               </div>
               <ImportValidationGroups
                 groups={validation.groups}
@@ -5432,83 +5467,99 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
                   <span className="import-progress-spinner" aria-hidden="true">
                     <AppIcon name="progress_activity" size={19} />
                   </span>
-                  <span>Importing {changes} {changes === 1 ? "record" : "records"}. Please keep this window open.</span>
+                  <span>
+                    Importing {changes} {changes === 1 ? "record" : "records"}.
+                    Please keep this window open.
+                  </span>
                 </p>
-              ) : <>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => {
-                  setValidation(null);
-                  setError("");
-                }}
-              >
-                Choose another file
-              </Button>
-              <button
-                className="btn primary"
-                disabled={busy || changes < 1}
-                onClick={runImport}
-              >
-                {busy && !loadingGroup
-                  ? "Importing..."
-                  : type.id === "student-deactivate"
-                    ? `Deactivate ${changes} students`
-                    : `Import ${changes} records`}
-              </button>
-              </>}
+              ) : (
+                <>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setValidation(null);
+                      setError("");
+                    }}
+                  >
+                    Choose another file
+                  </Button>
+                  <button
+                    className="btn primary"
+                    disabled={busy || changes < 1}
+                    onClick={runImport}
+                  >
+                    {busy && !loadingGroup
+                      ? "Importing..."
+                      : type.id === "student-deactivate"
+                        ? `Deactivate ${changes} students`
+                        : `Import ${changes} records`}
+                  </button>
+                </>
+              )}
             </footer>
           </div>
         ) : (
           <form className="import-file-form" onSubmit={validate}>
             <div className="import-file-body">
-            <label className="bulk-file-picker">
-              <input
-                type="file"
-                accept={type.xlsxOnly ? ".xlsx" : ".csv,.xlsx,.xls"}
-                disabled={busy}
-                onChange={(event) => {
-                  setFile(event.target.files?.[0] || null);
-                  setError("");
-                }}
-              />
-              <span className="upload-icon">&#8679;</span>
-              <b>
-                {file
-                  ? file.name
-                  : `Choose ${type.xlsxOnly ? "an Excel" : "a CSV or Excel"} file`}
-              </b>
-              <small>
-                {file
-                  ? "Ready to validate"
-                  : type.id === "students"
-                    ? "CSV, XLS, or XLSX · Up to 2 MB"
-                    : `Required columns: ${type.detail}`}
-              </small>
-            </label>
-            {type.id === "students" && (
-              <div className="import-account-guidance">
-                <p><strong>Required:</strong> ID, first name, last name, birthday, and course code.</p>
-                <p><strong>Optional:</strong> Email address and passwords for Email, Schoology, SATP, and Kumosoft.</p>
-                <p>Blank passwords keep saved passwords. A new Kumosoft account uses the School ID if no Kumosoft ID is provided.</p>
-                <p>Birthdays can be Excel dates, YYYY-MM-DD, or MM/DD/YYYY.</p>
-              </div>
-            )}
-            <p className="template-link">
-              Need the format?{" "}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  downloadImportTemplate(type, token).catch((err) =>
-                    setError(err.message),
-                  )
-                }
-              >
-                Download template
-              </button>
-            </p>
-            {error && <p className="error">{error}</p>}
+              <label className="bulk-file-picker">
+                <input
+                  type="file"
+                  accept={type.xlsxOnly ? ".xlsx" : ".csv,.xlsx,.xls"}
+                  disabled={busy}
+                  onChange={(event) => {
+                    setFile(event.target.files?.[0] || null);
+                    setError("");
+                  }}
+                />
+                <span className="upload-icon">&#8679;</span>
+                <b>
+                  {file
+                    ? file.name
+                    : `Choose ${type.xlsxOnly ? "an Excel" : "a CSV or Excel"} file`}
+                </b>
+                <small>
+                  {file
+                    ? "Ready to validate"
+                    : type.id === "students"
+                      ? "CSV, XLS, or XLSX · Up to 2 MB"
+                      : `Required columns: ${type.detail}`}
+                </small>
+              </label>
+              {type.id === "students" && (
+                <div className="import-account-guidance">
+                  <p>
+                    <strong>Required:</strong> ID, first name, last name,
+                    birthday, and course code.
+                  </p>
+                  <p>
+                    <strong>Optional:</strong> Email address and passwords for
+                    Email, Schoology, SATP, and Kumosoft.
+                  </p>
+                  <p>
+                    Blank passwords keep saved passwords. A new Kumosoft account
+                    uses the School ID if no Kumosoft ID is provided.
+                  </p>
+                  <p>
+                    Birthdays can be Excel dates, YYYY-MM-DD, or MM/DD/YYYY.
+                  </p>
+                </div>
+              )}
+              <p className="template-link">
+                Need the format?{" "}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    downloadImportTemplate(type, token).catch((err) =>
+                      setError(err.message),
+                    )
+                  }
+                >
+                  Download template
+                </button>
+              </p>
+              {error && <p className="error">{error}</p>}
             </div>
             <footer>
               <Button variant="secondary" onClick={onClose} disabled={busy}>
@@ -5705,43 +5756,47 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
           >
             <div className="mssql-validation-body">
               <div className="mssql-review-overview">
-              <p className="mssql-review-period">
-                {preview.period.schoolYear} ·{" "}
-                {preview.period.term || `Semester ${preview.period.semester}`}
-              </p>
-              <div className="validation-summary">
-                <span>
-                  <b>{preview.total}</b> source rows
-                </span>
-                <span>
-                  <b>{preview.new}</b> new
-                </span>
-                <span>
-                  <b>{preview.update}</b> updates
-                </span>
-                <span>
-                  <b>{preview.unchanged || 0}</b> unchanged
-                </span>
-                <span className={preview.invalid ? "has-errors" : ""}>
-                  <b>{preview.invalid}</b> invalid
-                </span>
-              </div>
-              {birthdayToggle}
-              <p className="mssql-validation-copy">
-                Review changes before importing. Lists show up to 250 rows at a time;
-                loading more does not affect the import. Only selected birthday
-                changes will be applied.
-              </p>
-              <div className="mssql-review-toolbar">
-                <span role="status">
-                  {updateExistingBirthdays
-                    ? `${Object.keys(birthdaySelections).length} birthday change${Object.keys(birthdaySelections).length === 1 ? "" : "s"} selected`
-                    : "Saved birthdays will be kept"}
-                </span>
-                <Button variant="secondary" disabled={busy} onClick={() => loadPreview()}>
-                  <AppIcon name="refresh" size={18} /> Refresh preview
-                </Button>
-              </div>
+                <p className="mssql-review-period">
+                  {preview.period.schoolYear} ·{" "}
+                  {preview.period.term || `Semester ${preview.period.semester}`}
+                </p>
+                <div className="validation-summary">
+                  <span>
+                    <b>{preview.total}</b> source rows
+                  </span>
+                  <span>
+                    <b>{preview.new}</b> new
+                  </span>
+                  <span>
+                    <b>{preview.update}</b> updates
+                  </span>
+                  <span>
+                    <b>{preview.unchanged || 0}</b> unchanged
+                  </span>
+                  <span className={preview.invalid ? "has-errors" : ""}>
+                    <b>{preview.invalid}</b> invalid
+                  </span>
+                </div>
+                {birthdayToggle}
+                <p className="mssql-validation-copy">
+                  Review changes before importing. Lists show up to 250 rows at
+                  a time; loading more does not affect the import. Only selected
+                  birthday changes will be applied.
+                </p>
+                <div className="mssql-review-toolbar">
+                  <span role="status">
+                    {updateExistingBirthdays
+                      ? `${Object.keys(birthdaySelections).length} birthday change${Object.keys(birthdaySelections).length === 1 ? "" : "s"} selected`
+                      : "Saved birthdays will be kept"}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => loadPreview()}
+                  >
+                    <AppIcon name="refresh" size={18} /> Refresh preview
+                  </Button>
+                </div>
               </div>
               <ImportValidationGroups
                 groups={preview.groups}
@@ -5779,15 +5834,26 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                 busy={busy || !previewIsCurrent}
                 loadingGroup={loadingGroup}
                 birthdaySelections={birthdaySelections}
-                onBirthdaySelection={updateExistingBirthdays ? (row, checked) => {
-                  const change = row.changes.find((item) => item.field === "Birthday");
-                  setBirthdaySelections((current) => {
-                    const next = { ...current };
-                    if (checked) next[row.schoolId] = { schoolId: row.schoolId, before: change.before || "", after: change.after || "" };
-                    else delete next[row.schoolId];
-                    return next;
-                  });
-                } : undefined}
+                onBirthdaySelection={
+                  updateExistingBirthdays
+                    ? (row, checked) => {
+                        const change = row.changes.find(
+                          (item) => item.field === "Birthday",
+                        );
+                        setBirthdaySelections((current) => {
+                          const next = { ...current };
+                          if (checked)
+                            next[row.schoolId] = {
+                              schoolId: row.schoolId,
+                              before: change.before || "",
+                              after: change.after || "",
+                            };
+                          else delete next[row.schoolId];
+                          return next;
+                        });
+                      }
+                    : undefined
+                }
               />
               <p className="mssql-sync-warning">
                 <b>{preview.deactivate}</b> currently active student
@@ -5844,6 +5910,119 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
   );
 }
 
+function MssqlSchedule({ token }) {
+  const [schedule, setSchedule] = useState(null);
+  const [enabled, setEnabled] = useState(false);
+  const [intervalMinutes, setIntervalMinutes] = useState(1440);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const headers = { Authorization: `Bearer ${token}` };
+  useEffect(() => {
+    let live = true;
+    let initial = true;
+    const load = () =>
+      request("/admin/imports/mssql-schedule", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((data) => {
+          if (live) {
+            setSchedule(data);
+            if (initial) {
+              setEnabled(data.enabled);
+              setIntervalMinutes(data.interval_minutes);
+              initial = false;
+            }
+          }
+        })
+        .catch((err) => {
+          if (live) setError(err.message);
+        });
+    load();
+    const timer = setInterval(load, 30000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [token]);
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      const data = await request("/admin/imports/mssql-schedule", {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          intervalMinutes: Number(intervalMinutes),
+        }),
+      });
+      setSchedule(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="mssql-schedule">
+      <div className="mssql-schedule-heading">
+        <strong>Automatic synchronization</strong>
+        <span>{schedule?.enabled ? "Enabled" : "Disabled"}</span>
+      </div>
+      <p>
+        Creates and updates students in the current academic period and
+        deactivates active students missing from the SQL Server list. Existing
+        birthdays are kept.
+      </p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {schedule && (
+        <>
+          <div className="mssql-schedule-controls">
+            <label>
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+              />{" "}
+              Enable automatic sync
+            </label>
+            <label>
+              Run every{" "}
+              <select
+                value={intervalMinutes}
+                onChange={(event) =>
+                  setIntervalMinutes(Number(event.target.value))
+                }
+              >
+                <option value={60}>1 hour</option>
+                <option value={360}>6 hours</option>
+                <option value={720}>12 hours</option>
+                <option value={1440}>24 hours</option>
+                <option value={10080}>7 days</option>
+              </select>
+            </label>
+            <Button variant="secondary" onClick={save} disabled={saving}>
+              {saving ? "Saving..." : "Save schedule"}
+            </Button>
+          </div>
+          <p className="mssql-schedule-status" role="status">
+            {schedule.enabled && schedule.next_run_at
+              ? `Next run: ${new Date(schedule.next_run_at).toLocaleString()}. `
+              : ""}
+            {schedule.last_status
+              ? `Last run: ${schedule.last_status}${schedule.last_finished_at ? ` (${new Date(schedule.last_finished_at).toLocaleString()})` : ""}. ${schedule.last_message || ""}`
+              : "No scheduled runs yet."}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ImportsPage({ token, admin }) {
   const [activeType, setActiveType] = useState(null);
   const [mssqlImportOpen, setMssqlImportOpen] = useState(false);
@@ -5885,8 +6064,13 @@ function ImportsPage({ token, admin }) {
         actions={
           <>
             {admin?.role === "Super Admin" && (
-              <Button variant="secondary" onClick={matchAccounts} disabled={matching}>
-                <AppIcon name="link" /> {matching ? "Matching accounts..." : "Match accounts"}
+              <Button
+                variant="secondary"
+                onClick={matchAccounts}
+                disabled={matching}
+              >
+                <AppIcon name="link" />{" "}
+                {matching ? "Matching accounts..." : "Match accounts"}
               </Button>
             )}
             <Button variant="secondary" onClick={() => setConfirmExport(true)}>
@@ -5898,11 +6082,16 @@ function ImportsPage({ token, admin }) {
       {error && <p className="error imports-page-error">{error}</p>}
       {matchResult && (
         <p className="account-match-result" role="status">
-          {matchResult.matched} account{matchResult.matched === 1 ? "" : "s"} matched.
-          {matchResult.unmatched > 0 && ` ${matchResult.unmatched} still waiting for a matching student.`}
-          {matchResult.existing > 0 && ` ${matchResult.existing} already have an account.`}
-          {matchResult.conflicts > 0 && ` ${matchResult.conflicts} have a conflicting account name.`}
-          {matchResult.invalid > 0 && ` ${matchResult.invalid} have invalid or unreadable credentials.`}
+          {matchResult.matched} account{matchResult.matched === 1 ? "" : "s"}{" "}
+          matched.
+          {matchResult.unmatched > 0 &&
+            ` ${matchResult.unmatched} still waiting for a matching student.`}
+          {matchResult.existing > 0 &&
+            ` ${matchResult.existing} already have an account.`}
+          {matchResult.conflicts > 0 &&
+            ` ${matchResult.conflicts} have a conflicting account name.`}
+          {matchResult.invalid > 0 &&
+            ` ${matchResult.invalid} have invalid or unreadable credentials.`}
         </p>
       )}
       <section className="panel import-hub-card mssql-import-card">
@@ -5915,6 +6104,7 @@ function ImportsPage({ token, admin }) {
             before importing.
           </small>
         </div>
+        {admin?.role === "Super Admin" && <MssqlSchedule token={token} />}
         <footer>
           <Button onClick={() => setMssqlImportOpen(true)}>
             Import from SQL Server
@@ -6957,7 +7147,7 @@ function AcademicPeriodsPage({ token }) {
                   <small>
                     {editor !== "create" && editor.isCurrent
                       ? "This is the active period. Edit another period to replace it."
-                      : "Making this current automatically moves the previous active period to historical."}
+                      : "Making this current moves the previous period to historical and reactivates inactive students assigned to this period, including those manually deactivated."}
                   </small>
                 </span>
                 <input
@@ -7496,6 +7686,20 @@ function Kiosk() {
       setResetNotice("Requests for this account are currently unavailable.");
     }
   }, [moduleControls, resetRequestInfo, requestingReset]);
+  useEffect(() => {
+    const control = moduleControls.find(
+      (item) => item.module_key === "VOUCHER",
+    );
+    if (
+      voucherRequestOpen &&
+      !requestingVoucher &&
+      control &&
+      !voucherRequestsEnabled(control)
+    ) {
+      setVoucherRequestOpen(false);
+      setResetNotice(voucherPausedMessage(control));
+    }
+  }, [moduleControls, voucherRequestOpen, requestingVoucher]);
   const requestReset = async (credentialType) => {
     if (!acceptsRequest(credentialType, "PASSWORD_RESET"))
       return setResetNotice(
@@ -7551,6 +7755,13 @@ function Kiosk() {
     }
   };
   const requestNewVoucher = async () => {
+    const control = moduleControls.find(
+      (item) => item.module_key === "VOUCHER",
+    );
+    if (control && !voucherRequestsEnabled(control)) {
+      setVoucherRequestOpen(false);
+      return setResetNotice(voucherPausedMessage(control));
+    }
     setRequestingVoucher(true);
     setResetNotice("");
     try {
@@ -7645,6 +7856,12 @@ function Kiosk() {
       (item) => !item.unavailable && !item.maintenance,
     ).length,
     kioskControl = moduleControls.find((item) => item.module_key === "KIOSK"),
+    voucherControl = moduleControls.find(
+      (item) => item.module_key === "VOUCHER",
+    ),
+    voucherRequestsPaused = Boolean(
+      voucherControl && !voucherRequestsEnabled(voucherControl),
+    ),
     passwordResetRequestsEnabled = visibleCredentials.some(
       (item) =>
         item.requestKind === "PASSWORD_RESET" &&
@@ -7716,37 +7933,47 @@ function Kiosk() {
                       {result.voucherState === "MAINTENANCE"
                         ? "Under maintenance"
                         : passwordsVisible
-                          ? result.wifiVoucher || "Pending"
+                          ? result.wifiVoucher ||
+                            (voucherRequestsPaused ? "Unavailable" : "Pending")
                           : result.hasWifiVoucher
                             ? "••••••••"
-                            : "Pending"}
+                            : voucherRequestsPaused
+                              ? "Unavailable"
+                              : "Pending"}
                     </code>
-                    {result.voucherState === "AVAILABLE" && (
-                      <button
-                        type="button"
-                        className={`voucher-request-button kiosk-request-button${requestIsPending("VOUCHER", "VOUCHER_REQUEST") ? " pending" : ""}`}
-                        disabled={requestIsPending(
-                          "VOUCHER",
-                          "VOUCHER_REQUEST",
-                        )}
-                        onClick={() => setVoucherRequestOpen(true)}
-                      >
-                        <AppIcon
-                          name={
-                            requestIsPending("VOUCHER", "VOUCHER_REQUEST")
-                              ? "check_circle"
-                              : "confirmation_number"
-                          }
-                          size={18}
-                        />
-                        <span className="request-action-label">
-                          {requestIsPending("VOUCHER", "VOUCHER_REQUEST")
-                            ? "New voucher request pending"
-                            : "Request new voucher"}
-                        </span>
-                      </button>
-                    )}
+                    {result.voucherState === "AVAILABLE" &&
+                      !voucherRequestsPaused && (
+                        <button
+                          type="button"
+                          className={`voucher-request-button kiosk-request-button${requestIsPending("VOUCHER", "VOUCHER_REQUEST") ? " pending" : ""}`}
+                          disabled={requestIsPending(
+                            "VOUCHER",
+                            "VOUCHER_REQUEST",
+                          )}
+                          onClick={() => setVoucherRequestOpen(true)}
+                        >
+                          <AppIcon
+                            name={
+                              requestIsPending("VOUCHER", "VOUCHER_REQUEST")
+                                ? "check_circle"
+                                : "confirmation_number"
+                            }
+                            size={18}
+                          />
+                          <span className="request-action-label">
+                            {requestIsPending("VOUCHER", "VOUCHER_REQUEST")
+                              ? "New voucher request pending"
+                              : "Request new voucher"}
+                          </span>
+                        </button>
+                      )}
                   </p>
+                  {voucherRequestsPaused &&
+                    result.voucherState !== "MAINTENANCE" && (
+                      <p className="voucher-exhausted-notice" role="status">
+                        {voucherPausedMessage(voucherControl)}
+                      </p>
+                    )}
                   {requestOutcome("VOUCHER", "VOUCHER_REQUEST") && (
                     <p
                       className={`credential-request-outcome ${requestOutcome("VOUCHER", "VOUCHER_REQUEST").status.toLowerCase()}`}
@@ -8115,6 +8342,49 @@ function Kiosk() {
     </div>
   );
 }
+function VoucherMessageEditor({ item, busy, update }) {
+  const [message, setMessage] = useState(() => voucherPausedMessage(item));
+  const savedMessage = voucherPausedMessage(item);
+  return (
+    <div className="voucher-message-editor">
+      <label htmlFor="voucher-paused-message">
+        Message when requests are paused
+      </label>
+      <p>
+        Students see this message on the kiosk while voucher requests are
+        paused.
+      </p>
+      <textarea
+        id="voucher-paused-message"
+        rows={3}
+        maxLength={500}
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+      />
+      <div className="voucher-message-editor-footer">
+        <small>{message.length}/500 characters</small>
+        <button
+          type="button"
+          className="btn secondary"
+          disabled={
+            Boolean(busy) || !message.trim() || message.trim() === savedMessage
+          }
+          onClick={() =>
+            update(
+              item,
+              { voucherPausedMessage: message.trim() },
+              "voucher-message",
+            )
+          }
+        >
+          {" "}
+          {busy === "VOUCHER-voucher-message" ? "Saving..." : "Save message"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ModuleControlsPage({ token }) {
   const [controls, setControls] = useState([]),
     [busy, setBusy] = useState(""),
@@ -8169,181 +8439,213 @@ function ModuleControlsPage({ token }) {
       />
       <section className="panel module-control-panel">
         <div className="course-intro">
-          Disabling a credential removes it from the kiosk. Setting Kiosk
-          maintenance replaces the entire dispenser with a maintenance screen.{" "}
-          Pausing requests does not remove requests that are already pending.
+          Hide a credential to remove it from the kiosk, or turn on maintenance
+          to show an unavailable notice. Kiosk maintenance replaces the entire
+          dispenser with a maintenance screen. Pausing requests does not remove
+          requests that are already pending.
         </div>
         {error && <p className="error">{error}</p>}
-        <div className="module-control-table-wrap">
-          <table className="module-control-table">
-            <thead>
-              <tr>
-                <th>Credential section</th>
-                <th>Visibility</th>
-                <th>Maintenance</th>
-                <th>Password resets</th>
-                <th>New accounts</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {controls
-                .filter((item) => item.module_key !== "PASSWORD_RESET_REQUEST")
-                .map((item) => {
-                  const options = credentialRequestOptions(
-                    item.module_key,
-                    item,
-                  );
-                  return (
-                    <tr key={item.module_key}>
-                      <td>
-                        <b>{displayName(item.module_key)}</b>
-                        {item.module_key === "KIOSK" && (
-                          <small>Controls the complete student dispenser</small>
-                        )}
-                        {item.module_key === "SATP" && (
-                          <small>Uses Google sign-in; no request buttons</small>
-                        )}
-                      </td>
-                      <td>
-                        {item.module_key === "KIOSK" ? (
-                          <span className="muted-cell">
-                            Controlled by maintenance
-                          </span>
-                        ) : (
-                          <Status tone={item.is_visible ? "green" : "gold"}>
-                            {item.is_visible ? "Enabled" : "Disabled"}
-                          </Status>
-                        )}
-                      </td>
-                      <td>
-                        <Status tone={item.is_maintenance ? "gold" : "green"}>
-                          {item.is_maintenance ? "Maintenance" : "Normal"}
+        <div className="module-control-grid">
+          {controls
+            .filter((item) => item.module_key !== "PASSWORD_RESET_REQUEST")
+            .map((item) => {
+              const options = credentialRequestOptions(item.module_key, item);
+              const requests = [
+                ...(PASSWORD_RESET_MODULES.includes(item.module_key)
+                  ? [
+                      {
+                        label: "Password reset requests",
+                        value: options.passwordResets,
+                        field: "acceptPasswordResets",
+                        action: "password-resets",
+                      },
+                    ]
+                  : []),
+                ...(ACCOUNT_REQUEST_MODULES.includes(item.module_key)
+                  ? [
+                      {
+                        label: "New account requests",
+                        value: options.accountRequests,
+                        field: "acceptAccountRequests",
+                        action: "account-requests",
+                      },
+                    ]
+                  : []),
+                ...(item.module_key === "VOUCHER"
+                  ? [
+                      {
+                        label: "Voucher requests",
+                        value: voucherRequestsEnabled(item),
+                        field: "acceptVoucherRequests",
+                        action: "voucher-requests",
+                      },
+                    ]
+                  : []),
+              ];
+              return (
+                <article className="module-control-card" key={item.module_key}>
+                  <header className="module-control-card-header">
+                    <div>
+                      <h2>{displayName(item.module_key)}</h2>
+                      <p>
+                        {item.module_key === "KIOSK"
+                          ? "Controls the entire student dispenser"
+                          : item.module_key === "SATP"
+                            ? "Google sign-in"
+                            : item.module_key === "VOUCHER"
+                              ? "Student WiFi access"
+                              : "Student account credentials"}
+                      </p>
+                    </div>
+                    <Status tone={item.is_maintenance ? "gold" : "green"}>
+                      {item.is_maintenance ? "Maintenance" : "Operating"}
+                    </Status>
+                  </header>
+                  <div className="module-control-card-body">
+                    {item.module_key !== "KIOSK" && (
+                      <div className="module-control-setting">
+                        <div>
+                          <b>Kiosk visibility</b>
+                          <small>
+                            {item.is_visible
+                              ? "Students can see this section"
+                              : "Hidden from students"}
+                          </small>
+                        </div>
+                        <Status tone={item.is_visible ? "green" : "gold"}>
+                          {item.is_visible ? "Visible" : "Hidden"}
                         </Status>
-                      </td>
-                      <td>
-                        {PASSWORD_RESET_MODULES.includes(item.module_key) ? (
+                      </div>
+                    )}
+                    {requests.length > 0 ? (
+                      requests.map((entry) => (
+                        <div
+                          className="module-control-setting"
+                          key={entry.action}
+                        >
+                          <div>
+                            <b>{entry.label}</b>
+                            <small>
+                              {entry.value
+                                ? "Students can submit requests"
+                                : "New requests are paused"}
+                            </small>
+                          </div>
                           <button
                             type="button"
                             role="switch"
-                            aria-label={`Accept ${displayName(item.module_key)} password reset requests`}
-                            aria-checked={options.passwordResets}
+                            aria-label={`Accept ${displayName(item.module_key)} ${entry.label.toLowerCase()}`}
+                            aria-checked={entry.value}
                             className="module-request-toggle"
                             disabled={Boolean(busy)}
                             onClick={() =>
                               update(
                                 item,
-                                {
-                                  acceptPasswordResets: !options.passwordResets,
-                                },
-                                "password-resets",
+                                { [entry.field]: !entry.value },
+                                entry.action,
                               )
                             }
                           >
                             <i aria-hidden="true" />
                             <span>
-                              {busy === `${item.module_key}-password-resets`
+                              {busy === `${item.module_key}-${entry.action}`
                                 ? "Saving..."
-                                : options.passwordResets
+                                : entry.value
                                   ? "Accepting"
                                   : "Paused"}
                             </span>
-                          </button>
-                        ) : (
-                          <span className="muted-cell">Not applicable</span>
-                        )}
-                      </td>
-                      <td>
-                        {ACCOUNT_REQUEST_MODULES.includes(item.module_key) ? (
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-label={`Accept ${displayName(item.module_key)} new-account requests`}
-                            aria-checked={options.accountRequests}
-                            className="module-request-toggle"
-                            disabled={Boolean(busy)}
-                            onClick={() =>
-                              update(
-                                item,
-                                {
-                                  acceptAccountRequests:
-                                    !options.accountRequests,
-                                },
-                                "account-requests",
-                              )
-                            }
-                          >
-                            <i aria-hidden="true" />
-                            <span>
-                              {busy === `${item.module_key}-account-requests`
-                                ? "Saving..."
-                                : options.accountRequests
-                                  ? "Accepting"
-                                  : "Paused"}
-                            </span>
-                          </button>
-                        ) : (
-                          <span className="muted-cell">Not applicable</span>
-                        )}
-                      </td>
-                      <td>
-                        <div className="module-control-actions">
-                          {item.module_key !== "KIOSK" && (
-                            <button
-                              className={`btn ${item.is_visible ? "danger" : "primary"}`}
-                              disabled={Boolean(busy)}
-                              onClick={() =>
-                                setPendingChange({
-                                  item,
-                                  values: { isVisible: !item.is_visible },
-                                  action: "visibility",
-                                })
-                              }
-                            >
-                              {busy === `${item.module_key}-visibility`
-                                ? "Saving..."
-                                : item.is_visible
-                                  ? "Disable"
-                                  : "Enable"}
-                            </button>
-                          )}
-                          <button
-                            className={`btn ${item.is_maintenance ? "secondary" : "maintenance"}`}
-                            disabled={Boolean(busy)}
-                            onClick={() =>
-                              setPendingChange({
-                                item,
-                                values: { isMaintenance: !item.is_maintenance },
-                                action: "maintenance",
-                              })
-                            }
-                          >
-                            {busy === `${item.module_key}-maintenance`
-                              ? "Saving..."
-                              : item.is_maintenance
-                                ? "Set normal"
-                                : "Set maintenance"}
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
+                      ))
+                    ) : (
+                      <p className="module-control-no-requests">
+                        {item.module_key === "KIOSK"
+                          ? "Maintenance affects all kiosk functions."
+                          : "No student request controls for this section."}
+                      </p>
+                    )}
+                    {item.module_key === "VOUCHER" && (
+                      <VoucherMessageEditor
+                        item={item}
+                        busy={busy}
+                        update={update}
+                      />
+                    )}
+                  </div>
+                  <footer className="module-control-actions">
+                    {item.module_key !== "KIOSK" && (
+                      <button
+                        className={`btn ${item.is_visible ? "secondary" : "primary"}`}
+                        aria-label={`${item.is_visible ? "Hide" : "Show"} ${displayName(item.module_key)} on the kiosk`}
+                        disabled={Boolean(busy)}
+                        onClick={() =>
+                          setPendingChange({
+                            item,
+                            values: { isVisible: !item.is_visible },
+                            action: "visibility",
+                          })
+                        }
+                      >
+                        {busy === `${item.module_key}-visibility`
+                          ? "Saving..."
+                          : item.is_visible
+                            ? "Hide from kiosk"
+                            : "Show on kiosk"}
+                      </button>
+                    )}
+                    <button
+                      className={`btn ${item.is_maintenance ? "primary" : "maintenance"}`}
+                      aria-label={`${item.is_maintenance ? "Turn off" : "Turn on"} ${displayName(item.module_key)} maintenance`}
+                      disabled={Boolean(busy)}
+                      onClick={() =>
+                        setPendingChange({
+                          item,
+                          values: { isMaintenance: !item.is_maintenance },
+                          action: "maintenance",
+                        })
+                      }
+                    >
+                      {busy === `${item.module_key}-maintenance`
+                        ? "Saving..."
+                        : item.is_maintenance
+                          ? "Turn off maintenance"
+                          : "Turn on maintenance"}
+                    </button>
+                  </footer>
+                </article>
+              );
+            })}
         </div>
       </section>
       {pendingChange && (
         <ConfirmModal
-          title={`${pendingChange.action === "visibility" ? (pendingChange.values.isVisible ? "Enable" : "Disable") : pendingChange.values.isMaintenance ? "Enable maintenance" : "Set normal operation"} ${displayName(pendingChange.item.module_key)}?`}
+          title={
+            pendingChange.action === "visibility"
+              ? `${pendingChange.values.isVisible ? "Show" : "Hide"} ${displayName(pendingChange.item.module_key)} ${pendingChange.values.isVisible ? "on" : "from"} the kiosk?`
+              : `${pendingChange.values.isMaintenance ? "Turn on" : "Turn off"} maintenance for ${displayName(pendingChange.item.module_key)}?`
+          }
           message={
             pendingChange.action === "visibility"
-              ? `${pendingChange.values.isVisible ? "Students will be able to see this credential again." : "This credential will be hidden from students at the kiosk."}`
+              ? pendingChange.values.isVisible
+                ? "Students can see this credential on the kiosk. If maintenance is on, they will see a maintenance notice instead."
+                : "This credential will be hidden from students on the kiosk."
               : pendingChange.values.isMaintenance
-                ? "Students will see a maintenance notice for this module until you return it to normal operation."
-                : "This module will return to normal kiosk operation."
+                ? pendingChange.item.module_key === "KIOSK"
+                  ? "The entire dispenser will show a maintenance screen and students cannot use it until maintenance is turned off."
+                  : "Students will see a maintenance notice for this credential while it is visible on the kiosk."
+                : pendingChange.item.module_key === "KIOSK"
+                  ? "Students can use the dispenser again, subject to the individual credential settings."
+                  : "Maintenance will end for this credential. Its visibility and request settings will still apply."
           }
-          confirmLabel="Confirm change"
+          confirmLabel={
+            pendingChange.action === "visibility"
+              ? pendingChange.values.isVisible
+                ? "Show on kiosk"
+                : "Hide from kiosk"
+              : pendingChange.values.isMaintenance
+                ? "Turn on maintenance"
+                : "Turn off maintenance"
+          }
           onClose={() => setPendingChange(null)}
           onConfirm={() => {
             const change = pendingChange;
@@ -11450,7 +11752,8 @@ function StudentsPage({ token }) {
                     </Status>
                     {!student.is_active && (
                       <small>
-                        Last recorded: {student.recorded_academic_period || "Not recorded"}
+                        Last recorded:{" "}
+                        {student.recorded_academic_period || "Not recorded"}
                       </small>
                     )}
                   </td>

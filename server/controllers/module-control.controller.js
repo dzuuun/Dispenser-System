@@ -15,7 +15,7 @@ const MODULES = new Set([
 
 export async function listModuleControls(_req, res) {
   const [rows] = await pool.query(
-    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, updated_at FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST' ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','KIOSK')",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, voucher_paused_message, updated_at FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST' ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','KIOSK')",
   );
   res.set("Cache-Control", "no-store").json(rows);
 }
@@ -28,11 +28,14 @@ export async function updateModuleControl(req, res) {
   const isMaintenance = req.body?.isMaintenance;
   const acceptPasswordResets = req.body?.acceptPasswordResets;
   const acceptAccountRequests = req.body?.acceptAccountRequests;
+  const acceptVoucherRequests = req.body?.acceptVoucherRequests;
+  const pausedMessage = req.body?.voucherPausedMessage;
   const settings = {
     isVisible,
     isMaintenance,
     acceptPasswordResets,
     acceptAccountRequests,
+    acceptVoucherRequests,
   };
   if (
     Object.values(settings).some(
@@ -56,11 +59,30 @@ export async function updateModuleControl(req, res) {
     return res.status(400).json({
       message: "New-account requests are not supported for this module.",
     });
+  if (acceptVoucherRequests !== undefined && moduleKey !== "VOUCHER")
+    return res
+      .status(400)
+      .json({
+        message: "Voucher requests are supported only for WiFi vouchers.",
+      });
+  if (
+    pausedMessage !== undefined &&
+    (moduleKey !== "VOUCHER" ||
+      typeof pausedMessage !== "string" ||
+      !pausedMessage.trim() ||
+      pausedMessage.trim().length > 500)
+  )
+    return res
+      .status(400)
+      .json({ message: "Enter a voucher message of 1 to 500 characters." });
   if (moduleKey === "KIOSK" && typeof isVisible === "boolean")
     return res
       .status(400)
       .json({ message: "Use maintenance mode to control the kiosk." });
-  if (Object.values(settings).every((value) => value === undefined))
+  if (
+    pausedMessage === undefined &&
+    Object.values(settings).every((value) => value === undefined)
+  )
     return res.status(400).json({
       message: "Choose a visibility, maintenance, or request setting.",
     });
@@ -88,6 +110,14 @@ export async function updateModuleControl(req, res) {
     assignments.push("accept_account_requests=?");
     values.push(acceptAccountRequests);
   }
+  if (typeof acceptVoucherRequests === "boolean") {
+    assignments.push("accept_voucher_requests=?");
+    values.push(acceptVoucherRequests);
+  }
+  if (pausedMessage !== undefined) {
+    assignments.push("voucher_paused_message=?");
+    values.push(pausedMessage.trim());
+  }
   values.push(moduleKey);
   await pool.execute(
     `UPDATE credential_module_controls SET ${assignments.join(", ")} WHERE module_key=?`,
@@ -110,7 +140,7 @@ export async function updateModuleControl(req, res) {
 
 export async function publicModuleControls(_req, res) {
   const [rows] = await pool.query(
-    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
   );
   res.set("Cache-Control", "no-store").json(rows);
 }

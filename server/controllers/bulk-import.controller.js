@@ -1,4 +1,7 @@
-import { displayMiddleName, studentFullName } from "../../shared/student-name.mjs";
+import {
+  displayMiddleName,
+  studentFullName,
+} from "../../shared/student-name.mjs";
 import {
   multiSheetWorkbookBuffer,
   readWorkbookRows,
@@ -108,19 +111,19 @@ export async function attachPendingAccounts(connection, schoolIds) {
     const batch = ids.slice(start, start + STUDENT_IMPORT_BATCH_SIZE);
     const placeholders = batch.map(() => "?").join(", ");
     for (const [type, config] of Object.entries(TYPES)) {
-    if (!config.table || !config.column) continue;
-    await connection.query(
-      `INSERT INTO ${config.table} (student_id, ${config.column}, encrypted_password, password_iv, password_auth_tag, is_active)
+      if (!config.table || !config.column) continue;
+      await connection.query(
+        `INSERT INTO ${config.table} (student_id, ${config.column}, encrypted_password, password_iv, password_auth_tag, is_active)
        SELECT s.id, p.account_name, p.encrypted_password, p.password_iv, p.password_auth_tag, 1
          FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
         WHERE p.account_type=? AND p.school_id IN (${placeholders})${type === "email" ? " AND p.account_name REGEXP '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'" : ""}
        ON DUPLICATE KEY UPDATE ${config.column}=VALUES(${config.column}), encrypted_password=VALUES(encrypted_password), password_iv=VALUES(password_iv), password_auth_tag=VALUES(password_auth_tag), is_active=1`,
-      [type, ...batch],
-    );
-    await connection.query(
-      `DELETE p FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci WHERE p.account_type=? AND p.school_id IN (${placeholders})${type === "email" ? " AND p.account_name REGEXP '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'" : ""}`,
-      [type, ...batch],
-    );
+        [type, ...batch],
+      );
+      await connection.query(
+        `DELETE p FROM pending_account_imports p JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci WHERE p.account_type=? AND p.school_id IN (${placeholders})${type === "email" ? " AND p.account_name REGEXP '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]+$'" : ""}`,
+        [type, ...batch],
+      );
     }
   }
 }
@@ -160,22 +163,36 @@ const rowPassword = (row, column) => {
   return value.trim() ? value : null;
 };
 
-const isNotFound = (value) => String(value ?? "").trim().toLowerCase() === "not found";
+const isNotFound = (value) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase() === "not found";
 const studentBirthday = (value) => {
   const text = String(value ?? "").trim();
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(text);
+  const iso =
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(
+      text,
+    );
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
   if (!iso && !us) return "";
   const year = Number(iso ? iso[1] : us[3]);
   const month = Number(iso ? iso[2] : us[1]);
   const day = Number(iso ? iso[3] : us[2]);
   const date = new Date(Date.UTC(year, month - 1, day));
-  if (year < 1000 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  if (
+    year < 1000 ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    return "";
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 
 const emailValue = (row) => {
-  const hasAddress = Object.keys(row).some((key) => normalizeColumnName(key) === "emailaddress");
+  const hasAddress = Object.keys(row).some(
+    (key) => normalizeColumnName(key) === "emailaddress",
+  );
   return rowValue(row, hasAddress ? "EmailAddress" : "Email");
 };
 
@@ -254,7 +271,19 @@ export async function downloadImportTemplate(req, res) {
 
 export async function exportAccountCredentials(req, res) {
   try {
-    const headers = ["School ID", "Kumosoft ID", "Student name", "Course code", "Course name", "Student status", "Email", "Email password", "Kumosoft password", "Schoology password", "SATP password"];
+    const headers = [
+      "School ID",
+      "Kumosoft ID",
+      "Student name",
+      "Course code",
+      "Course name",
+      "Student status",
+      "Email",
+      "Email password",
+      "Kumosoft password",
+      "Schoology password",
+      "SATP password",
+    ];
     const [students] = await pool.query(
       `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name,
               s.last_name,
@@ -278,7 +307,12 @@ export async function exportAccountCredentials(req, res) {
       bySchoolId.set(String(student.student_id), row);
       return row;
     });
-    const passwordColumns = { satp: "SATP password", schoology: "Schoology password", kumosoft: "Kumosoft password", email: "Email password" };
+    const passwordColumns = {
+      satp: "SATP password",
+      schoology: "Schoology password",
+      kumosoft: "Kumosoft password",
+      email: "Email password",
+    };
     const accountTypes = Object.values(TYPES).filter(
       (config) => config.table && config.column,
     );
@@ -311,9 +345,12 @@ export async function exportAccountCredentials(req, res) {
           bySchoolId.set(schoolId, row);
           exportRows.push(row);
         }
-        if (row[column] === undefined) row[column] = decryptPassword(account) || "";
-        if (account.account_type === "email" && !row.Email) row.Email = account.account_name || "";
-        if (account.account_type === "kumosoft" && !row["Kumosoft ID"]) row["Kumosoft ID"] = account.account_name || "";
+        if (row[column] === undefined)
+          row[column] = decryptPassword(account) || "";
+        if (account.account_type === "email" && !row.Email)
+          row.Email = account.account_name || "";
+        if (account.account_type === "kumosoft" && !row["Kumosoft ID"])
+          row["Kumosoft ID"] = account.account_name || "";
       }
     } catch (error) {
       if (error.code !== "ER_NO_SUCH_TABLE") throw error;
@@ -326,7 +363,11 @@ export async function exportAccountCredentials(req, res) {
           "attachment; filename=credential-account-export.xlsx",
         "Cache-Control": "no-store",
       })
-      .send(await multiSheetWorkbookBuffer([{ rows: exportRows, name: "Student accounts", headers }]));
+      .send(
+        await multiSheetWorkbookBuffer([
+          { rows: exportRows, name: "Student accounts", headers },
+        ]),
+      );
   } catch (error) {
     res.status(error.status || 500).json({
       message: error.status
@@ -393,12 +434,15 @@ export async function reviewStudentRows(
     const firstName = rowValue(row, "FirstName", "GivenName");
     const middleName = rowValue(row, "MiddleName", "MiddleInitial");
     const lastName = rowValue(row, "LastName", "Surname");
-    const updateBirthday = updateExistingBirthdays &&
+    const updateBirthday =
+      updateExistingBirthdays &&
       (!birthdayStudentIds || birthdayStudentIds.has(schoolId));
     const birthDate =
       !updateBirthday && existing.has(schoolId)
         ? existingBirthdays.get(schoolId)
-        : studentBirthday(rowValue(row, "BirthDate", "Birthday", "DateOfBirth"));
+        : studentBirthday(
+            rowValue(row, "BirthDate", "Birthday", "DateOfBirth"),
+          );
     const courseCode = rowValue(row, "CourseCode", "Course").toUpperCase();
     const year = rowValue(row, "YearLevel", "Year");
     const yearLevel = year ? Number(year) : null;
@@ -417,7 +461,8 @@ export async function reviewStudentRows(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate))
       return errors.push({
         row: rowNumber,
-        message: "Enter a valid Birthday as an Excel date, YYYY-MM-DD, or MM/DD/YYYY.",
+        message:
+          "Enter a valid Birthday as an Excel date, YYYY-MM-DD, or MM/DD/YYYY.",
       });
     if (!courseMap.has(courseCode))
       return errors.push({
@@ -614,10 +659,14 @@ async function reviewAccounts(rows, config, executor = pool, type) {
       kumosoft: "KumosoftPassword",
       email: "EmailPassword",
     }[type];
-    const hasColumn = (name) => Object.keys(row).some(
-      (column) => normalizeColumnName(column) === normalizeColumnName(name),
+    const hasColumn = (name) =>
+      Object.keys(row).some(
+        (column) => normalizeColumnName(column) === normalizeColumnName(name),
+      );
+    const password = rowPassword(
+      row,
+      hasColumn(typePassword) ? typePassword : "Password",
     );
-    const password = rowPassword(row, hasColumn(typePassword) ? typePassword : "Password");
     const emailAddress = rowValue(
       row,
       hasColumn("EmailAddress") ? "EmailAddress" : "Email",
@@ -628,7 +677,11 @@ async function reviewAccounts(rows, config, executor = pool, type) {
       (type === "schoology" && isNotFound(password)) ||
       (type === "email" && (isNotFound(password) || isNotFound(emailAddress)))
     ) {
-      skipped.push({ row: rowNumber, label: schoolId || `Row ${rowNumber}`, message: "Not Found — this account will be skipped." });
+      skipped.push({
+        row: rowNumber,
+        label: schoolId || `Row ${rowNumber}`,
+        message: "Not Found — this account will be skipped.",
+      });
       return;
     }
     if (!schoolId || (!password && !config.allowEmptyPassword))
@@ -826,11 +879,7 @@ async function reviewStudentAccounts(rows, result, executor) {
       const password = rowPassword(row, field.password);
       const login =
         field.type === "email"
-          ? (
-              emailValue(row) ||
-              account?.account_name ||
-              ""
-            ).toLowerCase()
+          ? (emailValue(row) || account?.account_name || "").toLowerCase()
           : field.type === "kumosoft"
             ? item.kumosoftId ||
               account?.account_name ||
@@ -986,38 +1035,42 @@ export async function upsertStudentRows(
   const schoolIds = items.map((item) => item.schoolId);
   items = items.filter((item) => item.status !== "unchanged");
   const batches = birthdayStudentIds
-    ? [items.filter((item) => birthdayStudentIds.has(item.schoolId)), items.filter((item) => !birthdayStudentIds.has(item.schoolId))]
+    ? [
+        items.filter((item) => birthdayStudentIds.has(item.schoolId)),
+        items.filter((item) => !birthdayStudentIds.has(item.schoolId)),
+      ]
     : [items];
-  for (const group of batches) for (
-    let start = 0;
-    start < group.length;
-    start += STUDENT_IMPORT_BATCH_SIZE
-  ) {
-    const batch = group.slice(start, start + STUDENT_IMPORT_BATCH_SIZE);
-    const updateBatchBirthdays = birthdayStudentIds
-      ? birthdayStudentIds.has(batch[0].schoolId)
-      : updateExistingBirthdays;
-    const values = [];
-    const placeholders = batch.map((item) => {
-      values.push(
-        item.schoolId,
-        item.kumosoftId,
-        item.firstName,
-        item.middleName,
-        item.lastName,
-        item.birthDate,
-        item.courseId,
-        period.id,
-      );
-      return "(?, ?, ?, ?, ?, ?, ?, ?, 1)";
-    });
-    await connection.query(
-      `INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, academic_period_id, is_active)
+  for (const group of batches)
+    for (
+      let start = 0;
+      start < group.length;
+      start += STUDENT_IMPORT_BATCH_SIZE
+    ) {
+      const batch = group.slice(start, start + STUDENT_IMPORT_BATCH_SIZE);
+      const updateBatchBirthdays = birthdayStudentIds
+        ? birthdayStudentIds.has(batch[0].schoolId)
+        : updateExistingBirthdays;
+      const values = [];
+      const placeholders = batch.map((item) => {
+        values.push(
+          item.schoolId,
+          item.kumosoftId,
+          item.firstName,
+          item.middleName,
+          item.lastName,
+          item.birthDate,
+          item.courseId,
+          period.id,
+        );
+        return "(?, ?, ?, ?, ?, ?, ?, ?, 1)";
+      });
+      await connection.query(
+        `INSERT INTO students (student_id, kumosoft_id, first_name, middle_name, last_name, birth_date, course_id, academic_period_id, is_active)
        VALUES ${placeholders.join(", ")}
        ON DUPLICATE KEY UPDATE kumosoft_id=COALESCE(VALUES(kumosoft_id), kumosoft_id), first_name=VALUES(first_name), middle_name=VALUES(middle_name), last_name=VALUES(last_name), ${updateBatchBirthdays ? "birth_date=VALUES(birth_date), " : ""}course_id=VALUES(course_id), academic_period_id=VALUES(academic_period_id), is_active=1`,
-      values,
-    );
-  }
+        values,
+      );
+    }
   await attachPendingAccounts(connection, schoolIds);
   for (const item of items.filter((item) => item.yearLevel != null)) {
     await connection.query(
@@ -1096,7 +1149,16 @@ export async function importData(req, res) {
     if (!result.items.length) {
       await connection.rollback();
       if (result.skipped?.length && !result.errors.length)
-        return res.json({ inserted: 0, updated: 0, unchanged: 0, skipped: result.skipped.length, total: result.total, invalid: 0, pending: 0, errors: [] });
+        return res.json({
+          inserted: 0,
+          updated: 0,
+          unchanged: 0,
+          skipped: result.skipped.length,
+          total: result.total,
+          invalid: 0,
+          pending: 0,
+          errors: [],
+        });
       return res.status(400).json({
         message: "No valid rows are available to import.",
         errors: result.errors,

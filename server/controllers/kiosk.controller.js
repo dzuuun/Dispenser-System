@@ -8,7 +8,11 @@ import { decryptPassword } from "../services/encryption.service.js";
 import { transaction } from "../services/audit.service.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
 import { isSatpEligible } from "../services/course-level.service.js";
-import { credentialRequestOptions } from "../../shared/credential-request-controls.mjs";
+import {
+  credentialRequestOptions,
+  voucherRequestsEnabled,
+  voucherPausedMessage,
+} from "../../shared/credential-request-controls.mjs";
 const verification = z.object({
   studentId: z.string().trim().min(1).max(40),
   lastName: z.string().trim().min(1).max(100),
@@ -32,7 +36,7 @@ function normalizeNameForVerification(value) {
 
 async function moduleControls(executor = pool) {
   const [rows] = await executor.query(
-    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
   );
   return new Map(
     rows.map((row) => [
@@ -40,6 +44,8 @@ async function moduleControls(executor = pool) {
       {
         visible: Boolean(row.is_visible),
         maintenance: Boolean(row.is_maintenance),
+        voucherRequests: voucherRequestsEnabled(row),
+        voucherPausedMessage: voucherPausedMessage(row),
         ...credentialRequestOptions(row.module_key, row),
       },
     ]),
@@ -108,18 +114,23 @@ export async function verify(req, res) {
     });
   const [rows] = await pool.execute(
     `SELECT id, student_id, first_name, middle_name, last_name, year_level,
-            course_id, is_active, DATE_FORMAT(birth_date, '%Y-%m-%d') birth_date
+            course_id, is_active, academic_period_id, DATE_FORMAT(birth_date, '%Y-%m-%d') birth_date
        FROM students
-      WHERE academic_period_id=? AND (student_id=? OR kumosoft_id=?)
+      WHERE student_id=? OR kumosoft_id=?
+      ORDER BY (academic_period_id=?) DESC
       LIMIT 1`,
-    [period.id, v.studentId, v.studentId],
+    [v.studentId, v.studentId, period.id],
   );
   const student = rows[0];
+  const enrollmentInactive =
+    student &&
+    (!student.is_active ||
+      Number(student.academic_period_id) !== Number(period.id));
   let failureMessage = "";
   if (!student) failureMessage = "Student ID or Kumosoft ID was not found.";
-  else if (!student.is_active)
+  else if (enrollmentInactive)
     failureMessage =
-      "This student record is inactive. Please proceed to the ICT/MIS Office.";
+      "Your enrollment is not active for the current academic period. Please verify your enrollment status at the Records Section.";
   else if (
     normalizeNameForVerification(student.last_name) !==
     normalizeNameForVerification(v.lastName)
@@ -131,7 +142,7 @@ export async function verify(req, res) {
     failureMessage = "The selected course does not match the student record.";
   if (failureMessage)
     return res
-      .status(student && !student.is_active ? 403 : 401)
+      .status(enrollmentInactive ? 403 : 401)
       .json({ message: failureMessage });
   const jti = crypto.randomUUID();
   await pool.execute(
@@ -472,6 +483,8 @@ export async function requestNewVoucher(req, res) {
     return res
       .status(503)
       .json({ message: "WiFi vouchers are not currently available." });
+  if (control && !control.voucherRequests)
+    return res.status(503).json({ message: control.voucherPausedMessage });
   const reason = String(req.body?.reason || "").trim();
   if (reason.length < 10 || reason.length > 500)
     return res.status(400).json({

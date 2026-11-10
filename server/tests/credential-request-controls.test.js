@@ -11,6 +11,7 @@ import {
 import {
   requestAccount,
   requestPasswordReset,
+  requestNewVoucher,
 } from "../controllers/kiosk.controller.js";
 import { ensureCredentialRequestControlsSchema } from "../services/credential-request-controls.service.js";
 
@@ -31,6 +32,7 @@ function setup(t) {
     is_maintenance: 0,
     accept_password_resets: 1,
     accept_account_requests: 1,
+    accept_voucher_requests: 1,
   }));
   const calls = [],
     writes = [];
@@ -64,7 +66,11 @@ function setup(t) {
         .split(" WHERE ")[0]
         .split(", ")
         .forEach((assignment, index) => {
-          row[assignment.split("=")[0]] = Number(values[index]);
+          const field = assignment.split("=")[0];
+          row[field] =
+            field === "voucher_paused_message"
+              ? values[index]
+              : Number(values[index]);
         });
       return [{ affectedRows: 1 }];
     }
@@ -79,6 +85,8 @@ function setup(t) {
       calls.push(sql);
       if (sql.startsWith("SELECT c.academic_level"))
         return [[{ academic_level: "COLLEGE" }]];
+      if (sql.startsWith("SELECT voucher_id FROM students"))
+        return [[{ voucher_id: 9 }]];
       if (sql.startsWith("SELECT id, is_active FROM")) return [[]];
       if (sql.startsWith("SELECT id FROM password_reset_requests")) return [[]];
       if (sql.startsWith("SELECT id FROM")) return [[{ id: 10 }]];
@@ -132,12 +140,25 @@ function setup(t) {
     );
     return response;
   };
+  const submitVoucher = async () => {
+    const response = res();
+    await requestNewVoucher(
+      {
+        headers: { authorization: `Bearer ${token}` },
+        body: { reason: "My voucher does not work" },
+        kioskCode: "TEST-KIOSK",
+      },
+      response,
+    );
+    return response;
+  };
   return {
     controls,
     calls,
     writes,
     update,
     submit,
+    submitVoucher,
     res,
     connections: () => connections,
   };
@@ -197,6 +218,75 @@ test("retired master switch cannot override the individual credential switches",
     controls.find((row) => row.module_key === "EMAIL").accept_account_requests,
     1,
   );
+});
+
+test("voucher requests can be paused and resumed independently, without deleting pending requests", async (t) => {
+  const { update, submitVoucher, connections, writes, res } = setup(t);
+  assert.equal(
+    (await update("VOUCHER", { acceptVoucherRequests: false })).statusCode,
+    200,
+  );
+  const before = connections();
+  const paused = await submitVoucher();
+  assert.equal(paused.statusCode, 503);
+  assert.match(paused.body.message, /exhausted.*next semester/i);
+  assert.equal(connections(), before);
+  assert.ok(
+    !writes.some(({ sql }) => /DELETE.*password_reset_requests/i.test(sql)),
+  );
+  const publicResponse = res();
+  await publicModuleControls({}, publicResponse);
+  assert.equal(
+    publicResponse.body.find((row) => row.module_key === "VOUCHER")
+      .accept_voucher_requests,
+    0,
+  );
+  assert.equal(
+    (await update("VOUCHER", { acceptVoucherRequests: true })).statusCode,
+    200,
+  );
+  assert.equal((await submitVoucher()).statusCode, 201);
+  assert.equal(
+    (await update("EMAIL", { acceptVoucherRequests: true })).statusCode,
+    400,
+  );
+});
+
+test("custom voucher message is saved, exposed to kiosks and returned for paused requests", async (t) => {
+  const { update, submitVoucher, res, writes } = setup(t);
+  assert.equal(
+    (
+      await update("VOUCHER", {
+        voucherPausedMessage: "  Available next week.  ",
+        acceptVoucherRequests: false,
+      })
+    ).statusCode,
+    200,
+  );
+  const publicResponse = res();
+  await publicModuleControls({}, publicResponse);
+  assert.equal(
+    publicResponse.body.find((row) => row.module_key === "VOUCHER")
+      .voucher_paused_message,
+    "Available next week.",
+  );
+  assert.equal((await submitVoucher()).body.message, "Available next week.");
+  const before = writes.length;
+  for (const value of ["", "  ", "x".repeat(501), null, 42])
+    assert.equal(
+      (
+        await update("VOUCHER", {
+          voucherPausedMessage: value,
+          acceptVoucherRequests: true,
+        })
+      ).statusCode,
+      400,
+    );
+  assert.equal(
+    (await update("EMAIL", { voucherPausedMessage: "Message" })).statusCode,
+    400,
+  );
+  assert.equal(writes.length, before);
 });
 
 test("visibility and maintenance continue to block both kinds of requests", async (t) => {
@@ -302,7 +392,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
       }
       assert.match(
         sql,
-        /^ALTER TABLE credential_module_controls ADD COLUMN (accept_password_resets|accept_account_requests) BOOLEAN NOT NULL DEFAULT TRUE$/,
+        /^ALTER TABLE credential_module_controls ADD COLUMN (?:(?:accept_password_resets|accept_account_requests|accept_voucher_requests) BOOLEAN NOT NULL DEFAULT TRUE|voucher_paused_message VARCHAR\(500\) NULL)$/,
       );
       writes.push(sql);
       columns.add(sql.split(" ")[5]);
@@ -313,7 +403,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
   assert.deepEqual(saved, { EMAIL: 0, KUMOSOFT: 0, SCHOOLOGY: 0 });
   saved.EMAIL = 1;
   await ensureCredentialRequestControlsSchema(executor);
-  assert.equal(writes.length, 3);
+  assert.equal(writes.length, 5);
   assert.equal(
     saved.EMAIL,
     1,
@@ -321,7 +411,12 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
   );
   assert.deepEqual(
     [...columns],
-    ["accept_password_resets", "accept_account_requests"],
+    [
+      "accept_password_resets",
+      "accept_account_requests",
+      "accept_voucher_requests",
+      "voucher_paused_message",
+    ],
   );
   await assert.rejects(
     ensureCredentialRequestControlsSchema({
@@ -344,5 +439,5 @@ test("concurrent startup tolerates an already-added request-control column", asy
       });
     },
   });
-  assert.equal(attempted.length, 2);
+  assert.equal(attempted.length, 4);
 });

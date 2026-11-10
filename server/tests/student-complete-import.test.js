@@ -48,14 +48,25 @@ async function invoke(handler, rows, query = {}, format = "xlsx") {
     },
   };
   const legacy = format === "xls" ? XLSX.utils.book_new() : null;
-  if (legacy) XLSX.utils.book_append_sheet(legacy, XLSX.utils.json_to_sheet(rows, { cellDates: true }), "Students");
+  if (legacy)
+    XLSX.utils.book_append_sheet(
+      legacy,
+      XLSX.utils.json_to_sheet(rows, { cellDates: true }),
+      "Students",
+    );
   await handler(
     {
       params: { type: "students" },
       query,
       file: {
         originalname: `complete-students.${format}`,
-        buffer: legacy ? XLSX.write(legacy, { type: "buffer", bookType: "biff8", cellDates: true }) : await workbookBuffer(rows, "Students"),
+        buffer: legacy
+          ? XLSX.write(legacy, {
+              type: "buffer",
+              bookType: "biff8",
+              cellDates: true,
+            })
+          : await workbookBuffer(rows, "Students"),
       },
     },
     res,
@@ -67,63 +78,181 @@ for (const format of ["xlsx", "xls"]) {
   test(`student ${format} import accepts alternative columns, Excel birthdays, and Not Found accounts`, async (t) => {
     const store = setup(t);
     const rows = [
-      { ID: "D", LastName: "Student", FirstName: "First", MiddleName: "", Status: "Active", SchoolDept: "College", IsEnrolled: "Yes", Birthday: new Date("2005-04-03T00:00:00.000Z"), CourseCode: "BSIT", CollegeCode: "CCS", "HAS SCHOOLOGY": "Not Found", DISPENSER: "Yes", "HAS EMAIL": "Yes", "Email Address": "d@example.edu", "Email Password": "email-secret", "Schoology Password": "Not Found", "SATP Password": "satp-secret" },
-      { ID: "E", LastName: "Student", FirstName: "Second", MiddleName: "", Status: "Active", SchoolDept: "College", IsEnrolled: "Yes", Birthday: "12/31/2004", CourseCode: "BSIT", CollegeCode: "CCS", "HAS SCHOOLOGY": "Yes", DISPENSER: "Yes", "HAS EMAIL": "Not Found", "Email Address": "Not Found", "Email Password": "Not Found", "Schoology Password": "schoology-secret", "SATP Password": "Not Found" },
+      {
+        ID: "D",
+        LastName: "Student",
+        FirstName: "First",
+        MiddleName: "",
+        Status: "Active",
+        SchoolDept: "College",
+        IsEnrolled: "Yes",
+        Birthday: new Date("2005-04-03T00:00:00.000Z"),
+        CourseCode: "BSIT",
+        CollegeCode: "CCS",
+        "HAS SCHOOLOGY": "Not Found",
+        DISPENSER: "Yes",
+        "HAS EMAIL": "Yes",
+        "Email Address": "d@example.edu",
+        "Email Password": "email-secret",
+        "Schoology Password": "Not Found",
+        "SATP Password": "satp-secret",
+      },
+      {
+        ID: "E",
+        LastName: "Student",
+        FirstName: "Second",
+        MiddleName: "",
+        Status: "Active",
+        SchoolDept: "College",
+        IsEnrolled: "Yes",
+        Birthday: "12/31/2004",
+        CourseCode: "BSIT",
+        CollegeCode: "CCS",
+        "HAS SCHOOLOGY": "Yes",
+        DISPENSER: "Yes",
+        "HAS EMAIL": "Not Found",
+        "Email Address": "Not Found",
+        "Email Password": "Not Found",
+        "Schoology Password": "schoology-secret",
+        "SATP Password": "Not Found",
+      },
     ];
     const preview = await invoke(validateDataImport, rows, {}, format);
     assert.equal(preview.statusCode, 200, preview.body.message);
     assert.deepEqual([preview.body.new, preview.body.invalid], [2, 0]);
     const imported = await invoke(importData, rows, {}, format);
     assert.equal(imported.statusCode, 200, imported.body.message);
-    const d = store.state.students.find((student) => student.student_id === "D");
-    const e = store.state.students.find((student) => student.student_id === "E");
+    const d = store.state.students.find(
+      (student) => student.student_id === "D",
+    );
+    const e = store.state.students.find(
+      (student) => student.student_id === "E",
+    );
     assert.equal(d.birth_date, "2005-04-03");
     assert.equal(e.birth_date, "2004-12-31");
-    assert.equal(decryptPassword(store.state.accounts.institutional_email_accounts.find((account) => account.student_id === d.id)), "email-secret");
-    assert.equal(decryptPassword(store.state.accounts.satp_accounts.find((account) => account.student_id === d.id)), "satp-secret");
-    assert.ok(!store.state.accounts.schoology_accounts.some((account) => account.student_id === d.id));
-    assert.equal(decryptPassword(store.state.accounts.schoology_accounts.find((account) => account.student_id === e.id)), "schoology-secret");
-    assert.ok(!store.state.accounts.institutional_email_accounts.some((account) => account.student_id === e.id));
-    assert.ok(!store.state.accounts.satp_accounts.some((account) => account.student_id === e.id));
+    assert.equal(
+      decryptPassword(
+        store.state.accounts.institutional_email_accounts.find(
+          (account) => account.student_id === d.id,
+        ),
+      ),
+      "email-secret",
+    );
+    assert.equal(
+      decryptPassword(
+        store.state.accounts.satp_accounts.find(
+          (account) => account.student_id === d.id,
+        ),
+      ),
+      "satp-secret",
+    );
+    assert.ok(
+      !store.state.accounts.schoology_accounts.some(
+        (account) => account.student_id === d.id,
+      ),
+    );
+    assert.equal(
+      decryptPassword(
+        store.state.accounts.schoology_accounts.find(
+          (account) => account.student_id === e.id,
+        ),
+      ),
+      "schoology-secret",
+    );
+    assert.ok(
+      !store.state.accounts.institutional_email_accounts.some(
+        (account) => account.student_id === e.id,
+      ),
+    );
+    assert.ok(
+      !store.state.accounts.satp_accounts.some(
+        (account) => account.student_id === e.id,
+      ),
+    );
   });
 }
 
 test("student import rejects invalid calendar dates", async (t) => {
   setup(t);
-  const preview = await invoke(validateDataImport, [studentRow("BAD", { BirthDate: "02/30/2005" })]);
+  const preview = await invoke(validateDataImport, [
+    studentRow("BAD", { BirthDate: "02/30/2005" }),
+  ]);
   assert.equal(preview.body.invalid, 1);
 });
 
 test("student import links valid credentials even when account status columns say Not Found", async (t) => {
   const store = setup(t);
-  const row = studentRow("D", { "HAS SCHOOLOGY": "Not Found", "HAS EMAIL": "Not Found", "Schoology Password": "schoology-secret", "Email Address": "d@example.edu", "Email Password": "email-secret" });
+  const row = studentRow("D", {
+    "HAS SCHOOLOGY": "Not Found",
+    "HAS EMAIL": "Not Found",
+    "Schoology Password": "schoology-secret",
+    "Email Address": "d@example.edu",
+    "Email Password": "email-secret",
+  });
   const result = await invoke(importData, [row]);
   assert.equal(result.statusCode, 200, result.body.message);
-  const id = store.state.students.find((student) => student.student_id === "D").id;
-  assert.equal(decryptPassword(store.state.accounts.schoology_accounts.find((account) => account.student_id === id)), "schoology-secret");
-  assert.equal(decryptPassword(store.state.accounts.institutional_email_accounts.find((account) => account.student_id === id)), "email-secret");
+  const id = store.state.students.find(
+    (student) => student.student_id === "D",
+  ).id;
+  assert.equal(
+    decryptPassword(
+      store.state.accounts.schoology_accounts.find(
+        (account) => account.student_id === id,
+      ),
+    ),
+    "schoology-secret",
+  );
+  assert.equal(
+    decryptPassword(
+      store.state.accounts.institutional_email_accounts.find(
+        (account) => account.student_id === id,
+      ),
+    ),
+    "email-secret",
+  );
 });
 
 test("student import accepts all three password columns in the same row", async (t) => {
   const store = setup(t);
   const row = {
-    ID: "D", LastName: "Student", FirstName: "Test", MiddleName: "",
-    Status: "Active", SchoolDept: "College", IsEnrolled: "Yes",
-    Birthday: "2005-01-01", CourseCode: "BSIT", CollegeCode: "CCS",
-    "HAS SCHOOLOGY": "Yes", DISPENSER: "Yes", "HAS EMAIL": "Yes",
-    "Email Address": "d@example.edu", "Email Password": "email-secret",
-    "Schoology Password": "schoology-secret", "SATP Password": "satp-secret",
+    ID: "D",
+    LastName: "Student",
+    FirstName: "Test",
+    MiddleName: "",
+    Status: "Active",
+    SchoolDept: "College",
+    IsEnrolled: "Yes",
+    Birthday: "2005-01-01",
+    CourseCode: "BSIT",
+    CollegeCode: "CCS",
+    "HAS SCHOOLOGY": "Yes",
+    DISPENSER: "Yes",
+    "HAS EMAIL": "Yes",
+    "Email Address": "d@example.edu",
+    "Email Password": "email-secret",
+    "Schoology Password": "schoology-secret",
+    "SATP Password": "satp-secret",
   };
   const preview = await invoke(validateDataImport, [row]);
   assert.equal(preview.body.invalid, 0);
   const result = await invoke(importData, [row]);
   assert.equal(result.statusCode, 200, result.body.message);
-  const id = store.state.students.find((student) => student.student_id === "D").id;
+  const id = store.state.students.find(
+    (student) => student.student_id === "D",
+  ).id;
   for (const [table, password] of [
     ["institutional_email_accounts", "email-secret"],
     ["schoology_accounts", "schoology-secret"],
     ["satp_accounts", "satp-secret"],
-  ]) assert.equal(decryptPassword(store.state.accounts[table].find((account) => account.student_id === id)), password);
+  ])
+    assert.equal(
+      decryptPassword(
+        store.state.accounts[table].find(
+          (account) => account.student_id === id,
+        ),
+      ),
+      password,
+    );
 });
 
 test("student template includes optional email and account passwords with a blank Kumosoft ID", async () => {

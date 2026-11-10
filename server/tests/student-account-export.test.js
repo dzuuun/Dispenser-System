@@ -178,7 +178,10 @@ test("student workbook exports email addresses and other account links while pre
   const exported = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
   assert.deepEqual(exported.values, []);
   assert.match(exported.sql, /email_account\.email_address AS email_address/);
-  assert.match(exported.sql, /email_account\.encrypted_password AS email_account_encrypted_password/);
+  assert.match(
+    exported.sql,
+    /email_account\.encrypted_password AS email_account_encrypted_password/,
+  );
   assert.doesNotMatch(exported.sql, /LIMIT \? OFFSET \?|birth_date/i);
 });
 
@@ -219,7 +222,8 @@ test("export and table share search, missing account, status, academic period an
     sql.startsWith("SELECT s.id"),
   );
   assert.equal(
-    listing.sql.slice(listing.sql.indexOf("FROM students"))
+    listing.sql
+      .slice(listing.sql.indexOf("FROM students"))
       .replace(" LIMIT ? OFFSET ?", ""),
     exported.sql.slice(exported.sql.indexOf("FROM students")),
   );
@@ -262,7 +266,10 @@ test("export remains available when no academic period is current", async (t) =>
   const { get } = await setup(t, { noCurrent: true, count: 0 });
   const response = await get("/students/export");
   assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-disposition"), /no-current-period/);
+  assert.match(
+    response.headers.get("content-disposition"),
+    /no-current-period/,
+  );
 });
 
 test("export database failures return an error without a downloadable workbook", async (t) => {

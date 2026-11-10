@@ -14,8 +14,12 @@ if (unknownArgs.length) throw new Error(`Unknown argument: ${unknownArgs[0]}`);
 let connection;
 try {
   connection = await pool.getConnection();
-  const [[database]] = await connection.query("SELECT DATABASE() name, @@hostname host, @@port port");
-  console.log(`Database: ${database.name} on ${database.host}:${database.port}`);
+  const [[database]] = await connection.query(
+    "SELECT DATABASE() name, @@hostname host, @@port port",
+  );
+  console.log(
+    `Database: ${database.name} on ${database.host}:${database.port}`,
+  );
   console.log(apply ? "Mode: APPLY" : "Mode: PREVIEW (no changes)");
   await connection.beginTransaction();
   const [pending] = await connection.query(
@@ -26,10 +30,23 @@ try {
        LEFT JOIN students s ON CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci=CONVERT(p.school_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
       ORDER BY p.id${apply ? " FOR UPDATE" : ""}`,
   );
-  const counts = { linked: 0, ready: 0, unmatched: 0, existing: 0, conflict: 0, invalid: 0 };
+  const counts = {
+    linked: 0,
+    ready: 0,
+    unmatched: 0,
+    existing: 0,
+    conflict: 0,
+    invalid: 0,
+  };
   for (const row of pending) {
     const type = types[row.account_type];
-    if (!type || !row.account_name || (!row.encrypted_password && row.account_type !== "kumosoft") || (row.account_type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.account_name))) {
+    if (
+      !type ||
+      !row.account_name ||
+      (!row.encrypted_password && row.account_type !== "kumosoft") ||
+      (row.account_type === "email" &&
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.account_name))
+    ) {
       counts.invalid++;
       continue;
     }
@@ -47,7 +64,11 @@ try {
       `SELECT student_id FROM ${type.table} WHERE student_id=? OR ${type.column}=?`,
       [row.student_id, row.account_name],
     );
-    if (existing.some((account) => String(account.student_id) === String(row.student_id))) {
+    if (
+      existing.some(
+        (account) => String(account.student_id) === String(row.student_id),
+      )
+    ) {
       counts.existing++;
       continue;
     }
@@ -62,23 +83,36 @@ try {
     try {
       await connection.execute(
         `INSERT INTO ${type.table} (student_id, ${type.column}, encrypted_password, password_iv, password_auth_tag, is_active) VALUES (?, ?, ?, ?, ?, 1)`,
-        [row.student_id, row.account_name, row.encrypted_password, row.password_iv, row.password_auth_tag],
+        [
+          row.student_id,
+          row.account_name,
+          row.encrypted_password,
+          row.password_iv,
+          row.password_auth_tag,
+        ],
       );
     } catch (error) {
       if (error.code !== "ER_DUP_ENTRY") throw error;
       counts.conflict++;
       continue;
     }
-    await connection.execute("DELETE FROM pending_account_imports WHERE id=?", [row.id]);
+    await connection.execute("DELETE FROM pending_account_imports WHERE id=?", [
+      row.id,
+    ]);
     counts.linked++;
   }
   if (apply) await connection.commit();
   else await connection.rollback();
   console.log(JSON.stringify(counts, null, 2));
-  console.log("Existing, conflicting, unmatched, and invalid pending records are retained for review.");
+  console.log(
+    "Existing, conflicting, unmatched, and invalid pending records are retained for review.",
+  );
 } catch (error) {
   if (connection) await connection.rollback();
-  console.error("Rematch failed; no changes were committed:", error.code || error.message);
+  console.error(
+    "Rematch failed; no changes were committed:",
+    error.code || error.message,
+  );
   process.exitCode = 1;
 } finally {
   connection?.release();

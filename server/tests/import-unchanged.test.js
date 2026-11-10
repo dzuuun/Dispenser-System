@@ -35,10 +35,17 @@ function database(t, options) {
 }
 async function invoke(handler, type, rows, query = {}, format = "xlsx") {
   const legacy = format === "xls" ? XLSX.utils.book_new() : null;
-  if (legacy) XLSX.utils.book_append_sheet(legacy, XLSX.utils.json_to_sheet(rows), "Import");
+  if (legacy)
+    XLSX.utils.book_append_sheet(
+      legacy,
+      XLSX.utils.json_to_sheet(rows),
+      "Import",
+    );
   const file = {
     originalname: `import.${format}`,
-    buffer: legacy ? XLSX.write(legacy, { type: "buffer", bookType: "biff8" }) : await workbookBuffer(rows, "Import"),
+    buffer: legacy
+      ? XLSX.write(legacy, { type: "buffer", bookType: "biff8" })
+      : await workbookBuffer(rows, "Import"),
   };
   const res = {
     statusCode: 200,
@@ -59,8 +66,20 @@ for (const type of ["schoology", "email"]) {
   test(`${type} validates and imports a legacy XLS workbook`, async (t) => {
     const store = database(t);
     const rows = [
-      { ID: "A", EMAIL: "Yes", "Email Address": "a@example.edu", "Email Password": "email-secret", "Schoology Password": "schoology-secret" },
-      { ID: "B", EMAIL: "Yes", "Email Address": "b@example.edu", "Email Password": "Not Found", "Schoology Password": "Not Found" },
+      {
+        ID: "A",
+        EMAIL: "Yes",
+        "Email Address": "a@example.edu",
+        "Email Password": "email-secret",
+        "Schoology Password": "schoology-secret",
+      },
+      {
+        ID: "B",
+        EMAIL: "Yes",
+        "Email Address": "b@example.edu",
+        "Email Password": "Not Found",
+        "Schoology Password": "Not Found",
+      },
     ];
     const preview = await invoke(validateDataImport, type, rows, {}, "xls");
     assert.equal(preview.statusCode, 200, preview.body.message);
@@ -70,8 +89,13 @@ for (const type of ["schoology", "email"]) {
     assert.equal(imported.statusCode, 200, imported.body.message);
     assert.equal(imported.body.updated, 1);
     assert.equal(imported.body.skipped, 1);
-    const account = store.state.accounts[importAccountTypes[type]].find((item) => item.student_id === 1);
-    assert.equal(decryptPassword(account), type === "email" ? "email-secret" : "schoology-secret");
+    const account = store.state.accounts[importAccountTypes[type]].find(
+      (item) => item.student_id === 1,
+    );
+    assert.equal(
+      decryptPassword(account),
+      type === "email" ? "email-secret" : "schoology-secret",
+    );
   });
 }
 const accountRow = (type, SchoolID, Password = "same-secret") => ({
@@ -102,38 +126,87 @@ test("student imports only rematch pending accounts for students in the uploaded
   }
   const result = await invoke(importData, "students", [studentRow("A")]);
   assert.equal(result.statusCode, 200, result.body.message);
-  assert.equal(decryptPassword(store.state.accounts.schoology_accounts.find((account) => account.student_id === 1)), "pending-A");
-  assert.ok(!store.state.pending.some((pending) => pending.account_type === "schoology" && pending.school_id === "A"));
-  assert.ok(store.state.pending.some((pending) => pending.account_type === "schoology" && pending.school_id === "B"));
-  const rematches = store.calls.filter(({ sql }) => sql.includes("JOIN students s ON CONVERT") && sql.includes("pending_account_imports"));
+  assert.equal(
+    decryptPassword(
+      store.state.accounts.schoology_accounts.find(
+        (account) => account.student_id === 1,
+      ),
+    ),
+    "pending-A",
+  );
+  assert.ok(
+    !store.state.pending.some(
+      (pending) =>
+        pending.account_type === "schoology" && pending.school_id === "A",
+    ),
+  );
+  assert.ok(
+    store.state.pending.some(
+      (pending) =>
+        pending.account_type === "schoology" && pending.school_id === "B",
+    ),
+  );
+  const rematches = store.calls.filter(
+    ({ sql }) =>
+      sql.includes("JOIN students s ON CONVERT") &&
+      sql.includes("pending_account_imports"),
+  );
   assert.ok(rematches.length > 0);
-  assert.ok(rematches.every(({ sql, values }) => sql.includes("p.school_id IN (?)") && values[1] === "A"));
+  assert.ok(
+    rematches.every(
+      ({ sql, values }) =>
+        sql.includes("p.school_id IN (?)") && values[1] === "A",
+    ),
+  );
 });
 
 for (const type of ["schoology", "email"]) {
   test(`${type} import selects its own columns from the alternative student spreadsheet`, async (t) => {
     const store = database(t);
     const row = {
-      ID: "A", LastName: "Student", FirstName: "Test", MiddleName: "",
-      Status: "Active", SchoolDept: "College", IsEnrolled: "Yes",
-      Birthday: "2005-01-01", CourseCode: "BSIT", CollegeCode: "CCS",
-      "HAS SCHOOLOGY": "Yes", DISPENSER: "Yes", EMAIL: "Yes",
-      "Email Address": "a@example.edu", "Email Password": " email secret ",
-      "Schoology Password": "schoology secret", "SATP Password": "satp secret",
+      ID: "A",
+      LastName: "Student",
+      FirstName: "Test",
+      MiddleName: "",
+      Status: "Active",
+      SchoolDept: "College",
+      IsEnrolled: "Yes",
+      Birthday: "2005-01-01",
+      CourseCode: "BSIT",
+      CollegeCode: "CCS",
+      "HAS SCHOOLOGY": "Yes",
+      DISPENSER: "Yes",
+      EMAIL: "Yes",
+      "Email Address": "a@example.edu",
+      "Email Password": " email secret ",
+      "Schoology Password": "schoology secret",
+      "SATP Password": "satp secret",
     };
     const preview = await invoke(validateDataImport, type, [row]);
     assert.equal(preview.statusCode, 200);
     assert.equal(preview.body.invalid, 0);
     const imported = await invoke(importData, type, [row]);
     assert.equal(imported.statusCode, 200, imported.body.message);
-    const account = store.state.accounts[importAccountTypes[type]].find((item) => item.student_id === 1);
-    assert.equal(decryptPassword(account), type === "email" ? " email secret " : "schoology secret");
+    const account = store.state.accounts[importAccountTypes[type]].find(
+      (item) => item.student_id === 1,
+    );
+    assert.equal(
+      decryptPassword(account),
+      type === "email" ? " email secret " : "schoology secret",
+    );
     if (type === "email") assert.equal(account.account_name, "a@example.edu");
   });
 
   test(`${type} does not use another account's password when its own column is empty`, async (t) => {
     database(t);
-    const row = { ID: "A", EMAIL: "Yes", "Email Address": "a@example.edu", "Email Password": type === "email" ? "" : "email secret", "Schoology Password": type === "schoology" ? "" : "schoology secret", "SATP Password": "satp secret" };
+    const row = {
+      ID: "A",
+      EMAIL: "Yes",
+      "Email Address": "a@example.edu",
+      "Email Password": type === "email" ? "" : "email secret",
+      "Schoology Password": type === "schoology" ? "" : "schoology secret",
+      "SATP Password": "satp secret",
+    };
     const preview = await invoke(validateDataImport, type, [row]);
     assert.equal(preview.body.invalid, 1);
     assert.equal(preview.body.update, 0);
@@ -142,12 +215,26 @@ for (const type of ["schoology", "email"]) {
 
 for (const [type, missingFields] of [
   ["schoology", [{ "Schoology Password": "  nOt FoUnD  " }]],
-  ["email", [{ "Email Password": "Not Found" }, { "Email Address": "not found" }]],
+  [
+    "email",
+    [{ "Email Password": "Not Found" }, { "Email Address": "not found" }],
+  ],
 ]) {
   test(`${type} skips Not Found rows without changing existing credentials`, async (t) => {
     const store = database(t);
-    const previous = structuredClone(store.state.accounts[importAccountTypes[type]].find((row) => row.student_id === 1));
-    const base = { ID: "A", EMAIL: "Yes", "HAS SCHOOLOGY": "Yes", "Email Address": "a@example.edu", "Email Password": "email-secret", "Schoology Password": "schoology-secret" };
+    const previous = structuredClone(
+      store.state.accounts[importAccountTypes[type]].find(
+        (row) => row.student_id === 1,
+      ),
+    );
+    const base = {
+      ID: "A",
+      EMAIL: "Yes",
+      "HAS SCHOOLOGY": "Yes",
+      "Email Address": "a@example.edu",
+      "Email Password": "email-secret",
+      "Schoology Password": "schoology-secret",
+    };
     const rows = missingFields.map((fields) => ({ ...base, ...fields }));
     const preview = await invoke(validateDataImport, type, rows);
     assert.equal(preview.body.invalid, 0);
@@ -156,25 +243,54 @@ for (const [type, missingFields] of [
     const imported = await invoke(importData, type, rows);
     assert.equal(imported.statusCode, 200);
     assert.equal(imported.body.skipped, rows.length);
-    assert.deepEqual(store.state.accounts[importAccountTypes[type]].find((row) => row.student_id === 1), previous);
+    assert.deepEqual(
+      store.state.accounts[importAccountTypes[type]].find(
+        (row) => row.student_id === 1,
+      ),
+      previous,
+    );
   });
   test(`${type} keeps a valid account pending until its student is added, then links it`, async (t) => {
     const store = database(t);
-    const row = { ID: "LATER", EMAIL: "Not Found", "HAS EMAIL": "Not Found", "HAS SCHOOLOGY": "Not Found", "Email Address": "later@example.edu", "Email Password": "email-secret", "Schoology Password": "schoology-secret" };
+    const row = {
+      ID: "LATER",
+      EMAIL: "Not Found",
+      "HAS EMAIL": "Not Found",
+      "HAS SCHOOLOGY": "Not Found",
+      "Email Address": "later@example.edu",
+      "Email Password": "email-secret",
+      "Schoology Password": "schoology-secret",
+    };
     const preview = await invoke(validateDataImport, type, [row]);
     assert.equal(preview.body.new, 1);
     assert.equal(preview.body.skipped, 0);
-    assert.match(preview.body.groups.new.records[0].message, /saved until its student is imported/);
+    assert.match(
+      preview.body.groups.new.records[0].message,
+      /saved until its student is imported/,
+    );
     const first = await invoke(importData, type, [row]);
     assert.equal(first.statusCode, 200);
     assert.equal(first.body.pending, 1);
-    assert.ok(store.state.pending.some((p) => p.account_type === type && p.school_id === "LATER"));
+    assert.ok(
+      store.state.pending.some(
+        (p) => p.account_type === type && p.school_id === "LATER",
+      ),
+    );
     store.state.students.push({ id: 40, student_id: "LATER" });
     const second = await invoke(importData, type, [row]);
     assert.equal(second.statusCode, 200);
-    const account = store.state.accounts[importAccountTypes[type]].find((item) => item.student_id === 40);
-    assert.equal(decryptPassword(account), type === "email" ? "email-secret" : "schoology-secret");
-    assert.ok(!store.state.pending.some((p) => p.account_type === type && p.school_id === "LATER"));
+    const account = store.state.accounts[importAccountTypes[type]].find(
+      (item) => item.student_id === 40,
+    );
+    assert.equal(
+      decryptPassword(account),
+      type === "email" ? "email-secret" : "schoology-secret",
+    );
+    assert.ok(
+      !store.state.pending.some(
+        (p) => p.account_type === type && p.school_id === "LATER",
+      ),
+    );
   });
 }
 

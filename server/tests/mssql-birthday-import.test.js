@@ -197,7 +197,10 @@ function setup(t, options = {}) {
   t.mock.method(pool, "query", run);
   t.mock.method(pool, "execute", run);
   t.mock.method(pool, "getConnection", async () => connection);
-  const invoke = async (handler, { query = {}, body = {} } = {}) => {
+  const invoke = async (
+    handler,
+    { query = {}, body = {}, scheduledImport = false } = {},
+  ) => {
     const res = {
       statusCode: 200,
       status(code) {
@@ -209,7 +212,7 @@ function setup(t, options = {}) {
         return this;
       },
     };
-    await handler({ query, body }, res, (error) => {
+    await handler({ query, body, scheduledImport }, res, (error) => {
       throw error;
     });
     return res;
@@ -228,6 +231,33 @@ function setup(t, options = {}) {
     },
   };
 }
+
+test("scheduled imports preserve existing birthdays and deactivate missing students", async (t) => {
+  const store = setup(t);
+  store.students.push({
+    ...store.students[0],
+    id: 99,
+    student_id: "MISSING",
+    is_active: 1,
+  });
+  const result = await store.invoke(importMssqlStudents, {
+    scheduledImport: true,
+  });
+  assert.equal(result.statusCode, 200);
+  assert.equal(
+    store.students.find((s) => s.student_id === "OLD").birth_date,
+    "2005-02-03",
+  );
+  assert.equal(
+    store.students.find((s) => s.student_id === "MISSING").is_active,
+    0,
+  );
+  assert.equal(result.body.deactivated, 1);
+  assert.equal(
+    store.students.find((s) => s.student_id === "OLD").first_name,
+    "Updated",
+  );
+});
 
 test("MSSQL preview and import default to preserving corrected birthdays while updating enrollment", async (t) => {
   const store = setup(t);
@@ -282,7 +312,9 @@ test("only selected existing birthdays change while other student updates procee
   const result = await store.invoke(importMssqlStudents, {
     body: {
       updateExistingBirthdays: true,
-      selectedBirthdays: [{ schoolId: "OLD", before: "2005-02-03", after: "1999-01-01" }],
+      selectedBirthdays: [
+        { schoolId: "OLD", before: "2005-02-03", after: "1999-01-01" },
+      ],
     },
   });
   assert.equal(result.statusCode, 200);
@@ -297,21 +329,35 @@ test("an empty birthday selection preserves existing birthdays", async (t) => {
     body: { updateExistingBirthdays: true, selectedBirthdays: [] },
   });
   assert.equal(result.statusCode, 200);
-  assert.equal(store.students.find((s) => s.student_id === "OLD").birth_date, "2005-02-03");
-  assert.equal(store.students.find((s) => s.student_id === "NEW").birth_date, "2006-04-05");
+  assert.equal(
+    store.students.find((s) => s.student_id === "OLD").birth_date,
+    "2005-02-03",
+  );
+  assert.equal(
+    store.students.find((s) => s.student_id === "NEW").birth_date,
+    "2006-04-05",
+  );
 });
 
 test("changed or invalid birthday selections cannot be imported", async (t) => {
   const store = setup(t);
   const before = structuredClone(store.students);
   const stale = await store.invoke(importMssqlStudents, {
-    body: { updateExistingBirthdays: true, selectedBirthdays: [{ schoolId: "OLD", before: "2000-01-01", after: "1999-01-01" }] },
+    body: {
+      updateExistingBirthdays: true,
+      selectedBirthdays: [
+        { schoolId: "OLD", before: "2000-01-01", after: "1999-01-01" },
+      ],
+    },
   });
   assert.equal(stale.statusCode, 409);
   assert.deepEqual(store.students, before);
-  await assert.rejects(store.invoke(importMssqlStudents, {
-    body: { updateExistingBirthdays: true, selectedBirthdays: ["OLD"] },
-  }), { status: 400 });
+  await assert.rejects(
+    store.invoke(importMssqlStudents, {
+      body: { updateExistingBirthdays: true, selectedBirthdays: ["OLD"] },
+    }),
+    { status: 400 },
+  );
 });
 
 for (const oldBirthday of ["", "bad-date"]) {
