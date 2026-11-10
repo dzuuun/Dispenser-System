@@ -8478,6 +8478,72 @@ body,
   background: #fff;
 }
 
+.mssql-review-overview {
+  display: grid;
+  gap: 14px;
+  padding: 20px 24px 0;
+}
+.mssql-review-period {
+  margin: 0;
+  color: #517364;
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+.mssql-review-overview .validation-summary {
+  grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
+  margin: 0;
+}
+.mssql-review-overview .mssql-birthday-toggle {
+  margin: 0;
+}
+.mssql-student-import-modal .mssql-birthday-toggle input:not(:checked) + i {
+  background: #91a69a;
+}
+.mssql-review-overview .mssql-validation-copy {
+  margin: 0;
+  color: #61786d;
+  line-height: 1.5;
+}
+.mssql-review-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #537064;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.mssql-review-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+}
+.import-review-modal .mssql-validation-rows article {
+  grid-template-columns: 62px minmax(0, 1fr) minmax(0, 0.9fr);
+}
+.mssql-student-import-modal .mssql-validation-body > .error {
+  margin: 0 24px 16px;
+}
+@media (max-width: 620px) {
+  .mssql-review-overview {
+    padding: 16px 16px 0;
+  }
+  .mssql-review-overview .validation-summary {
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  }
+  .import-review-modal .mssql-validation-rows article {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+  .import-review-modal .mssql-validation-rows article > em,
+  .import-review-modal .mssql-validation-rows .import-field-changes {
+    grid-column: 2;
+  }
+}
+
 /* All import reviews share the grouped SQL Server layout and fixed actions. */
 .import-review-overlay {
   z-index: 1000;

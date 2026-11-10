@@ -5363,12 +5363,32 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
         {validation ? (
           <div className="validation-result mssql-validation-result" aria-busy={busy}>
             <div className="mssql-validation-body">
+              <div className="mssql-review-overview">
+              <p className="mssql-review-period">{file?.name}</p>
+              <div className="validation-summary">
+                <span><b>{validation.total ?? 0}</b> source rows</span>
+                <span><b>{validation.new ?? 0}</b> {type.id === "student-deactivate" ? "to deactivate" : "new"}</span>
+                {type.id !== "student-deactivate" && type.id !== "vouchers" && (
+                  <span><b>{validation.update ?? 0}</b> updates</span>
+                )}
+                <span><b>{validation.unchanged ?? 0}</b> unchanged</span>
+                {type.id === "vouchers" && (
+                  <span><b>{validation.duplicates ?? 0}</b> duplicates</span>
+                )}
+                {validation.skipped > 0 && (
+                  <span><b>{validation.skipped}</b> not found</span>
+                )}
+                <span className={invalid ? "has-errors" : ""}><b>{invalid}</b> invalid</span>
+              </div>
               <p className="mssql-validation-copy">
-                Review the grouped rows before importing. Each list initially
-                shows up to 250 rows; loading more is optional and does not
-                affect the import. Rows with errors will be skipped. Changed
-                fields show saved → imported values.
+                Review changes before importing. Lists show up to 250 rows at a
+                time; loading more does not affect the import. Rows with errors
+                will be skipped.
               </p>
+              <div className="mssql-review-toolbar">
+                <span>Changed fields show saved → imported values.</span>
+              </div>
+              </div>
               <ImportValidationGroups
                 groups={validation.groups}
                 sections={fileImportSections(type, validation)}
@@ -5603,7 +5623,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
       <input
         type="checkbox"
         role="switch"
-        aria-label="Update existing birthdays"
+        aria-label="Review birthday changes"
         checked={updateExistingBirthdays}
         disabled={busy}
         onChange={(event) => {
@@ -5684,12 +5704,11 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
             aria-busy={busy && Boolean(loadingGroup)}
           >
             <div className="mssql-validation-body">
-              <p className="eyebrow">
+              <div className="mssql-review-overview">
+              <p className="mssql-review-period">
                 {preview.period.schoolYear} ·{" "}
                 {preview.period.term || `Semester ${preview.period.semester}`}
               </p>
-              <h3>Review semester student import</h3>
-              {birthdayToggle}
               <div className="validation-summary">
                 <span>
                   <b>{preview.total}</b> source rows
@@ -5707,20 +5726,23 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                   <b>{preview.invalid}</b> invalid
                 </span>
               </div>
+              {birthdayToggle}
               <p className="mssql-validation-copy">
-                Review all detected rows before updating enrollment records.
-                Each list initially shows up to 250 rows; loading more rows is
-                optional and does not affect the import. Changed fields show
-                saved → imported values. Only selected birthday changes will be applied.
+                Review changes before importing. Lists show up to 250 rows at a time;
+                loading more does not affect the import. Only selected birthday
+                changes will be applied.
               </p>
-              {updateExistingBirthdays && (
-                <p className="mssql-validation-copy" role="status">
-                  {Object.keys(birthdaySelections).length} birthday change(s) selected.
-                </p>
-              )}
-              <Button variant="secondary" disabled={busy} onClick={() => loadPreview()}>
-                Refresh preview
-              </Button>
+              <div className="mssql-review-toolbar">
+                <span role="status">
+                  {updateExistingBirthdays
+                    ? `${Object.keys(birthdaySelections).length} birthday change${Object.keys(birthdaySelections).length === 1 ? "" : "s"} selected`
+                    : "Saved birthdays will be kept"}
+                </span>
+                <Button variant="secondary" disabled={busy} onClick={() => loadPreview()}>
+                  <AppIcon name="refresh" size={18} /> Refresh preview
+                </Button>
+              </div>
+              </div>
               <ImportValidationGroups
                 groups={preview.groups}
                 sections={[
@@ -5795,6 +5817,9 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
               )}
             </div>
             <footer>
+              <Button variant="secondary" disabled={busy} onClick={onClose}>
+                Cancel
+              </Button>
               <button
                 className="btn primary"
                 disabled={
