@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { analytics } from "../controllers/analytics.controller.js";
 import multer from "multer";
 import { requireAdmin, requireRoles } from "../middleware/auth.middleware.js";
 import { auditAdminMutation } from "../services/audit.service.js";
@@ -139,6 +140,7 @@ adminRouter.use((req, res, next) => {
   next();
 });
 adminRouter.get("/dashboard", dashboard);
+adminRouter.get("/analytics", analytics);
 adminRouter.get("/transactions", listTransactions);
 adminRouter.get("/transactions/academic-periods", transactionAcademicPeriods);
 adminRouter.get(
