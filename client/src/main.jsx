@@ -6323,12 +6323,126 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
   );
 }
 
+function MssqlSyncActivity({ token }) {
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const load = () =>
+      request(`/admin/imports/mssql-schedule/activity?page=${page}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((result) => {
+          if (active) {
+            setData(result);
+            setError("");
+          }
+        })
+        .catch((err) => {
+          if (active) setError(err.message);
+        });
+    setData(null);
+    load();
+    const timer = setInterval(load, 30000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [token, page]);
+  const date = (value) =>
+    value
+      ? new Date(value).toLocaleString(undefined, {
+          timeZone: "Asia/Manila",
+          dateStyle: "medium",
+          timeStyle: "short",
+        })
+      : "—";
+  return (
+    <section
+      className="mssql-activity"
+      aria-label="Automatic synchronization activity"
+    >
+      <header>
+        <div>
+          <strong>Synchronization activity</strong>
+          <p>Automatic runs only · times shown in Philippine time</p>
+        </div>
+      </header>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {!data && !error && <p>Loading activity...</p>}
+      {data &&
+        (data.rows.length ? (
+          <div className="mssql-activity-list">
+            {data.rows.map((row) => (
+              <article key={row.id}>
+                <div className="mssql-activity-row-heading">
+                  <strong>{date(row.started_at)}</strong>
+                  <span className={`mssql-activity-status ${row.status}`}>
+                    {{
+                      running: "Running",
+                      success: "Completed",
+                      failed: "Failed",
+                      interrupted: "Interrupted",
+                    }[row.status] || row.status}
+                  </span>
+                </div>
+                <p>
+                  {row.period_label && <>{row.period_label} · </>}Finished:{" "}
+                  {date(row.finished_at)}
+                </p>
+                {row.created_count != null && (
+                  <p className="mssql-activity-counts">
+                    {row.created_count} created · {row.updated_count} updated ·{" "}
+                    {row.unchanged_count} unchanged · {row.deactivated_count}{" "}
+                    deactivated · {row.invalid_count} invalid
+                  </p>
+                )}
+                {row.message && <p>{row.message}</p>}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p>
+            No automatic sync activity recorded yet. New runs will appear here.
+          </p>
+        ))}
+      {data && data.pages > 1 && (
+        <div className="mssql-activity-pagination">
+          <Button
+            variant="secondary"
+            disabled={page <= 1}
+            onClick={() => setPage(page - 1)}
+          >
+            Previous
+          </Button>
+          <span>
+            Page {data.page} of {data.pages} · {data.total} runs
+          </span>
+          <Button
+            variant="secondary"
+            disabled={page >= data.pages}
+            onClick={() => setPage(page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function MssqlSchedule({ token }) {
   const [schedule, setSchedule] = useState(null);
   const [enabled, setEnabled] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(1440);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const headers = { Authorization: `Bearer ${token}` };
   useEffect(() => {
     let live = true;
@@ -6430,6 +6544,15 @@ function MssqlSchedule({ token }) {
               ? `Last run: ${schedule.last_status}${schedule.last_finished_at ? ` (${new Date(schedule.last_finished_at).toLocaleString()})` : ""}. ${schedule.last_message || ""}`
               : "No scheduled runs yet."}
           </p>
+          <button
+            type="button"
+            className="btn secondary mssql-activity-toggle"
+            aria-expanded={showActivity}
+            onClick={() => setShowActivity((value) => !value)}
+          >
+            {showActivity ? "Hide activity log" : "View activity log"}
+          </button>
+          {showActivity && <MssqlSyncActivity token={token} />}
         </>
       )}
     </div>

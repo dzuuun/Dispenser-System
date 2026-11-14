@@ -431,12 +431,10 @@ export async function importMssqlStudents(req, res, next) {
       req.body.deactivationSignature !== signature
     ) {
       await connection.rollback();
-      return res
-        .status(409)
-        .json({
-          message:
-            "The students to be deactivated have changed. Refresh the preview and review them again.",
-        });
+      return res.status(409).json({
+        message:
+          "The students to be deactivated have changed. Refresh the preview and review them again.",
+      });
     }
     if (
       pendingDeactivations &&

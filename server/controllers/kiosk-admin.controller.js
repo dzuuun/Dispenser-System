@@ -13,11 +13,9 @@ const browserName = (userAgent = "") => {
   return "Browser";
 };
 const observedIp = (req) =>
-  String(req.headers["x-forwarded-for"] || "")
-    .split(",")[0]
-    .trim() ||
-  req.socket.remoteAddress?.replace(/^::ffff:/, "") ||
-  null;
+  String(req.ip || req.socket?.remoteAddress || "")
+    .replace(/^::ffff:/i, "")
+    .trim() || null;
 const validId = (value) => Number.isInteger(Number(value)) && Number(value) > 0;
 const kioskFields = `id, kiosk_code, kiosk_name, location, is_active, last_seen,
   ip_address, hostname, uptime_seconds, browser_status, current_page,

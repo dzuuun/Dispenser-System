@@ -1433,6 +1433,10 @@ button {
 .mssql-validation-body > #mssql-deactivation-list {
   padding: 0 24px 18px;
 }
+.mssql-validation-body > #mssql-deactivation-list > .mssql-validation-groups {
+  padding: 0;
+  border: 0;
+}
 .mssql-validation-body > .mssql-sync-warning {
   margin: 0 24px 18px;
   padding: 10px 12px;
@@ -6167,6 +6171,78 @@ strong {
 .mssql-schedule .mssql-schedule-status {
   margin-bottom: 0;
   color: #587064;
+}
+.mssql-activity-toggle {
+  margin-top: 12px;
+}
+.mssql-activity {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #d8e8df;
+  border-radius: 9px;
+  background: white;
+}
+.mssql-activity header strong {
+  color: #153f31;
+  font-size: 0.88rem;
+}
+.mssql-activity header p {
+  margin: 4px 0 12px;
+  color: #70877c;
+  font-size: 0.75rem;
+}
+.mssql-activity-list {
+  display: grid;
+  gap: 10px;
+}
+.mssql-activity-list article {
+  padding: 12px;
+  border: 1px solid #e1ebe5;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+.mssql-activity-row-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.82rem;
+}
+.mssql-activity-list article p {
+  margin: 6px 0 0;
+  color: #61796c;
+  font-size: 0.77rem;
+  overflow-wrap: anywhere;
+}
+.mssql-activity-list .mssql-activity-counts {
+  color: #245f43;
+  font-weight: 600;
+}
+.mssql-activity-status {
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: #edf3ef;
+  color: #506b5c;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.mssql-activity-status.success {
+  background: #e7f5ec;
+  color: #08714d;
+}
+.mssql-activity-status.failed,
+.mssql-activity-status.interrupted {
+  background: #fff0ef;
+  color: #aa3d35;
+}
+.mssql-activity-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  color: #61796c;
+  font-size: 0.75rem;
 }
 
 .import-hub-card {

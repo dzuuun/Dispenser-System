@@ -60,6 +60,7 @@ import {
 } from "../controllers/mssql-student-import.controller.js";
 import {
   getMssqlSyncSchedule,
+  listMssqlSyncActivity,
   updateMssqlSyncSchedule,
 } from "../services/mssql-sync-schedule.service.js";
 import {
@@ -258,6 +259,11 @@ adminRouter.get(
   "/imports/mssql-schedule",
   requireRoles("Super Admin"),
   getMssqlSyncSchedule,
+);
+adminRouter.get(
+  "/imports/mssql-schedule/activity",
+  requireRoles("Super Admin"),
+  listMssqlSyncActivity,
 );
 adminRouter.put(
   "/imports/mssql-schedule",

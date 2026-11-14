@@ -138,6 +138,8 @@ The SQL Server preview separates **Unchanged students** from updates. Only diffe
 
 Super Admins can enable automatic synchronization on the Imports page and choose its interval. The first run is scheduled one interval after saving; the API must be running for synchronization to occur. A missed run is attempted after the API restarts, and the page displays the next run and the last result. Scheduled runs preserve existing birthdays and automatically deactivate active students missing from the SQL Server list. New students still require a valid birthday. The API creates the schedule table on startup, so its MySQL user needs permission to create that table during deployment.
 
+The automatic synchronization card includes an activity log for runs recorded after the history feature is installed. It shows start and finish times, status, counts, and errors; runs interrupted by a server stop are identified when the scheduler next starts. The MySQL user needs permission to create the activity table on startup.
+
 All file imports also separate unchanged records from actual changes. Student files compare the imported profile and enrollment fields; account files compare the login, password, active status, and applicable Kumosoft ID, including accounts waiting for a matching student. Already inactive students are unchanged in deactivation imports. Existing voucher codes are unchanged and keep their current status and assignment; repeated codes within the file are listed separately as duplicates. Unchanged records are excluded from import/update counts and are not rewritten.
 
 Updated rows in file and SQL Server import reviews list the changed fields with saved and imported values. Empty values are marked `(empty)`. Password changes show only whether the password will be replaced or cleared; the preview never includes either password. SQL Server birthday changes appear only when **Review birthday changes** is enabled, and additional preview pages include the same change details.
@@ -211,6 +213,7 @@ server/                 Express API
 - Admin API calls silently renew expired 15-minute access tokens and retry once. Concurrent calls share one renewal, including table polling, saves, imports, and exports. An expired or revoked refresh session returns to sign-in; temporary network failures do not sign the administrator out.
 - Session cookies use `Secure` on HTTPS and remain usable on the supported LAN HTTP deployment. Express reads the connection scheme through the trusted proxy. [MDN documents how Secure cookies depend on HTTPS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie#secure).
 - Kiosk sessions are device-scoped and temporary.
+- Browser kiosks are registered by their observed IP address: the same IP reuses its kiosk record, while a different IP creates a separate record. A legacy kiosk record is retained for the IP last associated with it. Assign stable IP addresses to kiosks; devices behind a proxy or NAT that appear to the application with the same IP will share a record. The server trusts forwarded client addresses only through its configured trusted proxy.
 - Administrative mutations are recorded in the audit log.
 - Use HTTPS, restrict CORS to the real frontend origin, use a least-privilege MySQL account, and maintain tested database backups.
 

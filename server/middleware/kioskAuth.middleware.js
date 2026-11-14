@@ -11,7 +11,13 @@ const cookie = (req, name) =>
     .map((value) => value.trim())
     .find((value) => value.startsWith(`${name}=`))
     ?.slice(name.length + 1);
-const observedIp = (req) => req.ip?.replace(/^::ffff:/, "") || "";
+const observedIp = (req) =>
+  String(req.ip || req.socket?.remoteAddress || "")
+    .replace(/^::ffff:/i, "")
+    .trim();
+
+const codeForIp = (code, ip) =>
+  `KIOSK-${crypto.createHash("sha256").update(code).update("\0").update(ip).digest("hex").slice(0, 24).toUpperCase()}`;
 
 export async function createKioskSession(req, res, next) {
   const cfg = config();
@@ -21,28 +27,40 @@ export async function createKioskSession(req, res, next) {
       .status(401)
       .json({ message: "This device is not enrolled as a kiosk." });
   try {
-    let [[kiosk]] = await pool.execute(
-      "SELECT id, kiosk_code, is_active FROM kiosks WHERE kiosk_code=?",
+    const ip = observedIp(req);
+    if (!ip)
+      return res
+        .status(400)
+        .json({ message: "Unable to identify this kiosk's IP address." });
+    const [[legacy]] = await pool.execute(
+      "SELECT id, kiosk_code, is_active, ip_address FROM kiosks WHERE kiosk_code=?",
       [code],
     );
-    if (!kiosk && code === cfg.kioskCode) {
+    // Preserve the existing record for the device last associated with it.
+    // Other IP addresses receive separate stable codes.
+    const kioskCode =
+      legacy && observedIp({ ip: legacy.ip_address }) === ip
+        ? code
+        : codeForIp(code, ip);
+    let [[kiosk]] =
+      kioskCode === code
+        ? [[legacy]]
+        : await pool.execute(
+            "SELECT id, kiosk_code, is_active, ip_address FROM kiosks WHERE kiosk_code=?",
+            [kioskCode],
+          );
+    if (!kiosk) {
       const generatedSecret = await bcrypt.hash(
         crypto.randomBytes(32).toString("hex"),
         12,
       );
       await pool.execute(
-        "INSERT INTO kiosks (kiosk_code, kiosk_name, location, secret_hash, is_active, last_seen, ip_address) VALUES (?, ?, ?, ?, 1, NOW(), ?)",
-        [
-          code,
-          "Credentials kiosk",
-          "Unassigned",
-          generatedSecret,
-          observedIp(req),
-        ],
+        "INSERT INTO kiosks (kiosk_code, kiosk_name, location, secret_hash, is_active, last_seen, ip_address) VALUES (?, ?, ?, ?, 1, NOW(), ?) ON DUPLICATE KEY UPDATE id=id",
+        [kioskCode, "Credentials kiosk", "Unassigned", generatedSecret, ip],
       );
       [[kiosk]] = await pool.execute(
-        "SELECT id, kiosk_code, is_active FROM kiosks WHERE kiosk_code=?",
-        [code],
+        "SELECT id, kiosk_code, is_active, ip_address FROM kiosks WHERE kiosk_code=?",
+        [kioskCode],
       );
     }
     if (!kiosk?.is_active)
