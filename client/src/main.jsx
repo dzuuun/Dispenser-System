@@ -6525,6 +6525,7 @@ function MssqlSchedule({ token }) {
                   setIntervalMinutes(Number(event.target.value))
                 }
               >
+                <option value={30}>30 minutes</option>
                 <option value={60}>1 hour</option>
                 <option value={360}>6 hours</option>
                 <option value={720}>12 hours</option>
