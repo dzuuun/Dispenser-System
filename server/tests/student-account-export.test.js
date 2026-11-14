@@ -215,7 +215,7 @@ test("Email export retains inactive account addresses and their passwords", asyn
 test("export and table share search, missing account, status, academic period and sort filters", async (t) => {
   const { calls, get } = await setup(t, { count: 2 });
   const query =
-    "search=BSIT&status=inactive&missingAccount=EMAIL&sort=course&direction=desc";
+    "search=BSIT&status=inactive&missingAccount=EMAIL&voucherStatus=without&sort=course&direction=desc";
   assert.equal((await get(`/students?${query}&page=2&limit=10`)).status, 200);
   assert.equal((await get(`/students/export?${query}`)).status, 200);
   const [listing, exported] = calls.filter(({ sql }) =>

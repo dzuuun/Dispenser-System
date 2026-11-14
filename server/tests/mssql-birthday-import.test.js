@@ -61,6 +61,9 @@ function setup(t, options = {}) {
     stored.push({
       id: 2,
       student_id: "ABSENT",
+      first_name: "Alex",
+      last_name: "Absent",
+      course_code: "BSIT",
       birth_date: "2000-01-01",
       is_active: 1,
     });
@@ -160,6 +163,22 @@ function setup(t, options = {}) {
     if (query.includes("INSERT IGNORE INTO import_mssql_student_ids")) {
       values.forEach((id) => importIds.add(id));
       return [{ affectedRows: values.length }];
+    }
+    if (query.startsWith("SELECT s.id, s.student_id, s.first_name")) {
+      return [
+        students
+          .filter(
+            (student) =>
+              student.is_active &&
+              ![...importIds].some(
+                (id) => id.toLowerCase() === student.student_id.toLowerCase(),
+              ),
+          )
+          .map((student) => ({
+            ...student,
+            course_code: student.course_code || "BSIT",
+          })),
+      ];
     }
     if (query.startsWith("UPDATE students s")) {
       if (options.failSync) throw new Error("Sync failed");
@@ -268,7 +287,13 @@ test("MSSQL preview and import default to preserving corrected birthdays while u
     [1, 1, 0],
   );
   assert.ok(
-    store.calls.every(({ sql }) => sql.startsWith("SELECT")),
+    store.calls.every(
+      ({ sql }) =>
+        sql.startsWith("SELECT") ||
+        sql.startsWith("CREATE TEMPORARY TABLE") ||
+        sql.startsWith("DROP TEMPORARY TABLE") ||
+        sql.startsWith("INSERT IGNORE INTO import_mssql_student_ids"),
+    ),
     "Preview must be read-only",
   );
   const result = await store.invoke(importMssqlStudents);
@@ -434,6 +459,7 @@ test("repeated imports preserve birthdays corrected after the first synchronizat
 
 test("student synchronization still requires deactivation confirmation and preserves birthdays", async (t) => {
   const store = setup(t, { absent: true });
+  const preview = await store.invoke(previewMssqlStudentImport);
   const result = await store.invoke(importMssqlStudents);
   assert.equal(result.statusCode, 409);
   assert.equal(
@@ -441,12 +467,74 @@ test("student synchronization still requires deactivation confirmation and prese
     1,
   );
   const confirmed = await store.invoke(importMssqlStudents, {
-    body: { confirmDeactivation: true, updateExistingBirthdays: false },
+    body: {
+      confirmDeactivation: true,
+      deactivationSignature: preview.body.deactivationSignature,
+      updateExistingBirthdays: false,
+    },
   });
   assert.equal(confirmed.body.deactivated, 1);
   assert.equal(
     store.students.find((s) => s.student_id === "OLD").birth_date,
     "2005-02-03",
+  );
+});
+
+test("deactivation preview identifies absent students and requires reapproval if the source changes", async (t) => {
+  const store = setup(t, { absent: true });
+  const preview = await store.invoke(previewMssqlStudentImport);
+  assert.equal(preview.body.deactivate, 1);
+  assert.deepEqual(
+    preview.body.groups.deactivate.records.map((row) => [
+      row.schoolId,
+      row.name,
+      row.courseCode,
+    ]),
+    [["ABSENT", "Absent, Alex", "BSIT"]],
+  );
+  const page = await store.invoke(previewMssqlStudentImport, {
+    query: { category: "deactivate", offset: "0" },
+  });
+  assert.equal(
+    page.body.deactivationSignature,
+    preview.body.deactivationSignature,
+  );
+  assert.equal(page.body.page.records[0].schoolId, "ABSENT");
+  store.source.push({ ...store.source[0], SchoolID: "ABSENT" });
+  const before = structuredClone(store.students);
+  const result = await store.invoke(importMssqlStudents, {
+    body: {
+      confirmDeactivation: true,
+      deactivationSignature: preview.body.deactivationSignature,
+    },
+  });
+  assert.equal(result.statusCode, 409);
+  assert.match(result.body.message, /changed.*refresh/i);
+  assert.deepEqual(store.students, before);
+});
+
+test("deactivation preview pages through all absent students", async (t) => {
+  const store = setup(t);
+  for (let i = 0; i < 251; i++)
+    store.students.push({
+      id: i + 10,
+      student_id: `ABSENT-${i}`,
+      first_name: "Test",
+      last_name: "Student",
+      is_active: 1,
+    });
+  const preview = await store.invoke(previewMssqlStudentImport);
+  assert.equal(preview.body.deactivate, 251);
+  assert.equal(preview.body.groups.deactivate.records.length, 250);
+  assert.equal(preview.body.groups.deactivate.hasMore, true);
+  const page = await store.invoke(previewMssqlStudentImport, {
+    query: { category: "deactivate", offset: "250" },
+  });
+  assert.equal(page.body.page.records.length, 1);
+  assert.equal(page.body.page.hasMore, false);
+  assert.equal(
+    page.body.deactivationSignature,
+    preview.body.deactivationSignature,
   );
 });
 
@@ -638,7 +726,15 @@ test("MSSQL changed-field previews respect the birthday switch and describe peri
     enabled.body.groups.update.records[0].changes.map((change) => change.field),
     ["Middle name", "Birthday", "Course", "Academic period", "Status"],
   );
-  assert.ok(store.calls.every(({ sql }) => sql.startsWith("SELECT")));
+  assert.ok(
+    store.calls.every(
+      ({ sql }) =>
+        sql.startsWith("SELECT") ||
+        sql.startsWith("CREATE TEMPORARY TABLE") ||
+        sql.startsWith("DROP TEMPORARY TABLE") ||
+        sql.startsWith("INSERT IGNORE INTO import_mssql_student_ids"),
+    ),
+  );
 });
 
 test("unchanged rows paginate separately without changing counts or limiting synchronization", async (t) => {
@@ -703,7 +799,10 @@ test("synchronization can still deactivate absent students when all source stude
   );
   assert.equal((await store.invoke(importMssqlStudents)).statusCode, 409);
   const imported = await store.invoke(importMssqlStudents, {
-    body: { confirmDeactivation: true },
+    body: {
+      confirmDeactivation: true,
+      deactivationSignature: preview.body.deactivationSignature,
+    },
   });
   assert.equal(imported.statusCode, 200);
   assert.deepEqual(

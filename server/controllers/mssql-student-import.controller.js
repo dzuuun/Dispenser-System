@@ -1,5 +1,6 @@
 import { displayMiddleName } from "../../shared/student-name.mjs";
 import sql from "mssql";
+import { createHash } from "node:crypto";
 import { config } from "../config/env.js";
 import { pool } from "../config/db.js";
 import { currentAcademicPeriod } from "../services/academic-period.service.js";
@@ -195,16 +196,7 @@ const sourceStudentIds = (rows) => [
   ),
 ];
 
-async function countStudentsToDeactivate(ids, executor = pool) {
-  const [activeStudents] = await executor.query(
-    "SELECT student_id FROM students WHERE is_active=1",
-  );
-  const sourceIds = new Set(ids);
-  return activeStudents.filter((student) => !sourceIds.has(student.student_id))
-    .length;
-}
-
-async function deactivateStudentsMissingFromSource(ids, connection) {
+async function withSourceIds(ids, connection, callback) {
   try {
     await connection.query(
       `CREATE TEMPORARY TABLE import_mssql_student_ids (
@@ -219,6 +211,40 @@ async function deactivateStudentsMissingFromSource(ids, connection) {
         batch,
       );
     }
+    return await callback();
+  } finally {
+    await connection.query(
+      "DROP TEMPORARY TABLE IF EXISTS import_mssql_student_ids",
+    );
+  }
+}
+
+async function studentsToDeactivate(ids, connection, lock = false) {
+  return withSourceIds(ids, connection, async () => {
+    const [students] = await connection.query(
+      `SELECT s.id, s.student_id, s.first_name, s.middle_name, s.last_name, c.code course_code
+       FROM students s
+       LEFT JOIN import_mssql_student_ids source ON source.student_id=CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
+       LEFT JOIN courses c ON c.id=s.course_id
+       WHERE s.is_active=1 AND source.student_id IS NULL
+       ORDER BY s.id${lock ? " FOR UPDATE" : ""}`,
+    );
+    return students;
+  });
+}
+
+const deactivationSignature = (periodId, students) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify([
+        periodId,
+        students.map((student) => String(student.id)).sort(),
+      ]),
+    )
+    .digest("hex");
+
+async function deactivateStudentsMissingFromSource(ids, connection) {
+  return withSourceIds(ids, connection, async () => {
     const [result] = await connection.query(
       `UPDATE students s
        LEFT JOIN import_mssql_student_ids source ON source.student_id=CONVERT(s.student_id USING utf8mb4) COLLATE utf8mb4_unicode_ci
@@ -226,11 +252,7 @@ async function deactivateStudentsMissingFromSource(ids, connection) {
        WHERE s.is_active=1 AND source.student_id IS NULL`,
     );
     return result.affectedRows;
-  } finally {
-    await connection.query(
-      "DROP TEMPORARY TABLE IF EXISTS import_mssql_student_ids",
-    );
-  }
+  });
 }
 
 export async function previewMssqlStudentImport(req, res, next) {
@@ -249,28 +271,62 @@ export async function previewMssqlStudentImport(req, res, next) {
     });
     const offset = previewOffset(req.query.offset);
     const category = String(req.query.category || "");
-    if (category && !["new", "update", "unchanged", "error"].includes(category))
+    if (
+      category &&
+      !["new", "update", "unchanged", "error", "deactivate"].includes(category)
+    )
       return res.status(400).json({ message: "Invalid preview category." });
-    const deactivate =
-      !category && offset === 0
-        ? await countStudentsToDeactivate(sourceStudentIds(rows))
-        : undefined;
+    let deactivationRecords, signature;
+    if (!category || category === "deactivate") {
+      const connection = await pool.getConnection();
+      try {
+        const students = await studentsToDeactivate(
+          sourceStudentIds(rows),
+          connection,
+        );
+        signature = deactivationSignature(period.id, students);
+        deactivationRecords = students.map((student) => ({
+          kind: "deactivate",
+          studentRecordId: student.id,
+          schoolId: student.student_id,
+          name: [
+            student.last_name,
+            student.first_name,
+            displayMiddleName(student.middle_name),
+          ]
+            .filter(Boolean)
+            .join(", "),
+          courseCode: student.course_code || "—",
+          message: "Not in the SQL Server source list.",
+        }));
+      } finally {
+        connection.release();
+      }
+    }
     res.json({
       period,
       ...options,
-      deactivate,
+      deactivate: deactivationRecords?.length,
+      deactivationSignature: signature,
       ...summary(result),
       ...(category
         ? {
             category,
             page: previewPage(
-              previewRecords(result).filter(
-                (record) => record.kind === category,
-              ),
+              category === "deactivate"
+                ? deactivationRecords
+                : previewRecords(result).filter(
+                    (record) => record.kind === category,
+                  ),
               offset,
             ),
           }
-        : { groups: previewGroups(result) }),
+        : {
+            groups: {
+              ...previewGroups(result),
+              deactivate: previewPage(deactivationRecords, 0),
+            },
+          }),
     });
   } catch (error) {
     next(error);
@@ -364,10 +420,29 @@ export async function importMssqlStudents(req, res, next) {
         ...summary(result),
       });
     }
-    const pendingDeactivations = req.scheduledImport
-      ? 0
-      : await countStudentsToDeactivate(sourceIds, connection);
-    if (pendingDeactivations && req.body?.confirmDeactivation !== true) {
+    const deactivationStudents = req.scheduledImport
+      ? []
+      : await studentsToDeactivate(sourceIds, connection, true);
+    const pendingDeactivations = deactivationStudents.length;
+    const signature = deactivationSignature(period.id, deactivationStudents);
+    if (
+      !req.scheduledImport &&
+      req.body?.deactivationSignature !== undefined &&
+      req.body.deactivationSignature !== signature
+    ) {
+      await connection.rollback();
+      return res
+        .status(409)
+        .json({
+          message:
+            "The students to be deactivated have changed. Refresh the preview and review them again.",
+        });
+    }
+    if (
+      pendingDeactivations &&
+      (req.body?.confirmDeactivation !== true ||
+        req.body?.deactivationSignature !== signature)
+    ) {
       await connection.rollback();
       return res.status(409).json({
         message: `Confirmation is required before deactivating ${pendingDeactivations} student${pendingDeactivations === 1 ? "" : "s"}.`,

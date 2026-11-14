@@ -53,6 +53,14 @@ const studentVoucher =
 
 function studentListQuery(query) {
   const missingAccount = query.missingAccount ?? "";
+  const voucherStatus = query.voucherStatus ?? "all";
+  if (
+    typeof voucherStatus !== "string" ||
+    !["all", "with", "without"].includes(voucherStatus)
+  )
+    throw Object.assign(new Error("Choose a valid voucher filter."), {
+      status: 400,
+    });
   if (
     typeof missingAccount !== "string" ||
     (missingAccount !== "" &&
@@ -88,6 +96,8 @@ function studentListQuery(query) {
   }
   if (status === "active") filters.push(studentActive);
   if (status === "inactive") filters.push(`NOT ${studentActive}`);
+  if (voucherStatus === "with") filters.push(`${studentVoucher} IS NOT NULL`);
+  if (voucherStatus === "without") filters.push(`${studentVoucher} IS NULL`);
   for (const { type, table } of studentAccountTypes) {
     if (missingAccount === type || missingAccount === "NONE")
       filters.push(

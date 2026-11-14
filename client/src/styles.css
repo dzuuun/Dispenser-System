@@ -1430,6 +1430,9 @@ button {
   padding: 18px 24px;
   border: 0;
 }
+.mssql-validation-body > #mssql-deactivation-list {
+  padding: 0 24px 18px;
+}
 .mssql-validation-body > .mssql-sync-warning {
   margin: 0 24px 18px;
   padding: 10px 12px;
@@ -9442,6 +9445,49 @@ body,
 }
 .records-data-table .student-list-pagination > div {
   flex-wrap: wrap;
+}
+.student-inactive-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 0 10px;
+  color: #496b5c;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.student-inactive-switch input {
+  position: absolute;
+  opacity: 0;
+}
+.student-inactive-switch i {
+  position: relative;
+  flex: 0 0 38px;
+  height: 22px;
+  border-radius: 20px;
+  background: #a3b7ad;
+}
+.student-inactive-switch i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  content: "";
+  transition: transform 0.15s;
+}
+.student-inactive-switch input:checked + i {
+  background: #08714d;
+}
+.student-inactive-switch input:checked + i::after {
+  transform: translateX(16px);
+}
+.student-inactive-switch input:focus-visible + i {
+  outline: 3px solid #badfcc;
+  outline-offset: 3px;
 }
 .students-data-table .student-list-table {
   min-width: 950px;

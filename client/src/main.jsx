@@ -5458,10 +5458,12 @@ function ImportValidationGroups({
               <div className="mssql-validation-rows">
                 {rows.map((row) => (
                   <article
-                    key={`${kind}-${row.row}`}
+                    key={`${kind}-${row.row ?? row.studentRecordId}`}
                     className={row.changes?.length ? "has-changes" : undefined}
                   >
-                    <small>Row {row.row}</small>
+                    <small>
+                      {row.row != null ? `Row ${row.row}` : "Student"}
+                    </small>
                     <span>
                       {row.label ??
                         (row.schoolId
@@ -5945,6 +5947,7 @@ function ImportHubModal({ type, token, onClose, onComplete }) {
 }
 
 function MssqlStudentImportModal({ token, onClose, onComplete }) {
+  const deactivationListRef = useRef(null);
   const [activePeriod, setActivePeriod] = useState(null),
     [preview, setPreview] = useState(null),
     [busy, setBusy] = useState(false),
@@ -5954,6 +5957,13 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
     [birthdaySelections, setBirthdaySelections] = useState({}),
     [error, setError] = useState("");
   const headers = { Authorization: `Bearer ${token}` };
+  useEffect(() => {
+    if (confirmDeactivation)
+      deactivationListRef.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+  }, [confirmDeactivation]);
   useEffect(() => {
     request("/admin/academic-periods", { headers })
       .then((periods) =>
@@ -5979,7 +5989,19 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
         `/admin/imports/mssql-students/preview?${params}`,
         { headers },
       );
-      if (!category) setBirthdaySelections({});
+      if (
+        category === "deactivate" &&
+        data.deactivationSignature !== preview?.deactivationSignature
+      ) {
+        setConfirmDeactivation(false);
+        throw new Error(
+          "The students to be deactivated have changed. Refresh the preview and review them again.",
+        );
+      }
+      if (!category) {
+        setBirthdaySelections({});
+        setConfirmDeactivation(false);
+      }
       setPreview((current) =>
         !category
           ? data
@@ -6016,6 +6038,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           confirmDeactivation,
+          deactivationSignature: preview.deactivationSignature,
           updateExistingBirthdays,
           selectedBirthdays: Object.values(birthdaySelections),
         }),
@@ -6023,6 +6046,7 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
       onComplete(result.message);
       onClose();
     } catch (err) {
+      if (err.status === 409) setConfirmDeactivation(false);
       setError(err.message);
     } finally {
       setBusy(false);
@@ -6233,6 +6257,8 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                   <input
                     type="checkbox"
                     checked={confirmDeactivation}
+                    disabled={busy}
+                    aria-controls="mssql-deactivation-list"
                     onChange={(event) =>
                       setConfirmDeactivation(event.target.checked)
                     }
@@ -6242,6 +6268,25 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
                     students.
                   </span>
                 </label>
+              )}
+              {confirmDeactivation && preview.deactivate > 0 && (
+                <div id="mssql-deactivation-list" ref={deactivationListRef}>
+                  <ImportValidationGroups
+                    groups={preview.groups}
+                    sections={[
+                      [
+                        "Students to deactivate",
+                        "errors",
+                        "deactivate",
+                        preview.deactivate,
+                        "No students will be deactivated.",
+                      ],
+                    ]}
+                    onLoadMore={loadPreview}
+                    busy={busy || !previewIsCurrent}
+                    loadingGroup={loadingGroup}
+                  />
+                </div>
               )}
               {error && <p className="error">{error}</p>}
               {!previewIsCurrent && !busy && (
@@ -11840,6 +11885,7 @@ function StudentsPage({ token }) {
     [search, setSearch] = useState(""),
     [status, setStatus] = useState("all"),
     [missingAccount, setMissingAccount] = useState(""),
+    [voucherStatus, setVoucherStatus] = useState("all"),
     [exporting, setExporting] = useState(false),
     [exportError, setExportError] = useState(""),
     [sort, setSort] = useState("name"),
@@ -11853,6 +11899,7 @@ function StudentsPage({ token }) {
       status,
       search,
       missingAccount,
+      voucherStatus,
       sort,
       direction,
     });
@@ -11885,6 +11932,7 @@ function StudentsPage({ token }) {
     search,
     status,
     missingAccount,
+    voucherStatus,
     sort,
     direction,
     refresh,
@@ -11898,6 +11946,7 @@ function StudentsPage({ token }) {
         search,
         status,
         missingAccount,
+        voucherStatus,
         sort,
         direction,
       });
@@ -12033,13 +12082,34 @@ function StudentsPage({ token }) {
                 <option value="NONE">No linked accounts</option>
               </select>
             </label>
-            <InactiveRecordsToggle
-              visible={status !== "active"}
-              onChange={(visible) => {
-                setStatus(visible ? "all" : "active");
-                setPage(1);
-              }}
-            />
+            <label className="records-table-field">
+              <span>Current-period voucher</span>
+              <select
+                aria-label="Filter students by current-period voucher"
+                value={voucherStatus}
+                onChange={(event) => {
+                  setVoucherStatus(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="all">All vouchers</option>
+                <option value="with">With voucher</option>
+                <option value="without">Without voucher</option>
+              </select>
+            </label>
+            <label className="student-inactive-switch">
+              <span>Show inactive</span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={status !== "active"}
+                onChange={(event) => {
+                  setStatus(event.target.checked ? "all" : "active");
+                  setPage(1);
+                }}
+              />
+              <i aria-hidden="true" />
+            </label>
             <span className="sr-only" role="status">
               {loading ? "Updating students..." : "Student records updated."}
             </span>

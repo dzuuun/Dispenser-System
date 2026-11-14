@@ -238,6 +238,34 @@ test("student rows include only a valid current-period voucher and allow searchi
   assert.ok(listing.values.includes("%WIFI-123%"));
 });
 
+test("voucher filter scopes both count and rows to valid current-period vouchers", async (t) => {
+  const { calls, get } = setup(t);
+  for (const [voucherStatus, expected] of [
+    ["with", "IS NOT NULL"],
+    ["without", "IS NULL"],
+  ]) {
+    const start = calls.length;
+    await get("", { voucherStatus, status: "active" });
+    const [count, listing] = calls.slice(start);
+    for (const { sql } of [count, listing]) {
+      assert.ok(
+        sql.includes(`w.is_active=1 AND w.is_released=0 LIMIT 1) ${expected}`),
+      );
+      assert.match(sql, /w\.academic_period_id=s\.academic_period_id/);
+      assert.match(
+        sql,
+        /w\.academic_period_id=\(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1/,
+      );
+    }
+  }
+  const count = calls.length;
+  for (const voucherStatus of ["invalid", ["with", "without"], null]) {
+    if (voucherStatus === null) continue;
+    await assert.rejects(get("", { voucherStatus }), { status: 400 });
+  }
+  assert.equal(calls.length, count);
+});
+
 test("student list returns the student's recorded academic period, including when inactive", async (t) => {
   const { calls, get } = setup(t, [
     {
