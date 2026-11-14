@@ -133,7 +133,7 @@ export async function dashboard(req, res) {
     [recentRequests],
   ] = await Promise.all([
     pool.execute(
-      `SELECT COUNT(*) total, COALESCE(SUM(voucher_id IS NULL), 0) withoutVoucher
+      `SELECT COUNT(*) total, COALESCE(SUM(NOT EXISTS (SELECT 1 FROM wifi_vouchers w WHERE w.id=students.voucher_id AND w.academic_period_id=students.academic_period_id AND w.is_active=1 AND w.is_released=0)), 0) withoutVoucher
        FROM students WHERE is_active=1 AND academic_period_id=?`,
       [periodId],
     ),

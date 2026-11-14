@@ -181,7 +181,7 @@ export async function credentials(req, res) {
       });
     }
     const [[student]] = await conn.execute(
-      "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1",
+      "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1 FOR UPDATE",
       [session.sub, period.id],
     );
     if (!student) {
@@ -228,7 +228,7 @@ export async function credentials(req, res) {
     let voucher = existing?.voucher_code;
     if (voucherControl.visible && !voucherControl.maintenance && !voucher) {
       const [[available]] = await conn.query(
-        "SELECT id, voucher_code FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 LIMIT 1 FOR UPDATE",
+        "SELECT id, voucher_code FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 ORDER BY id LIMIT 1 FOR UPDATE",
         [session.sub],
       );
       if (available) {
@@ -495,14 +495,14 @@ export async function requestNewVoucher(req, res) {
   try {
     await connection.beginTransaction();
     const [[student]] = await connection.execute(
-      "SELECT voucher_id FROM students WHERE id=? AND is_active=1 FOR UPDATE",
+      "SELECT s.voucher_id FROM students s JOIN wifi_vouchers w ON w.id=s.voucher_id AND w.academic_period_id=s.academic_period_id AND w.is_active=1 AND w.is_released=0 WHERE s.id=? AND s.is_active=1 AND s.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1) FOR UPDATE",
       [session.sub],
     );
     if (!student) {
       await connection.rollback();
       return res
-        .status(404)
-        .json({ message: "Student record is not available." });
+        .status(409)
+        .json({ message: "There is no current voucher to replace." });
     }
     if (!student.voucher_id) {
       await connection.rollback();

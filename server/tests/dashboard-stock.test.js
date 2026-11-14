@@ -127,7 +127,7 @@ test("dashboard counts students without a voucher directly instead of subtractin
   );
   assert.match(
     studentQuery.sql,
-    /COALESCE\(SUM\(voucher_id IS NULL\), 0\) withoutVoucher/,
+    /SUM\(NOT EXISTS \(SELECT 1 FROM wifi_vouchers w WHERE w.id=students.voucher_id AND w.academic_period_id=students.academic_period_id AND w.is_active=1 AND w.is_released=0\)\)/,
   );
   assert.match(studentQuery.sql, /WHERE is_active=1 AND academic_period_id=\?/);
   assert.deepEqual(studentQuery.values, [7]);

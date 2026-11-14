@@ -79,7 +79,7 @@ test("student search covers IDs, full names, course code/name, and displayed sta
     }
     const internalId = /^\d+$/.test(term) ? [Number(term)] : [];
     assert.deepEqual(count.values, [
-      ...Array(11).fill(`%${term}%`),
+      ...Array(12).fill(`%${term}%`),
       ...internalId,
     ]);
     assert.deepEqual(listing.values, [...count.values, 10, 10]);
@@ -91,7 +91,7 @@ test("student search preserves status filters and treats LIKE wildcard character
   await get("  COURSE_100%!  ", { status: "inactive" });
   const count = calls.find(({ sql }) => sql.startsWith("SELECT COUNT(*)"));
   assert.match(count.sql, /AND NOT \(s.is_active=1 AND COALESCE/);
-  assert.deepEqual(count.values, [...Array(11).fill("%COURSE!_100!%!!%")]);
+  assert.deepEqual(count.values, [...Array(12).fill("%COURSE!_100!%!!%")]);
 });
 
 test("empty student search retains the lightweight unjoined count", async (t) => {
@@ -137,7 +137,7 @@ test("missing account filters apply to both counts and pages and combine with se
       // An inactive linked account still exists; it must not count as missing.
       assert.doesNotMatch(sql, /missing_account\.is_active/);
     }
-    assert.deepEqual(count.values, [...Array(11).fill("%BSIT%")]);
+    assert.deepEqual(count.values, [...Array(12).fill("%BSIT%")]);
     assert.deepEqual(listing.values, [...count.values, 10, 10]);
   }
 });
@@ -215,6 +215,27 @@ test("student rows report linked accounts including inactive ones without fetchi
   const drawResult = await get("", { draw: "2", start: "0", length: "10" });
   assert.deepEqual(drawResult.data, result.rows);
   assert.equal(drawResult.draw, 2);
+});
+
+test("student rows include only a valid current-period voucher and allow searching its code", async (t) => {
+  const { calls, get } = setup(t, [
+    { id: 11, voucher_code: "WIFI-123" },
+    { id: 12, voucher_code: null },
+  ]);
+  const result = await get("WIFI-123");
+  assert.equal(result.rows[0].voucher_code, "WIFI-123");
+  assert.equal(result.rows[1].voucher_code, null);
+  const listing = calls.find(({ sql }) => sql.startsWith("SELECT s.id"));
+  assert.match(
+    listing.sql,
+    /w\.id=s\.voucher_id AND w\.academic_period_id=s\.academic_period_id/,
+  );
+  assert.match(
+    listing.sql,
+    /w\.academic_period_id=\(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1/,
+  );
+  assert.match(listing.sql, /w\.is_active=1 AND w\.is_released=0/);
+  assert.ok(listing.values.includes("%WIFI-123%"));
 });
 
 test("student list returns the student's recorded academic period, including when inactive", async (t) => {

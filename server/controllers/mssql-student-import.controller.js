@@ -342,12 +342,10 @@ export async function importMssqlStudents(req, res, next) {
         })
       ) {
         await connection.rollback();
-        return res
-          .status(409)
-          .json({
-            message:
-              "A selected birthday or student record changed since the preview. Refresh the preview and select the birthdays again.",
-          });
+        return res.status(409).json({
+          message:
+            "A selected birthday or student record changed since the preview. Refresh the preview and select the birthdays again.",
+        });
       }
     }
     const birthdayStudentIds =

@@ -228,7 +228,7 @@ test("export and table share search, missing account, status, academic period an
     exported.sql.slice(exported.sql.indexOf("FROM students")),
   );
   assert.deepEqual(listing.values.slice(0, -2), exported.values);
-  assert.deepEqual(exported.values, [...Array(11).fill("%BSIT%")]);
+  assert.deepEqual(exported.values, [...Array(12).fill("%BSIT%")]);
   assert.match(exported.sql, /AND NOT \(s\.is_active=1 AND COALESCE/);
   assert.match(
     exported.sql,

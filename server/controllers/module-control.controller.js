@@ -60,11 +60,9 @@ export async function updateModuleControl(req, res) {
       message: "New-account requests are not supported for this module.",
     });
   if (acceptVoucherRequests !== undefined && moduleKey !== "VOUCHER")
-    return res
-      .status(400)
-      .json({
-        message: "Voucher requests are supported only for WiFi vouchers.",
-      });
+    return res.status(400).json({
+      message: "Voucher requests are supported only for WiFi vouchers.",
+    });
   if (
     pausedMessage !== undefined &&
     (moduleKey !== "VOUCHER" ||

@@ -85,7 +85,7 @@ function setup(t) {
       calls.push(sql);
       if (sql.startsWith("SELECT c.academic_level"))
         return [[{ academic_level: "COLLEGE" }]];
-      if (sql.startsWith("SELECT voucher_id FROM students"))
+      if (sql.startsWith("SELECT s.voucher_id FROM students"))
         return [[{ voucher_id: 9 }]];
       if (sql.startsWith("SELECT id, is_active FROM")) return [[]];
       if (sql.startsWith("SELECT id FROM password_reset_requests")) return [[]];

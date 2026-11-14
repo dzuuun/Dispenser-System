@@ -1244,67 +1244,359 @@ function AnalyticsPage({ token }) {
     let active = true;
     setLoading(true);
     setError("");
-    request(`/admin/analytics?days=${days}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((result) => { if (active) setData(result); })
-      .catch((err) => { if (active) { setError(err.message); setData(null); } })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    setInsight(null);
+    request(`/admin/analytics?days=${days}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((result) => {
+        if (active) setData(result);
+      })
+      .catch((err) => {
+        if (active) {
+          setError(err.message);
+          setData(null);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [token, days]);
   const number = (value) => Number(value || 0).toLocaleString();
   const activity = data?.activity || [];
   const requests = data?.requests || [];
   const views = activity.reduce((sum, row) => sum + Number(row.total), 0);
-  const requestCount = requests.reduce((sum, row) => sum + Number(row.total), 0);
-  const countStatus = (status) => requests.filter((row) => row.status === status).reduce((sum, row) => sum + Number(row.total), 0);
-  const kioskDirectory = new Map((data?.kioskDirectory || []).map((row) => [row.kiosk_code, row]));
-  for (const row of data?.dailyKiosks || []) if (!kioskDirectory.has(row.kiosk_code)) kioskDirectory.set(row.kiosk_code, row);
-  const kioskOptions = [...kioskDirectory.values()].sort((a, b) => a.kiosk_name.localeCompare(b.kiosk_name));
-  const dateRows = data?.today ? Array.from({ length: days }, (_, index) => {
-    const date = new Date(`${data.today}T00:00:00Z`);
-    date.setUTCDate(date.getUTCDate() - (days - 1 - index));
-    const day = date.toISOString().slice(0, 10);
-    const row = selectedKiosk === "all" ? activity.find((item) => item.day === day) : (data.dailyKiosks || []).find((item) => item.day === day && `k:${item.kiosk_code}` === selectedKiosk);
-    return { day, total: Number(row?.total || 0), students: Number(row?.students || 0) };
-  }) : [];
-  const activeDay = dateRows.some((row) => row.day === selectedDay) ? selectedDay : data?.today;
+  const requestCount = requests.reduce(
+    (sum, row) => sum + Number(row.total),
+    0,
+  );
+  const countStatus = (status) =>
+    requests
+      .filter((row) => row.status === status)
+      .reduce((sum, row) => sum + Number(row.total), 0);
+  const kioskDirectory = new Map(
+    (data?.kioskDirectory || []).map((row) => [row.kiosk_code, row]),
+  );
+  for (const row of data?.dailyKiosks || [])
+    if (!kioskDirectory.has(row.kiosk_code))
+      kioskDirectory.set(row.kiosk_code, row);
+  const kioskOptions = [...kioskDirectory.values()].sort((a, b) =>
+    a.kiosk_name.localeCompare(b.kiosk_name),
+  );
+  const dateRows = data?.today
+    ? Array.from({ length: days }, (_, index) => {
+        const date = new Date(`${data.today}T00:00:00Z`);
+        date.setUTCDate(date.getUTCDate() - (days - 1 - index));
+        const day = date.toISOString().slice(0, 10);
+        const row =
+          selectedKiosk === "all"
+            ? activity.find((item) => item.day === day)
+            : (data.dailyKiosks || []).find(
+                (item) =>
+                  item.day === day && `k:${item.kiosk_code}` === selectedKiosk,
+              );
+        return {
+          day,
+          total: Number(row?.total || 0),
+          students: Number(row?.students || 0),
+        };
+      })
+    : [];
+  const activeDay = dateRows.some((row) => row.day === selectedDay)
+    ? selectedDay
+    : data?.today;
   const selectedActivity = dateRows.find((row) => row.day === activeDay);
-  const visibleKiosks = kioskOptions.filter((row) => selectedKiosk === "all" || `k:${row.kiosk_code}` === selectedKiosk);
+  const visibleKiosks = kioskOptions.filter(
+    (row) => selectedKiosk === "all" || `k:${row.kiosk_code}` === selectedKiosk,
+  );
   const maxActivity = Math.max(1, ...dateRows.map((row) => row.total));
-  const renderBreakdown = (rows, name, unit) => {
+  const renderBreakdown = (rows, name, unit, chart) => {
     const max = Math.max(1, ...rows.map((row) => Number(row.total)));
-    return rows.length ? <div className="analytics-breakdown">{rows.map((row, index) => <button type="button" className="analytics-bar-row" key={index} onClick={() => setInsight(`${name(row)}: ${number(row.total)} ${unit}.`)} aria-label={`${name(row)}: ${number(row.total)} ${unit}. Select for details.`}><div><span>{name(row)}</span><b>{number(row.total)}</b></div><div className="analytics-bar-track"><span style={{ width: `${Number(row.total) / max * 100}%` }} /></div></button>)}</div> : <p className="analytics-empty">No data for this selection.</p>;
+    return rows.length ? (
+      <>
+        <div className="analytics-breakdown">
+          {rows.map((row, index) => (
+            <button
+              type="button"
+              className="analytics-bar-row"
+              key={index}
+              aria-pressed={
+                insight?.chart === chart && insight?.label === name(row)
+              }
+              onClick={() =>
+                setInsight({
+                  chart,
+                  label: name(row),
+                  text: `${name(row)}: ${number(row.total)} ${unit}.`,
+                })
+              }
+              aria-label={`${name(row)}: ${number(row.total)} ${unit}. Select for details.`}
+            >
+              <div>
+                <span>{name(row)}</span>
+                <b>{number(row.total)}</b>
+              </div>
+              <div className="analytics-bar-track">
+                <span
+                  style={{ width: `${(Number(row.total) / max) * 100}%` }}
+                />
+              </div>
+            </button>
+          ))}
+        </div>
+        <p className="analytics-chart-detail" aria-live="polite">
+          {insight?.chart === chart
+            ? insight.text
+            : "Select a bar to see its value."}
+        </p>
+      </>
+    ) : (
+      <p className="analytics-empty">No data for this selection.</p>
+    );
   };
-  const requestByType = Object.values(requests.reduce((result, row) => {
-    const type = row.credential_type;
-    result[type] ||= { type, total: 0 };
-    result[type].total += Number(row.total);
-    return result;
-  }, {})).sort((a, b) => b.total - a.total);
-  return <div className="analytics-page">
-    <PageHeader title="Analytics" description="Explore student enrollment, kiosk activity, and credential requests." actions={<label className="analytics-filter">Time window <select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>} />
-    {error && <p className="error" role="alert">{error}</p>}
-    {loading ? <p>Loading analytics...</p> : data && <>
-      <p className="analytics-scope">{data.academicPeriod ? `Current academic period: ${data.academicPeriod.schoolYear} · ${data.academicPeriod.semester}` : "No active academic period. Period-based figures are unavailable."} · Time window includes today.</p>
-      <section className="analytics-metrics" aria-label="Analytics overview">
-        <article><span>Active students</span><strong>{number(data.students.total)}</strong><small>Current period</small></article>
-        <article><span>Students with a voucher</span><strong>{number(data.students.with_voucher)}</strong><small>Active students in current period</small></article>
-        <article><span>Credential views</span><strong>{number(views)}</strong><small>Current period · last {days} days</small></article>
-        <article><span>Requests received</span><strong>{number(requestCount)}</strong><small>All periods · last {days} days</small></article>
-      </section>
-      <div className="analytics-layout">
-        <section className="panel analytics-panel analytics-trend"><div className="analytics-trend-heading"><div><h2>Daily kiosk activity</h2><p>Successful credential views in the current academic period. Select a date to see each kiosk.</p></div><label className="analytics-filter">Kiosk <select value={selectedKiosk} onChange={(event) => setSelectedKiosk(event.target.value)}><option value="all">All kiosks</option>{kioskOptions.map((row) => <option key={row.kiosk_code} value={`k:${row.kiosk_code}`}>{row.kiosk_name} · {row.location}{row.kiosk_code ? ` (${row.kiosk_code})` : ""}</option>)}</select></label></div>
-          {dateRows.length ? <><div className="analytics-trend-scroll"><div className="analytics-trend-chart">{dateRows.map((row) => <button type="button" className="analytics-trend-column" key={row.day} aria-pressed={row.day === activeDay} aria-label={`${row.day}: ${number(row.total)} credential views, ${number(row.students)} distinct students`} onClick={() => setSelectedDay(row.day)}><span>{number(row.total)}</span><span className="analytics-trend-bar" style={{ height: `${Math.max(3, row.total / maxActivity * 140)}px` }} /><small>{row.day.slice(5)}</small></button>)}</div></div>
-          <div className="analytics-day-detail" aria-live="polite"><strong>{activeDay}</strong><span>{number(selectedActivity?.total)} credential views · {number(selectedActivity?.students)} distinct students {selectedKiosk === "all" ? "across all kiosks" : "at this kiosk"}</span></div>
-          <div className="analytics-kiosk-table-wrap"><table className="analytics-kiosk-table"><thead><tr><th>Kiosk</th><th>Location</th><th>Views</th><th>Distinct students</th></tr></thead><tbody>{visibleKiosks.map((kiosk) => { const row = (data.dailyKiosks || []).find((item) => item.day === activeDay && item.kiosk_code === kiosk.kiosk_code); return <tr key={kiosk.kiosk_code}><td>{kiosk.kiosk_name}{kiosk.kiosk_code && <small>{kiosk.kiosk_code}</small>}</td><td>{kiosk.location}</td><td>{number(row?.total)}</td><td>{number(row?.students)}</td></tr>; })}</tbody></table>{visibleKiosks.length === 0 && <p className="analytics-empty">No kiosks found.</p>}</div></> : <p className="analytics-empty">No date range available.</p>}
-        </section>
-        <section className="panel analytics-panel"><h2>Request status</h2><p>Current status of requests received in the selected time window, across all periods. Only request types you can access are included.</p><div className="analytics-status-list"><div><span>Pending</span><b>{number(countStatus("PENDING"))}</b></div><div><span>Completed</span><b>{number(countStatus("COMPLETED"))}</b></div><div><span>Rejected</span><b>{number(countStatus("REJECTED"))}</b></div></div></section>
-        <section className="panel analytics-panel"><h2>Students by course</h2><p>Top 8 courses by active students in the current period. Select a bar for details.</p>{renderBreakdown(data.courses, (row) => `${row.code} — ${row.name}`, "students")}</section>
-        <section className="panel analytics-panel"><h2>Views by kiosk location</h2><p>Top 8 locations in the current period and selected time window. Select a bar for details.</p>{renderBreakdown(data.kiosks, (row) => row.location, "views")}</section>
-        <section className="panel analytics-panel"><h2>Requests by credential</h2><p>Requests received across all periods in the selected time window. Select a bar for details.</p>{renderBreakdown(requestByType, (row) => row.type === "VOUCHER" ? "WiFi voucher" : row.type, "requests")}</section>
-      </div>
-      {insight && <div className="analytics-insight" role="status">{insight}<button type="button" aria-label="Dismiss chart detail" onClick={() => setInsight(null)}>×</button></div>}
-    </>}
-  </div>;
+  const requestByType = Object.values(
+    requests.reduce((result, row) => {
+      const type = row.credential_type;
+      result[type] ||= { type, total: 0 };
+      result[type].total += Number(row.total);
+      return result;
+    }, {}),
+  ).sort((a, b) => b.total - a.total);
+  return (
+    <div className="analytics-page">
+      <PageHeader
+        title="Analytics"
+        description="Explore student enrollment, kiosk activity, and credential requests."
+        actions={
+          <label className="analytics-filter">
+            Time window{" "}
+            <select
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+            </select>
+          </label>
+        }
+      />
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p>Loading analytics...</p>
+      ) : (
+        data && (
+          <>
+            <p className="analytics-scope">
+              {data.academicPeriod
+                ? `Current academic period: ${data.academicPeriod.schoolYear} · ${data.academicPeriod.semester}`
+                : "No active academic period. Period-based figures are unavailable."}{" "}
+              · Time window includes today.
+            </p>
+            <section
+              className="analytics-metrics"
+              aria-label="Analytics overview"
+            >
+              <article>
+                <span>Active students</span>
+                <strong>{number(data.students.total)}</strong>
+                <small>Current period</small>
+              </article>
+              <article>
+                <span>Students with a voucher</span>
+                <strong>{number(data.students.with_voucher)}</strong>
+                <small>Active students in current period</small>
+              </article>
+              <article>
+                <span>Credential views</span>
+                <strong>{number(views)}</strong>
+                <small>Current period · last {days} days</small>
+              </article>
+              <article>
+                <span>Requests received</span>
+                <strong>{number(requestCount)}</strong>
+                <small>All periods · last {days} days</small>
+              </article>
+            </section>
+            <div className="analytics-layout">
+              <section className="panel analytics-panel analytics-trend">
+                <div className="analytics-trend-heading">
+                  <div>
+                    <h2>Daily kiosk activity</h2>
+                    <p>
+                      Successful credential views in the current academic
+                      period. Select a date to see each kiosk.
+                    </p>
+                  </div>
+                  <label className="analytics-filter">
+                    Kiosk{" "}
+                    <select
+                      value={selectedKiosk}
+                      onChange={(event) => setSelectedKiosk(event.target.value)}
+                    >
+                      <option value="all">All kiosks</option>
+                      {kioskOptions.map((row) => (
+                        <option
+                          key={row.kiosk_code}
+                          value={`k:${row.kiosk_code}`}
+                        >
+                          {row.kiosk_name} · {row.location}
+                          {row.kiosk_code ? ` (${row.kiosk_code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {dateRows.length ? (
+                  <>
+                    <div className="analytics-trend-scroll">
+                      <div className="analytics-trend-chart">
+                        {dateRows.map((row) => (
+                          <button
+                            type="button"
+                            className="analytics-trend-column"
+                            key={row.day}
+                            aria-pressed={row.day === activeDay}
+                            aria-label={`${row.day}: ${number(row.total)} credential views, ${number(row.students)} distinct students`}
+                            onClick={() => setSelectedDay(row.day)}
+                          >
+                            <span>{number(row.total)}</span>
+                            <span
+                              className="analytics-trend-bar"
+                              style={{
+                                height: `${Math.max(3, (row.total / maxActivity) * 140)}px`,
+                              }}
+                            />
+                            <small>{row.day.slice(5)}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="analytics-day-detail" aria-live="polite">
+                      <strong>{activeDay}</strong>
+                      <span>
+                        {number(selectedActivity?.total)} credential views ·{" "}
+                        {number(selectedActivity?.students)} distinct students{" "}
+                        {selectedKiosk === "all"
+                          ? "across all kiosks"
+                          : "at this kiosk"}
+                      </span>
+                    </div>
+                    <div className="analytics-kiosk-table-wrap">
+                      <table className="analytics-kiosk-table">
+                        <thead>
+                          <tr>
+                            <th>Kiosk</th>
+                            <th>Location</th>
+                            <th>Views</th>
+                            <th>Distinct students</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleKiosks.map((kiosk) => {
+                            const row = (data.dailyKiosks || []).find(
+                              (item) =>
+                                item.day === activeDay &&
+                                item.kiosk_code === kiosk.kiosk_code,
+                            );
+                            return (
+                              <tr key={kiosk.kiosk_code}>
+                                <td>
+                                  {kiosk.kiosk_name}
+                                  {kiosk.kiosk_code && (
+                                    <small>{kiosk.kiosk_code}</small>
+                                  )}
+                                </td>
+                                <td>{kiosk.location}</td>
+                                <td>{number(row?.total)}</td>
+                                <td>{number(row?.students)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {visibleKiosks.length === 0 && (
+                        <p className="analytics-empty">No kiosks found.</p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className="analytics-empty">No date range available.</p>
+                )}
+              </section>
+              <section className="panel analytics-panel">
+                <h2>Request status</h2>
+                <p>
+                  Current status of requests received in the selected time
+                  window, across all periods. Only request types you can access
+                  are included.
+                </p>
+                <div className="analytics-status-list">
+                  <div>
+                    <span>Pending</span>
+                    <b>{number(countStatus("PENDING"))}</b>
+                  </div>
+                  <div>
+                    <span>Completed</span>
+                    <b>{number(countStatus("COMPLETED"))}</b>
+                  </div>
+                  <div>
+                    <span>Rejected</span>
+                    <b>{number(countStatus("REJECTED"))}</b>
+                  </div>
+                </div>
+              </section>
+              <section className="panel analytics-panel">
+                <h2>Students by course</h2>
+                <p>
+                  Top 8 courses by active students in the current period. Select
+                  a bar for details.
+                </p>
+                {renderBreakdown(
+                  data.courses,
+                  (row) => `${row.code} — ${row.name}`,
+                  "students",
+                  "courses",
+                )}
+              </section>
+              <section className="panel analytics-panel">
+                <h2>Views by kiosk location</h2>
+                <p>
+                  Top 8 locations in the current period and selected time
+                  window. Select a bar for details.
+                </p>
+                {renderBreakdown(
+                  data.kiosks,
+                  (row) => row.location,
+                  "views",
+                  "locations",
+                )}
+              </section>
+              <section className="panel analytics-panel">
+                <h2>Requests by credential</h2>
+                <p>
+                  Requests received across all periods in the selected time
+                  window. Select a bar for details.
+                </p>
+                {renderBreakdown(
+                  requestByType,
+                  (row) => (row.type === "VOUCHER" ? "WiFi voucher" : row.type),
+                  "requests",
+                  "requests",
+                )}
+              </section>
+            </div>
+          </>
+        )
+      )}
+    </div>
+  );
 }
 
 function Dashboard({ token }) {
@@ -11822,6 +12114,11 @@ function StudentsPage({ token }) {
                       </div>
                     ) : (
                       <span className="muted-cell">No linked accounts</span>
+                    )}
+                    {student.voucher_code && (
+                      <small className="student-voucher">
+                        WiFi voucher: <code>{student.voucher_code}</code>
+                      </small>
                     )}
                   </td>
                   <td>

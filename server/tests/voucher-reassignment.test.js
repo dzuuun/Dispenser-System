@@ -460,6 +460,35 @@ test("the kiosk replaces a legacy released voucher and never reveals the retired
   assert.equal(reveal.body.wifiVoucher, "TEST-11");
 });
 
+test("the kiosk replaces a previous-period voucher with current-period stock", async (t) => {
+  const store = setup(t);
+  store.state.vouchers[10].academic_period_id = 6;
+  const summary = response();
+  await credentials(kioskRequest(), summary);
+  assert.equal(summary.body.hasWifiVoucher, true);
+  assertReplaced(store);
+  const studentLookup = store.calls.find(({ sql }) =>
+    sql.includes("FROM students s JOIN courses"),
+  );
+  assert.match(studentLookup.sql, /FOR UPDATE$/);
+  const reveal = response();
+  await revealCredentials(kioskRequest(), reveal);
+  assert.equal(reveal.body.wifiVoucher, "TEST-11");
+});
+
+test("the kiosk does not show an old-period voucher if current stock is exhausted", async (t) => {
+  const store = setup(t);
+  store.state.vouchers[10].academic_period_id = 6;
+  delete store.state.vouchers[11];
+  const summary = response();
+  await credentials(kioskRequest(), summary);
+  assert.equal(summary.body.hasWifiVoucher, false);
+  assert.equal(summary.body.voucherState, "PENDING");
+  const reveal = response();
+  await revealCredentials(kioskRequest(), reveal);
+  assert.equal(reveal.body.wifiVoucher, null);
+});
+
 test("a released linked code is not revealed when replacement stock is unavailable", async (t) => {
   const store = setup(t);
   store.state.vouchers[10].is_released = 1;

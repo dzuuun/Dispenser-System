@@ -48,6 +48,8 @@ const studentActive =
   "(s.is_active=1 AND COALESCE(s.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1), 0))";
 const recordedPeriod =
   "(SELECT CONCAT_WS(' · ', ap.school_year, ap.semester) FROM academic_periods ap WHERE ap.id=s.academic_period_id)";
+const studentVoucher =
+  "(SELECT w.voucher_code FROM wifi_vouchers w WHERE w.id=s.voucher_id AND w.academic_period_id=s.academic_period_id AND w.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1) AND w.is_active=1 AND w.is_released=0 LIMIT 1)";
 
 function studentListQuery(query) {
   const missingAccount = query.missingAccount ?? "";
@@ -66,6 +68,7 @@ function studentListQuery(query) {
     "CONCAT_WS(' ', NULLIF(s.first_name, ''), NULLIF(NULLIF(TRIM(s.middle_name), '-'), ''), NULLIF(s.last_name, ''))",
     "c.code",
     "c.name",
+    studentVoucher,
     `CASE WHEN ${studentActive} THEN 'Active' ELSE 'Inactive' END`,
     ...studentAccountTypes.map(
       ({ label, alias }) =>
@@ -106,7 +109,7 @@ function studentListQuery(query) {
 }
 
 const studentListSelect = `SELECT s.id, s.student_id, s.kumosoft_id, s.first_name, s.middle_name, s.last_name, s.year_level, ${studentActive} AS is_active, ${recordedPeriod} AS recorded_academic_period, c.code course_code, c.name course_name,
-      email_account.email_address AS email_address,
+      email_account.email_address AS email_address, ${studentVoucher} AS voucher_code,
       ${studentAccountTypes.map(({ alias }) => `${alias}.is_active AS ${alias}_active`).join(", ")}
      FROM students s JOIN courses c ON c.id=s.course_id ${studentAccountJoins}`;
 
@@ -294,7 +297,7 @@ export async function getStudent(req, res) {
         [id],
       ),
       pool.execute(
-        "SELECT w.voucher_code, w.is_assigned, w.assigned_at FROM students s JOIN wifi_vouchers w ON w.id=s.voucher_id WHERE s.id=?",
+        "SELECT w.voucher_code, w.is_assigned, w.assigned_at FROM students s JOIN wifi_vouchers w ON w.id=s.voucher_id AND w.academic_period_id=s.academic_period_id AND w.is_active=1 AND w.is_released=0 WHERE s.id=?",
         [id],
       ),
     ]);
