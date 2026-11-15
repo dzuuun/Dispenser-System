@@ -588,6 +588,21 @@ test("regular student imports retain the default birthday-update behavior", asyn
   );
 });
 
+for (const deactivateMissingStudents of [false, true]) {
+  test(`automatic import respects deactivation setting ${deactivateMissingStudents}`, async (t) => {
+    const store = setup(t, { absent: true });
+    const result = await store.invoke(importMssqlStudents, {
+      scheduledImport: true,
+      body: { updateExistingBirthdays: false, deactivateMissingStudents },
+    });
+    assert.equal(result.statusCode, 200);
+    assert.equal(result.body.deactivated, deactivateMissingStudents ? 1 : 0);
+    assert.equal(store.students.find((s) => s.student_id === "ABSENT").is_active, deactivateMissingStudents ? 0 : 1);
+    assert.ok(store.students.some((s) => s.student_id === "NEW"));
+    assert.equal(store.students.find((s) => s.student_id === "OLD").first_name, "Updated");
+  });
+}
+
 function matchExistingStudents(store) {
   Object.assign(store.students[0], {
     first_name: "Updated",

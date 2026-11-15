@@ -6323,10 +6323,26 @@ function MssqlStudentImportModal({ token, onClose, onComplete }) {
   );
 }
 
-function MssqlSyncActivity({ token }) {
+function MssqlSyncActivity({ token, onClose }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const modalRef = useRef(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    modalRef.current?.querySelector("button")?.focus();
+    const handleKey = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+      if (event.key === "Tab") {
+        const buttons = [...(modalRef.current?.querySelectorAll("button:not(:disabled)") || [])];
+        if (!buttons.length) return;
+        if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons.at(-1).focus(); }
+        else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0].focus(); }
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => { document.removeEventListener("keydown", handleKey); previous?.focus(); };
+  }, []);
   useEffect(() => {
     let active = true;
     const load = () =>
@@ -6359,16 +6375,10 @@ function MssqlSyncActivity({ token }) {
         })
       : "—";
   return (
-    <section
-      className="mssql-activity"
-      aria-label="Automatic synchronization activity"
-    >
-      <header>
-        <div>
-          <strong>Synchronization activity</strong>
-          <p>Automatic runs only · times shown in Philippine time</p>
-        </div>
-      </header>
+    <ImportModalFrame onClose={onClose}>
+    <section className="student-modal mssql-activity-modal" role="dialog" aria-modal="true" aria-labelledby="mssql-activity-title" ref={modalRef} onMouseDown={(event) => event.stopPropagation()}>
+      <header><div><p className="eyebrow">AUTOMATIC SYNCHRONIZATION</p><h2 id="mssql-activity-title">Activity log</h2><p>Automatic runs only · times shown in Philippine time</p></div><button className="modal-close" type="button" aria-label="Close activity log" onClick={onClose}>×</button></header>
+      <div className="mssql-activity">
       {error && (
         <p className="error" role="alert">
           {error}
@@ -6432,13 +6442,17 @@ function MssqlSyncActivity({ token }) {
           </Button>
         </div>
       )}
+      </div>
+      <footer className="mssql-activity-modal-footer"><Button variant="secondary" onClick={onClose}>Close</Button></footer>
     </section>
+    </ImportModalFrame>
   );
 }
 
 function MssqlSchedule({ token }) {
   const [schedule, setSchedule] = useState(null);
   const [enabled, setEnabled] = useState(false);
+  const [deactivateMissingStudents, setDeactivateMissingStudents] = useState(true);
   const [intervalMinutes, setIntervalMinutes] = useState(1440);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -6456,6 +6470,7 @@ function MssqlSchedule({ token }) {
             setSchedule(data);
             if (initial) {
               setEnabled(data.enabled);
+              setDeactivateMissingStudents(data.deactivate_missing_students);
               setIntervalMinutes(data.interval_minutes);
               initial = false;
             }
@@ -6481,6 +6496,7 @@ function MssqlSchedule({ token }) {
         body: JSON.stringify({
           enabled,
           intervalMinutes: Number(intervalMinutes),
+          deactivateMissingStudents,
         }),
       });
       setSchedule(data);
@@ -6497,9 +6513,8 @@ function MssqlSchedule({ token }) {
         <span>{schedule?.enabled ? "Enabled" : "Disabled"}</span>
       </div>
       <p>
-        Creates and updates students in the current academic period and
-        deactivates active students missing from the SQL Server list. Existing
-        birthdays are kept.
+        Creates and updates students in the current academic period. Choose whether
+        to deactivate active students missing from the SQL Server list. Existing birthdays are kept.
       </p>
       {error && (
         <p className="error" role="alert">
@@ -6516,6 +6531,14 @@ function MssqlSchedule({ token }) {
                 onChange={(event) => setEnabled(event.target.checked)}
               />{" "}
               Enable automatic sync
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={deactivateMissingStudents}
+                onChange={(event) => setDeactivateMissingStudents(event.target.checked)}
+              />{" "}
+              Deactivate students missing from SQL source
             </label>
             <label>
               Run every{" "}
@@ -6549,11 +6572,11 @@ function MssqlSchedule({ token }) {
             type="button"
             className="btn secondary mssql-activity-toggle"
             aria-expanded={showActivity}
-            onClick={() => setShowActivity((value) => !value)}
+            onClick={() => setShowActivity(true)}
           >
-            {showActivity ? "Hide activity log" : "View activity log"}
+            View activity log
           </button>
-          {showActivity && <MssqlSyncActivity token={token} />}
+          {showActivity && <MssqlSyncActivity token={token} onClose={() => setShowActivity(false)} />}
         </>
       )}
     </div>

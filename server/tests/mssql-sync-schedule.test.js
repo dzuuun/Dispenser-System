@@ -9,13 +9,15 @@ import {
 
 after(() => pool.end());
 
-function fakeDb({ acquired = 1, due = true } = {}) {
+function fakeDb({ acquired = 1, due = true, deactivateMissingStudents = true } = {}) {
   const calls = [];
   let released = false;
   const connection = {
     async query(sql, values) {
       calls.push({ sql, values });
       if (sql.includes("GET_LOCK")) return [[{ acquired }]];
+      if (sql.startsWith("SELECT deactivate_missing_students"))
+        return [[{ deactivate_missing_students: Number(deactivateMissingStudents) }]];
       if (sql.includes("next_run_at=DATE_ADD"))
         return [{ affectedRows: due ? 1 : 0 }];
       if (sql.startsWith("INSERT INTO mssql_sync_activity"))
@@ -48,7 +50,7 @@ test("scheduled run claims the job and preserves birthdays", async () => {
     }),
     true,
   );
-  assert.deepEqual(request.body, { updateExistingBirthdays: false });
+  assert.deepEqual(request.body, { updateExistingBirthdays: false, deactivateMissingStudents: true });
   assert.equal(request.scheduledImport, true);
   assert.ok(
     db.calls.some(
@@ -71,6 +73,27 @@ test("not due or locked jobs do not run", async () => {
     );
     assert.equal(db.released, true);
   }
+});
+
+test("scheduled runs pass the disabled deactivation setting", async () => {
+  await runDueMssqlSync(fakeDb({ deactivateMissingStudents: false }), async (req, res) => {
+    assert.equal(req.body.deactivateMissingStudents, false);
+    res.json({ message: "Done" });
+  });
+});
+
+test("schedule saves and returns the deactivation setting", async (t) => {
+  let saved;
+  t.mock.method(pool, "execute", async (_sql, values) => { saved = values; });
+  t.mock.method(pool, "query", async () => [[{ enabled: 1, deactivate_missing_students: 0, interval_minutes: 60 }]]);
+  const res = { json(body) { this.body = body; } };
+  await updateMssqlSyncSchedule(
+    { body: { enabled: true, intervalMinutes: 60, deactivateMissingStudents: false } },
+    res,
+    (error) => { throw error; },
+  );
+  assert.deepEqual(saved, [true, 60, false, true, 60]);
+  assert.equal(res.body.deactivate_missing_students, false);
 });
 
 test("failed scheduled imports record failure and release the lock", async () => {
