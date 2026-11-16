@@ -25,6 +25,7 @@ async function runVerification(t, student) {
   });
   t.mock.method(pool, "execute", async (sql, values) => {
     calls.push({ sql, values });
+    if (sql.includes("FROM courses")) return [[{ academic_level: "COLLEGE" }]];
     if (sql.includes("FROM students")) return [student ? [student] : []];
     if (sql.includes("INSERT INTO kiosk_credential_sessions"))
       return [{ affectedRows: 1 }];
@@ -58,7 +59,7 @@ async function runVerification(t, student) {
   return { res, calls };
 }
 
-test("students outside the current period or marked inactive are directed to Records", async (t) => {
+test("students outside the current period or inactive can verify for SATP", async (t) => {
   for (const student of [
     { ...activeStudent, academic_period_id: 9 },
     { ...activeStudent, is_active: 0 },
@@ -67,13 +68,10 @@ test("students outside the current period or marked inactive are directed to Rec
       `period ${student.academic_period_id}, active ${student.is_active}`,
       async (subtest) => {
         const { res, calls } = await runVerification(subtest, student);
-        assert.equal(res.statusCode, 403);
-        assert.match(
-          res.body.message,
-          /verify your enrollment status at the Records Section/i,
-        );
+        assert.equal(res.statusCode, 200);
+        assert.equal(JSON.parse(Buffer.from(res.body.token.split(".")[1], "base64url")).satpOnly, true);
         assert.deepEqual(calls[0].values, ["20231422", "20231422", 10]);
-        assert.equal(calls.length, 1);
+        assert.equal(calls.length, 3);
       },
     );
   }

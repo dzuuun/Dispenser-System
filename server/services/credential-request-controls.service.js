@@ -2,7 +2,7 @@ import { pool } from "../config/db.js";
 
 export async function ensureCredentialRequestControlsSchema(executor = pool) {
   const [rows] = await executor.query(
-    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='credential_module_controls' AND COLUMN_NAME IN ('accept_password_resets', 'accept_account_requests', 'accept_voucher_requests', 'voucher_paused_message')",
+    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='credential_module_controls' AND COLUMN_NAME IN ('accept_password_resets', 'accept_account_requests', 'accept_voucher_requests', 'voucher_paused_message', 'wifi_note')",
   );
   const existing = new Set(rows.map((row) => row.COLUMN_NAME));
   for (const column of [
@@ -26,10 +26,11 @@ export async function ensureCredentialRequestControlsSchema(executor = pool) {
       if (error.code !== "ER_DUP_FIELDNAME") throw error;
     }
   }
-  if (!existing.has("voucher_paused_message")) {
+  for (const column of ["voucher_paused_message", "wifi_note"]) {
+    if (existing.has(column)) continue;
     try {
       await executor.query(
-        "ALTER TABLE credential_module_controls ADD COLUMN voucher_paused_message VARCHAR(500) NULL",
+        `ALTER TABLE credential_module_controls ADD COLUMN ${column} VARCHAR(500) NULL`,
       );
     } catch (error) {
       if (error.code !== "ER_DUP_FIELDNAME") throw error;

@@ -8,6 +8,8 @@ import {
   credentials,
   revealCredentials,
   requestAccount,
+  requestPasswordReset,
+  requestNewVoucher,
 } from "../controllers/kiosk.controller.js";
 import {
   validateCourseImport,
@@ -27,7 +29,7 @@ const accountRows = ["SATP", "EMAIL", "SCHOOLOGY", "KUMOSOFT"].map((type) => ({
     : encryptPassword("test-password")),
 }));
 
-function setup(t, academicLevel = "COLLEGE", rows = accountRows) {
+function setup(t, academicLevel = "COLLEGE", rows = accountRows, satpOnly = false, enrollmentInactive = false) {
   const writes = [];
   const execute = async (sql, values) => {
     if (sql.includes("FROM kiosk_credential_sessions"))
@@ -43,6 +45,7 @@ function setup(t, academicLevel = "COLLEGE", rows = accountRows) {
           is_maintenance: 0,
         })),
       ];
+    if (enrollmentInactive && sql.includes("FROM students s JOIN courses") && sql.includes("s.academic_period_id=?")) return [[]];
     if (sql.includes("FROM students s JOIN courses"))
       return [
         [
@@ -89,7 +92,7 @@ function setup(t, academicLevel = "COLLEGE", rows = accountRows) {
   t.mock.method(pool, "query", execute);
   t.mock.method(pool, "getConnection", async () => connection);
   const token = jwt.sign(
-    { sub: 7, jti: "test", scope: "kiosk-credentials" },
+    { sub: 7, jti: "test", scope: "kiosk-credentials", satpOnly },
     config().accessSecret,
   );
   const req = {
@@ -266,4 +269,34 @@ test("initial classification separates degrees and leaves unclear courses for re
     "OTHER",
   );
   assert.equal(inferAcademicLevel("UNCLEAR", "Unspecified program"), "OTHER");
+});
+
+ test("SATP-only sessions expose only SATP and cannot request other services", async (t) => {
+  const {req, res, writes} = setup(t, "COLLEGE", accountRows, true);
+  await credentials(req,res);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.equal(res.body.voucherState, "HIDDEN");
+  assert.equal(res.body.hasWifiVoucher, false);
+  assert.equal(writes.length, 0);
+  await revealCredentials(req,res);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.equal(res.body.wifiVoucher, null);
+  req.body.credentialType="EMAIL";
+  for (const handler of [requestAccount, requestPasswordReset, requestNewVoucher]) {
+    await handler(req,res);
+    assert.equal(res.statusCode, 403);
+  }
+ });
+
+test("enrollment ending during a session restricts summary and reveal to SATP", async (t) => {
+  const {req, res, writes} = setup(t, "COLLEGE", accountRows, false, true);
+  await credentials(req,res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.satpOnly, true);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.equal(res.body.voucherState, "HIDDEN");
+  assert.equal(writes.length, 0);
+  await revealCredentials(req,res);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.equal(res.body.wifiVoucher, null);
 });

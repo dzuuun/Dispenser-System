@@ -8478,6 +8478,7 @@ function Kiosk() {
               )}
             </p>
           </header>
+          {result.satpOnly && <p className="voucher-exhausted-notice">SATP is available before enrollment. WiFi and other accounts will be available once your enrollment is active for this semester.</p>}
           <section className="credential-summary-panel">
             <div>
               <h2>{result.student.fullName}</h2>
@@ -8530,6 +8531,9 @@ function Kiosk() {
                         </button>
                       )}
                   </p>
+                  {voucherControl?.wifi_note && (
+                    <p className="voucher-exhausted-notice" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{voucherControl.wifi_note}</p>
+                  )}
                   {voucherRequestsPaused &&
                     result.voucherState !== "MAINTENANCE" && (
                       <p className="voucher-exhausted-notice" role="status">
@@ -8904,20 +8908,21 @@ function Kiosk() {
     </div>
   );
 }
-function VoucherMessageEditor({ item, busy, update }) {
-  const [message, setMessage] = useState(() => voucherPausedMessage(item));
-  const savedMessage = voucherPausedMessage(item);
+function VoucherMessageEditor({ item, busy, update, note = false }) {
+  const [message, setMessage] = useState(() => note ? item.wifi_note || "" : voucherPausedMessage(item));
+  const savedMessage = note ? item.wifi_note || "" : voucherPausedMessage(item);
+  const editorId = note ? "wifi-note" : "voucher-paused-message";
+  const action = note ? "wifi-note" : "voucher-message";
   return (
     <div className="voucher-message-editor">
-      <label htmlFor="voucher-paused-message">
-        Message when requests are paused
+      <label htmlFor={editorId}>
+        {note ? "WiFi note" : "Message when requests are paused"}
       </label>
       <p>
-        Students see this message on the kiosk while voucher requests are
-        paused.
+        {note ? "Shown below the WiFi voucher. Clear the note to hide it." : "Students see this message on the kiosk while voucher requests are paused."}
       </p>
       <textarea
-        id="voucher-paused-message"
+        id={editorId}
         rows={3}
         maxLength={500}
         value={message}
@@ -8929,18 +8934,18 @@ function VoucherMessageEditor({ item, busy, update }) {
           type="button"
           className="btn secondary"
           disabled={
-            Boolean(busy) || !message.trim() || message.trim() === savedMessage
+            Boolean(busy) || (!note && !message.trim()) || message.trim() === savedMessage
           }
           onClick={() =>
             update(
               item,
-              { voucherPausedMessage: message.trim() },
-              "voucher-message",
+              { [note ? "wifiNote" : "voucherPausedMessage"]: message.trim() },
+              action,
             )
           }
         >
           {" "}
-          {busy === "VOUCHER-voucher-message" ? "Saving..." : "Save message"}
+          {busy === `VOUCHER-${action}` ? "Saving..." : "Save message"}
         </button>
       </div>
     </div>
@@ -9127,11 +9132,14 @@ function ModuleControlsPage({ token }) {
                       </p>
                     )}
                     {item.module_key === "VOUCHER" && (
+                      <>
+                      <VoucherMessageEditor note item={item} busy={busy} update={update} />
                       <VoucherMessageEditor
                         item={item}
                         busy={busy}
                         update={update}
                       />
+                      </>
                     )}
                   </div>
                   <footer className="module-control-actions">

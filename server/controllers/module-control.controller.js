@@ -15,7 +15,7 @@ const MODULES = new Set([
 
 export async function listModuleControls(_req, res) {
   const [rows] = await pool.query(
-    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, voucher_paused_message, updated_at FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST' ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','KIOSK')",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, wifi_note, voucher_paused_message, updated_at FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST' ORDER BY FIELD(module_key, 'VOUCHER','SATP','SCHOOLOGY','KUMOSOFT','EMAIL','KIOSK')",
   );
   res.set("Cache-Control", "no-store").json(rows);
 }
@@ -29,6 +29,9 @@ export async function updateModuleControl(req, res) {
   const acceptPasswordResets = req.body?.acceptPasswordResets;
   const acceptAccountRequests = req.body?.acceptAccountRequests;
   const acceptVoucherRequests = req.body?.acceptVoucherRequests;
+  const wifiNote = req.body?.wifiNote;
+  if (wifiNote !== undefined && (moduleKey !== "VOUCHER" || typeof wifiNote !== "string" || wifiNote.trim().length > 500))
+    return res.status(400).json({ message: "Enter a WiFi note of up to 500 characters." });
   const pausedMessage = req.body?.voucherPausedMessage;
   const settings = {
     isVisible,
@@ -78,6 +81,7 @@ export async function updateModuleControl(req, res) {
       .status(400)
       .json({ message: "Use maintenance mode to control the kiosk." });
   if (
+    wifiNote === undefined &&
     pausedMessage === undefined &&
     Object.values(settings).every((value) => value === undefined)
   )
@@ -116,6 +120,10 @@ export async function updateModuleControl(req, res) {
     assignments.push("voucher_paused_message=?");
     values.push(pausedMessage.trim());
   }
+  if (wifiNote !== undefined) {
+    assignments.push("wifi_note=?");
+    values.push(wifiNote.trim());
+  }
   values.push(moduleKey);
   await pool.execute(
     `UPDATE credential_module_controls SET ${assignments.join(", ")} WHERE module_key=?`,
@@ -138,7 +146,7 @@ export async function updateModuleControl(req, res) {
 
 export async function publicModuleControls(_req, res) {
   const [rows] = await pool.query(
-    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, wifi_note, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
   );
   res.set("Cache-Control", "no-store").json(rows);
 }

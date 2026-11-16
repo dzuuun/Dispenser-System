@@ -36,7 +36,7 @@ function normalizeNameForVerification(value) {
 
 async function moduleControls(executor = pool) {
   const [rows] = await executor.query(
-    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, wifi_note, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
   );
   return new Map(
     rows.map((row) => [
@@ -128,9 +128,6 @@ export async function verify(req, res) {
       Number(student.academic_period_id) !== Number(period.id));
   let failureMessage = "";
   if (!student) failureMessage = "Student ID or Kumosoft ID was not found.";
-  else if (enrollmentInactive)
-    failureMessage =
-      "Your enrollment is not active for the current academic period. Please verify your enrollment status at the Records Section.";
   else if (
     normalizeNameForVerification(student.last_name) !==
     normalizeNameForVerification(v.lastName)
@@ -144,6 +141,11 @@ export async function verify(req, res) {
     return res
       .status(enrollmentInactive ? 403 : 401)
       .json({ message: failureMessage });
+  if (enrollmentInactive) {
+    const [[course]] = await pool.execute("SELECT academic_level FROM courses WHERE id=?", [student.course_id]);
+    if (!isSatpEligible(course?.academic_level))
+      return res.status(403).json({ message: "Your enrollment is not active for the current academic period. Please verify your enrollment status at the Records Section." });
+  }
   const jti = crypto.randomUUID();
   await pool.execute(
     "INSERT INTO kiosk_credential_sessions (id, student_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 3 MINUTE))",
@@ -151,7 +153,7 @@ export async function verify(req, res) {
   );
   res.set("Cache-Control", "no-store").json({
     token: jwt.sign(
-      { sub: student.id, scope: "kiosk-credentials", jti },
+      { sub: student.id, scope: "kiosk-credentials", jti, satpOnly: Boolean(enrollmentInactive) },
       config().accessSecret,
       { expiresIn: "3m" },
     ),
@@ -180,10 +182,18 @@ export async function credentials(req, res) {
           "The kiosk is unavailable until an academic period is activated.",
       });
     }
-    const [[student]] = await conn.execute(
+    let [[student]] = await conn.execute(
       "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1 FOR UPDATE",
       [session.sub, period.id],
     );
+    const satpOnly = Boolean(session.satpOnly) || !student;
+    if (!student) {
+      [[student]] = await conn.execute(
+        "SELECT s.student_id, s.first_name, s.middle_name, s.last_name, s.year_level, c.code course_code, c.name course_name, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? FOR UPDATE",
+        [session.sub],
+      );
+    }
+    if (satpOnly && !isSatpEligible(student?.academic_level)) student = null;
     if (!student) {
       await conn.rollback();
       return res.status(403).json({
@@ -226,7 +236,7 @@ export async function credentials(req, res) {
       [session.sub],
     );
     let voucher = existing?.voucher_code;
-    if (voucherControl.visible && !voucherControl.maintenance && !voucher) {
+    if (!satpOnly && voucherControl.visible && !voucherControl.maintenance && !voucher) {
       const [[available]] = await conn.query(
         "SELECT id, voucher_code FROM wifi_vouchers WHERE academic_period_id=(SELECT academic_period_id FROM students WHERE id=?) AND is_active=1 AND is_assigned=0 AND is_released=0 ORDER BY id LIMIT 1 FOR UPDATE",
         [session.sub],
@@ -261,7 +271,9 @@ export async function credentials(req, res) {
           yearLevel: student.year_level,
           course: `${student.course_code} — ${student.course_name}`,
         },
+        satpOnly,
         credentials: ["SATP", "SCHOOLOGY", "KUMOSOFT", "EMAIL"]
+          .filter((type) => !satpOnly || type === "SATP")
           .filter(
             (type) => type !== "SATP" || isSatpEligible(student.academic_level),
           )
@@ -283,22 +295,22 @@ export async function credentials(req, res) {
               maintenance: controls.get(type)?.maintenance || false,
             };
           }),
-        voucherState: !voucherControl.visible
+        voucherState: satpOnly || !voucherControl.visible
           ? "HIDDEN"
           : voucherControl.maintenance
             ? "MAINTENANCE"
             : voucher
               ? "AVAILABLE"
               : "PENDING",
-        hasWifiVoucher: voucherControl.visible && Boolean(voucher),
-        pendingRequests: [...latestRequests.values()]
+        hasWifiVoucher: !satpOnly && voucherControl.visible && Boolean(voucher),
+        pendingRequests: [...latestRequests.values()].filter((request) => !satpOnly || request.credential_type === "SATP")
           .filter((request) => request.status === "PENDING")
           .map((request) => ({
             type: request.credential_type,
             kind: request.request_kind,
             requestedAt: request.requested_at,
           })),
-        requestOutcomes: [...latestRequests.values()]
+        requestOutcomes: [...latestRequests.values()].filter((request) => !satpOnly || request.credential_type === "SATP")
           .filter((request) => request.status !== "PENDING")
           .map((request) => ({
             type: request.credential_type,
@@ -333,10 +345,18 @@ export async function revealCredentials(req, res) {
       return res.status(503).json({
         message: "The credentials dispenser is currently under maintenance.",
       });
-    const [[student]] = await pool.execute(
+    let [[student]] = await pool.execute(
       "SELECT s.student_id, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=? AND s.academic_period_id=? AND s.is_active=1",
       [session.sub, period.id],
     );
+    const satpOnly = Boolean(session.satpOnly) || !student;
+    if (!student) {
+      [[student]] = await pool.execute(
+        "SELECT s.student_id, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=?",
+        [session.sub],
+      );
+    }
+    if (satpOnly && !isSatpEligible(student?.academic_level)) student = null;
     if (!student)
       return res.status(403).json({
         message:
@@ -352,6 +372,7 @@ export async function revealCredentials(req, res) {
     );
     const revealedCredentials = rows
       .filter((row) => {
+        if (satpOnly && row.credential_type !== "SATP") return false;
         if (
           row.credential_type === "SATP" &&
           !isSatpEligible(student.academic_level)
@@ -386,7 +407,7 @@ export async function revealCredentials(req, res) {
       .json({
         credentials: revealedCredentials,
         wifiVoucher:
-          controls.get("VOUCHER")?.visible !== false &&
+          !satpOnly && controls.get("VOUCHER")?.visible !== false &&
           !controls.get("VOUCHER")?.maintenance
             ? voucher?.voucher_code || null
             : null,
@@ -402,6 +423,8 @@ export async function requestPasswordReset(req, res) {
       .status(401)
       .json({ message: "Session expired. Please verify again." });
 
+  if (session.satpOnly)
+    return res.status(403).json({ message: "Only SATP is available before enrollment is active for this semester." });
   const credentialType = String(req.body?.credentialType || "").toUpperCase();
   if (credentialType === "SATP")
     return res
@@ -477,6 +500,8 @@ export async function requestNewVoucher(req, res) {
     return res
       .status(401)
       .json({ message: "Session expired. Please verify again." });
+  if (session.satpOnly)
+    return res.status(403).json({ message: "Only SATP is available before enrollment is active for this semester." });
   const controls = await moduleControls();
   const control = controls.get("VOUCHER");
   if (control && (!control.visible || control.maintenance))
@@ -554,6 +579,8 @@ export async function requestAccount(req, res) {
     return res
       .status(401)
       .json({ message: "Session expired. Please verify again." });
+  if (session.satpOnly && String(req.body?.credentialType).toUpperCase() !== "SATP")
+    return res.status(403).json({ message: "Only SATP is available before enrollment is active for this semester." });
   const credentialType = String(req.body?.credentialType || "").toUpperCase();
   const table = accountTables[credentialType];
   if (!table)

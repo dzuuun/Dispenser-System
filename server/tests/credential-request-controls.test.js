@@ -68,7 +68,7 @@ function setup(t) {
         .forEach((assignment, index) => {
           const field = assignment.split("=")[0];
           row[field] =
-            field === "voucher_paused_message"
+            ["voucher_paused_message", "wifi_note"].includes(field)
               ? values[index]
               : Number(values[index]);
         });
@@ -392,7 +392,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
       }
       assert.match(
         sql,
-        /^ALTER TABLE credential_module_controls ADD COLUMN (?:(?:accept_password_resets|accept_account_requests|accept_voucher_requests) BOOLEAN NOT NULL DEFAULT TRUE|voucher_paused_message VARCHAR\(500\) NULL)$/,
+        /^ALTER TABLE credential_module_controls ADD COLUMN (?:(?:accept_password_resets|accept_account_requests|accept_voucher_requests) BOOLEAN NOT NULL DEFAULT TRUE|(?:voucher_paused_message|wifi_note) VARCHAR\(500\) NULL)$/,
       );
       writes.push(sql);
       columns.add(sql.split(" ")[5]);
@@ -403,7 +403,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
   assert.deepEqual(saved, { EMAIL: 0, KUMOSOFT: 0, SCHOOLOGY: 0 });
   saved.EMAIL = 1;
   await ensureCredentialRequestControlsSchema(executor);
-  assert.equal(writes.length, 5);
+  assert.equal(writes.length, 6);
   assert.equal(
     saved.EMAIL,
     1,
@@ -416,6 +416,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
       "accept_account_requests",
       "accept_voucher_requests",
       "voucher_paused_message",
+      "wifi_note",
     ],
   );
   await assert.rejects(
@@ -439,5 +440,18 @@ test("concurrent startup tolerates an already-added request-control column", asy
       });
     },
   });
-  assert.equal(attempted.length, 4);
+  assert.equal(attempted.length, 5);
+});
+
+test("WiFi note can be saved, read, cleared, and rejects invalid updates", async (t) => {
+  const { update, res } = setup(t);
+  for (const [input, expected] of [["  Connect to Campus WiFi.  ", "Connect to Campus WiFi."], ["", ""]]) {
+    assert.equal((await update("VOUCHER", { wifiNote: input })).statusCode, 200);
+    const response = res();
+    await publicModuleControls({}, response);
+    assert.equal(response.body.find(row => row.module_key === "VOUCHER").wifi_note, expected);
+  }
+  for (const input of [null, 1, "x".repeat(501)])
+    assert.equal((await update("VOUCHER", { wifiNote: input })).statusCode, 400);
+  assert.equal((await update("EMAIL", { wifiNote: "test" })).statusCode, 400);
 });
