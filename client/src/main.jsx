@@ -8478,7 +8478,7 @@ function Kiosk() {
               )}
             </p>
           </header>
-          {result.satpOnly && <p className="voucher-exhausted-notice">SATP is available before enrollment. WiFi and other accounts will be available once your enrollment is active for this semester.</p>}
+          {result.satpOnly && <p className="voucher-exhausted-notice">SATP and institutional email are available before enrollment. WiFi and other accounts will be available once your enrollment is active for this semester.</p>}
           <section className="credential-summary-panel">
             <div>
               <h2>{result.student.fullName}</h2>
@@ -9072,13 +9072,13 @@ function ModuleControlsPage({ token }) {
                     {item.module_key === "SATP" && (
                       <div className="module-control-setting">
                         <div>
-                          <b>Allow access before enrollment</b>
-                          <small>Let eligible students access SATP before enrollment is active this semester.</small>
+                          <b>Allow SATP and email before enrollment</b>
+                          <small>Let eligible students access SATP and institutional email before enrollment is active this semester.</small>
                         </div>
                         <button
                           type="button"
                           role="switch"
-                          aria-label="Allow SATP access before enrollment"
+                          aria-label="Allow SATP and email access before enrollment"
                           aria-checked={Boolean(item.allow_satp_before_enrollment)}
                           className="module-request-toggle"
                           disabled={Boolean(busy)}

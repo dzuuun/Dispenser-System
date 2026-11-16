@@ -60,6 +60,8 @@ function setup(t, academicLevel = "COLLEGE", rows = accountRows, satpOnly = fals
         ],
       ];
     if (sql.includes("'SATP' credential_type")) return [rows];
+    if (sql.startsWith("SELECT id FROM institutional_email_accounts")) return [[{id: 10}]];
+    if (sql.startsWith("SELECT id, is_active FROM institutional_email_accounts")) return [[]];
     if (sql.includes("FROM password_reset_requests")) return [[]];
     if (sql.includes("SELECT w.voucher_code"))
       return [[{ voucher_code: "TEST-VOUCHER" }]];
@@ -272,33 +274,33 @@ test("initial classification separates degrees and leaves unclear courses for re
   assert.equal(inferAcademicLevel("UNCLEAR", "Unspecified program"), "OTHER");
 });
 
- test("SATP-only sessions expose only SATP and cannot request other services", async (t) => {
+ test("SATP-only sessions expose SATP and email and cannot request other services", async (t) => {
   const {req, res, writes} = setup(t, "COLLEGE", accountRows, true);
   await credentials(req,res);
-  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP", "EMAIL"]);
   assert.equal(res.body.voucherState, "HIDDEN");
   assert.equal(res.body.hasWifiVoucher, false);
   assert.equal(writes.length, 0);
   await revealCredentials(req,res);
-  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP", "EMAIL"]);
   assert.equal(res.body.wifiVoucher, null);
-  req.body.credentialType="EMAIL";
+  req.body.credentialType="SCHOOLOGY";
   for (const handler of [requestAccount, requestPasswordReset, requestNewVoucher]) {
     await handler(req,res);
     assert.equal(res.statusCode, 403);
   }
  });
 
-test("enrollment ending during a session restricts summary and reveal to SATP", async (t) => {
+test("enrollment ending during a session restricts summary and reveal to SATP and email", async (t) => {
   const {req, res, writes} = setup(t, "COLLEGE", accountRows, false, true);
   await credentials(req,res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.satpOnly, true);
-  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP", "EMAIL"]);
   assert.equal(res.body.voucherState, "HIDDEN");
   assert.equal(writes.length, 0);
   await revealCredentials(req,res);
-  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
+  assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP", "EMAIL"]);
   assert.equal(res.body.wifiVoucher, null);
 });
 
@@ -318,4 +320,21 @@ test("disabling pre-enrollment access preserves enrolled student access", async 
  await revealCredentials(req,res);
  assert.equal(res.statusCode,200);
  assert.ok(res.body.credentials.some(row=>row.type==="SATP"));
+});
+
+test("pre-enrollment email supports password resets and account requests", async (t) => {
+ const {req,res}=setup(t,"COLLEGE",accountRows,true);
+ req.body.credentialType="EMAIL";
+ for (const handler of [requestPasswordReset,requestAccount]) {
+   await handler(req,res);
+   assert.equal(res.statusCode,201);
+ }
+});
+test("disabling pre-enrollment toggle blocks email requests and reveals", async (t) => {
+ const {req,res}=setup(t,"COLLEGE",accountRows,true,true,false);
+ req.body.credentialType="EMAIL";
+ for (const handler of [requestPasswordReset,requestAccount,revealCredentials]) {
+   await handler(req,res);
+   assert.equal(res.statusCode,403);
+ }
 });
