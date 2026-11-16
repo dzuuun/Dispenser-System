@@ -52,6 +52,9 @@ const studentVoucher =
   "(SELECT w.voucher_code FROM wifi_vouchers w WHERE w.id=s.voucher_id AND w.academic_period_id=s.academic_period_id AND w.academic_period_id=(SELECT id FROM academic_periods WHERE is_current=1 AND is_active=1 ORDER BY id DESC LIMIT 1) AND w.is_active=1 AND w.is_released=0 LIMIT 1)";
 
 function studentListQuery(query) {
+  const showCpaRefresher = query.showCpaRefresher ?? "true";
+  if (!["true", "false"].includes(showCpaRefresher))
+    throw Object.assign(new Error("Choose a valid CPA refresher filter."), { status: 400 });
   const missingAccount = query.missingAccount ?? "";
   const voucherStatus = query.voucherStatus ?? "all";
   if (
@@ -87,6 +90,10 @@ function studentListQuery(query) {
   const status = String(query.status || "all");
   const filters = [],
     values = [];
+  if (showCpaRefresher === "false") {
+    filters.push("NOT EXISTS (SELECT 1 FROM courses cpa_course WHERE cpa_course.id=s.course_id AND (UPPER(TRIM(cpa_course.code))=? OR UPPER(TRIM(cpa_course.name))=?))");
+    values.push("CPA REFRESHER", "CPA REFRESHER COURSE");
+  }
   if (search.sql) {
     const numericId =
       /^\d+$/.test(search.term) && Number.isSafeInteger(Number(search.term));

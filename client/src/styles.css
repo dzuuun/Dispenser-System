@@ -9368,6 +9368,12 @@ body,
 .records-table-controls {
   margin-left: auto;
 }
+.records-table-filters > .module-request-toggle {
+  grid-template-columns: 38px max-content;
+  flex: 0 0 auto;
+  min-height: 40px;
+  font-size: 0.74rem;
+}
 .records-table-field {
   display: grid;
   gap: 6px;

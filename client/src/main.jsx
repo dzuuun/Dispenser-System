@@ -12059,6 +12059,7 @@ function StudentsPage({ token }) {
     [limit, setLimit] = useState(25),
     [search, setSearch] = useState(""),
     [status, setStatus] = useState("all"),
+    [showCpaRefresher, setShowCpaRefresher] = useState(false),
     [missingAccount, setMissingAccount] = useState(""),
     [voucherStatus, setVoucherStatus] = useState("all"),
     [exporting, setExporting] = useState(false),
@@ -12072,6 +12073,7 @@ function StudentsPage({ token }) {
       page: String(page),
       limit: String(limit),
       status,
+      showCpaRefresher: String(showCpaRefresher),
       search,
       missingAccount,
       voucherStatus,
@@ -12106,6 +12108,7 @@ function StudentsPage({ token }) {
     limit,
     search,
     status,
+    showCpaRefresher,
     missingAccount,
     voucherStatus,
     sort,
@@ -12120,6 +12123,7 @@ function StudentsPage({ token }) {
       const params = new URLSearchParams({
         search,
         status,
+        showCpaRefresher: String(showCpaRefresher),
         missingAccount,
         voucherStatus,
         sort,
@@ -12223,6 +12227,20 @@ function StudentsPage({ token }) {
         )}
         <div className="records-table-toolbar">
           <div className="records-table-filters">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showCpaRefresher}
+              aria-label="Show CPA refresher students"
+              className="module-request-toggle"
+              onClick={() => {
+                setShowCpaRefresher((shown) => !shown);
+                setPage(1);
+              }}
+            >
+              <i aria-hidden="true" />
+              <span>CPA refresher: {showCpaRefresher ? "Shown" : "Hidden"}</span>
+            </button>
             <label className="records-table-field">
               <span>Status</span>
               <select
