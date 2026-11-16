@@ -16,10 +16,10 @@ const activeStudent = {
   is_active: 1,
 };
 
-async function runVerification(t, student) {
+async function runVerification(t, student, allowSatpBeforeEnrollment = true) {
   const calls = [];
   t.mock.method(pool, "query", async (sql) => {
-    if (sql.includes("credential_module_controls")) return [[]];
+    if (sql.includes("credential_module_controls")) return [[{module_key:"SATP", is_visible:1, allow_satp_before_enrollment: Number(allowSatpBeforeEnrollment)}]];
     if (sql.includes("academic_periods")) return [[{ id: 10 }]];
     throw new Error(`Unexpected query: ${sql}`);
   });
@@ -90,4 +90,10 @@ test("a current active student can verify, while an unknown student remains not 
     assert.match(res.body.message, /not found/i);
     assert.equal(calls.length, 1);
   });
+});
+
+test("disabled SATP exception rejects verification before enrollment", async (t) => {
+ const {res,calls}=await runVerification(t,{...activeStudent,is_active:0},false);
+ assert.equal(res.statusCode,403);
+ assert.ok(!calls.some(call=>call.sql.includes("INSERT INTO kiosk_credential_sessions")));
 });

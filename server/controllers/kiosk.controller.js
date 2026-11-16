@@ -36,13 +36,14 @@ function normalizeNameForVerification(value) {
 
 async function moduleControls(executor = pool) {
   const [rows] = await executor.query(
-    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, wifi_note, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
+    "SELECT module_key, is_visible, is_maintenance, accept_password_resets, accept_account_requests, accept_voucher_requests, allow_satp_before_enrollment, wifi_note, voucher_paused_message FROM credential_module_controls WHERE module_key<>'PASSWORD_RESET_REQUEST'",
   );
   return new Map(
     rows.map((row) => [
       row.module_key,
       {
         visible: Boolean(row.is_visible),
+        allowSatpBeforeEnrollment: row.allow_satp_before_enrollment == null || Boolean(row.allow_satp_before_enrollment),
         maintenance: Boolean(row.is_maintenance),
         voucherRequests: voucherRequestsEnabled(row),
         voucherPausedMessage: voucherPausedMessage(row),
@@ -141,6 +142,8 @@ export async function verify(req, res) {
     return res
       .status(enrollmentInactive ? 403 : 401)
       .json({ message: failureMessage });
+  if (enrollmentInactive && controls.get("SATP")?.allowSatpBeforeEnrollment === false)
+    return res.status(403).json({ message: "Your enrollment must be active this semester to access SATP." });
   if (enrollmentInactive) {
     const [[course]] = await pool.execute("SELECT academic_level FROM courses WHERE id=?", [student.course_id]);
     if (!isSatpEligible(course?.academic_level))
@@ -220,6 +223,10 @@ export async function credentials(req, res) {
       if (!latestRequests.has(key)) latestRequests.set(key, request);
     }
     const controls = await moduleControls(conn);
+    if (satpOnly && controls.get("SATP")?.allowSatpBeforeEnrollment === false) {
+      await conn.rollback();
+      return res.status(403).json({ message: "Your enrollment must be active this semester to access SATP." });
+    }
     const kioskControl = controls.get("KIOSK");
     if (kioskControl?.maintenance) {
       await conn.rollback();
@@ -350,6 +357,8 @@ export async function revealCredentials(req, res) {
       [session.sub, period.id],
     );
     const satpOnly = Boolean(session.satpOnly) || !student;
+    if (satpOnly && controls.get("SATP")?.allowSatpBeforeEnrollment === false)
+      return res.status(403).json({ message: "Your enrollment must be active this semester to access SATP." });
     if (!student) {
       [[student]] = await pool.execute(
         "SELECT s.student_id, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=?",
@@ -586,6 +595,8 @@ export async function requestAccount(req, res) {
   if (!table)
     return res.status(400).json({ message: "Select a valid account." });
   const controls = await moduleControls();
+  if (session.satpOnly && controls.get("SATP")?.allowSatpBeforeEnrollment === false)
+    return res.status(403).json({ message: "Your enrollment must be active this semester to access SATP." });
   const control = controls.get(credentialType);
   if (credentialType !== "SATP" && control && !control.accountRequests)
     return res.status(503).json({

@@ -29,7 +29,7 @@ const accountRows = ["SATP", "EMAIL", "SCHOOLOGY", "KUMOSOFT"].map((type) => ({
     : encryptPassword("test-password")),
 }));
 
-function setup(t, academicLevel = "COLLEGE", rows = accountRows, satpOnly = false, enrollmentInactive = false) {
+function setup(t, academicLevel = "COLLEGE", rows = accountRows, satpOnly = false, enrollmentInactive = false, allowSatpBeforeEnrollment = true) {
   const writes = [];
   const execute = async (sql, values) => {
     if (sql.includes("FROM kiosk_credential_sessions"))
@@ -42,6 +42,7 @@ function setup(t, academicLevel = "COLLEGE", rows = accountRows, satpOnly = fals
         rows.map((row) => ({
           module_key: row.credential_type,
           is_visible: 1,
+          allow_satp_before_enrollment: Number(allowSatpBeforeEnrollment),
           is_maintenance: 0,
         })),
       ];
@@ -299,4 +300,22 @@ test("enrollment ending during a session restricts summary and reveal to SATP", 
   await revealCredentials(req,res);
   assert.deepEqual(res.body.credentials.map(row => row.type), ["SATP"]);
   assert.equal(res.body.wifiVoucher, null);
+});
+
+test("disabling pre-enrollment access blocks existing SATP-only sessions", async (t) => {
+ const {req,res}=setup(t,"COLLEGE",accountRows,true,true,false);
+ for (const handler of [credentials,revealCredentials,requestAccount]) {
+   await handler(req,res);
+   assert.equal(res.statusCode,403);
+   assert.match(res.body.message,/enrollment must be active/);
+ }
+});
+test("disabling pre-enrollment access preserves enrolled student access", async (t) => {
+ const {req,res}=setup(t,"COLLEGE",accountRows,false,false,false);
+ await credentials(req,res);
+ assert.equal(res.statusCode,200);
+ assert.ok(res.body.credentials.some(row=>row.type==="SATP"));
+ await revealCredentials(req,res);
+ assert.equal(res.statusCode,200);
+ assert.ok(res.body.credentials.some(row=>row.type==="SATP"));
 });

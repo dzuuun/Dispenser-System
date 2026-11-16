@@ -392,7 +392,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
       }
       assert.match(
         sql,
-        /^ALTER TABLE credential_module_controls ADD COLUMN (?:(?:accept_password_resets|accept_account_requests|accept_voucher_requests) BOOLEAN NOT NULL DEFAULT TRUE|(?:voucher_paused_message|wifi_note) VARCHAR\(500\) NULL)$/,
+        /^ALTER TABLE credential_module_controls ADD COLUMN (?:(?:accept_password_resets|accept_account_requests|accept_voucher_requests|allow_satp_before_enrollment) BOOLEAN NOT NULL DEFAULT TRUE|(?:voucher_paused_message|wifi_note) VARCHAR\(500\) NULL)$/,
       );
       writes.push(sql);
       columns.add(sql.split(" ")[5]);
@@ -403,7 +403,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
   assert.deepEqual(saved, { EMAIL: 0, KUMOSOFT: 0, SCHOOLOGY: 0 });
   saved.EMAIL = 1;
   await ensureCredentialRequestControlsSchema(executor);
-  assert.equal(writes.length, 6);
+  assert.equal(writes.length, 7);
   assert.equal(
     saved.EMAIL,
     1,
@@ -415,6 +415,7 @@ test("request-control schema upgrades are additive, repeatable, and preserve sav
       "accept_password_resets",
       "accept_account_requests",
       "accept_voucher_requests",
+      "allow_satp_before_enrollment",
       "voucher_paused_message",
       "wifi_note",
     ],
@@ -440,7 +441,7 @@ test("concurrent startup tolerates an already-added request-control column", asy
       });
     },
   });
-  assert.equal(attempted.length, 5);
+  assert.equal(attempted.length, 6);
 });
 
 test("WiFi note can be saved, read, cleared, and rejects invalid updates", async (t) => {
@@ -454,4 +455,15 @@ test("WiFi note can be saved, read, cleared, and rejects invalid updates", async
   for (const input of [null, 1, "x".repeat(501)])
     assert.equal((await update("VOUCHER", { wifiNote: input })).statusCode, 400);
   assert.equal((await update("EMAIL", { wifiNote: "test" })).statusCode, 400);
+});
+
+test("SATP pre-enrollment toggle is persisted and validated", async (t) => {
+ const {update,res} = setup(t);
+ for (const enabled of [false,true]) {
+   assert.equal((await update("SATP", {allowSatpBeforeEnrollment: enabled})).statusCode,200);
+   const response=res(); await publicModuleControls({},response);
+   assert.equal(Boolean(response.body.find(row=>row.module_key==="SATP").allow_satp_before_enrollment),enabled);
+ }
+ assert.equal((await update("EMAIL", {allowSatpBeforeEnrollment:true})).statusCode,400);
+ assert.equal((await update("SATP", {allowSatpBeforeEnrollment:"false"})).statusCode,400);
 });

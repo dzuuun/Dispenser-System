@@ -2,13 +2,14 @@ import { pool } from "../config/db.js";
 
 export async function ensureCredentialRequestControlsSchema(executor = pool) {
   const [rows] = await executor.query(
-    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='credential_module_controls' AND COLUMN_NAME IN ('accept_password_resets', 'accept_account_requests', 'accept_voucher_requests', 'voucher_paused_message', 'wifi_note')",
+    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='credential_module_controls' AND COLUMN_NAME IN ('accept_password_resets', 'accept_account_requests', 'accept_voucher_requests', 'voucher_paused_message', 'wifi_note', 'allow_satp_before_enrollment')",
   );
   const existing = new Set(rows.map((row) => row.COLUMN_NAME));
   for (const column of [
     "accept_password_resets",
     "accept_account_requests",
     "accept_voucher_requests",
+    "allow_satp_before_enrollment",
   ]) {
     if (existing.has(column)) continue;
     try {

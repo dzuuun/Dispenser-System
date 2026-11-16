@@ -9069,6 +9069,26 @@ function ModuleControlsPage({ token }) {
                     </Status>
                   </header>
                   <div className="module-control-card-body">
+                    {item.module_key === "SATP" && (
+                      <div className="module-control-setting">
+                        <div>
+                          <b>Allow access before enrollment</b>
+                          <small>Let eligible students access SATP before enrollment is active this semester.</small>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-label="Allow SATP access before enrollment"
+                          aria-checked={Boolean(item.allow_satp_before_enrollment)}
+                          className="module-request-toggle"
+                          disabled={Boolean(busy)}
+                          onClick={() => update(item, { allowSatpBeforeEnrollment: !item.allow_satp_before_enrollment }, "before-enrollment")}
+                        >
+                          <i aria-hidden="true" />
+                          <span>{busy === "SATP-before-enrollment" ? "Saving..." : item.allow_satp_before_enrollment ? "On" : "Off"}</span>
+                        </button>
+                      </div>
+                    )}
                     {item.module_key !== "KIOSK" && (
                       <div className="module-control-setting">
                         <div>
