@@ -148,24 +148,20 @@ export async function verify(req, res) {
     enrollmentInactive &&
     controls.get("SATP")?.allowSatpBeforeEnrollment === false
   )
-    return res
-      .status(403)
-      .json({
-        message:
-          "Your enrollment must be active this semester to access SATP and email.",
-      });
+    return res.status(403).json({
+      message:
+        "Your enrollment must be active this semester to access SATP and email.",
+    });
   if (enrollmentInactive) {
     const [[course]] = await pool.execute(
       "SELECT academic_level FROM courses WHERE id=?",
       [student.course_id],
     );
     if (!isSatpEligible(course?.academic_level))
-      return res
-        .status(403)
-        .json({
-          message:
-            "Your enrollment is not active for the current academic period. Please verify your enrollment status at the Records Section.",
-        });
+      return res.status(403).json({
+        message:
+          "Your enrollment is not active for the current academic period. Please verify your enrollment status at the Records Section.",
+      });
   }
   const jti = crypto.randomUUID();
   await pool.execute(
@@ -248,12 +244,10 @@ export async function credentials(req, res) {
     const controls = await moduleControls(conn);
     if (satpOnly && controls.get("SATP")?.allowSatpBeforeEnrollment === false) {
       await conn.rollback();
-      return res
-        .status(403)
-        .json({
-          message:
-            "Your enrollment must be active this semester to access SATP and email.",
-        });
+      return res.status(403).json({
+        message:
+          "Your enrollment must be active this semester to access SATP and email.",
+      });
     }
     const kioskControl = controls.get("KIOSK");
     if (kioskControl?.maintenance) {
@@ -400,12 +394,10 @@ export async function revealCredentials(req, res) {
     );
     const satpOnly = Boolean(session.satpOnly) || !student;
     if (satpOnly && controls.get("SATP")?.allowSatpBeforeEnrollment === false)
-      return res
-        .status(403)
-        .json({
-          message:
-            "Your enrollment must be active this semester to access SATP and email.",
-        });
+      return res.status(403).json({
+        message:
+          "Your enrollment must be active this semester to access SATP and email.",
+      });
     if (!student) {
       [[student]] = await pool.execute(
         "SELECT s.student_id, c.academic_level FROM students s JOIN courses c ON c.id=s.course_id WHERE s.id=?",
@@ -485,12 +477,10 @@ export async function requestPasswordReset(req, res) {
     session.satpOnly &&
     String(req.body?.credentialType).toUpperCase() !== "EMAIL"
   )
-    return res
-      .status(403)
-      .json({
-        message:
-          "Only SATP and institutional email are available before enrollment is active for this semester.",
-      });
+    return res.status(403).json({
+      message:
+        "Only SATP and institutional email are available before enrollment is active for this semester.",
+    });
   const credentialType = String(req.body?.credentialType || "").toUpperCase();
   if (credentialType === "SATP")
     return res
@@ -504,12 +494,10 @@ export async function requestPasswordReset(req, res) {
     session.satpOnly &&
     controls.get("SATP")?.allowSatpBeforeEnrollment === false
   )
-    return res
-      .status(403)
-      .json({
-        message:
-          "Your enrollment must be active this semester to access SATP and email.",
-      });
+    return res.status(403).json({
+      message:
+        "Your enrollment must be active this semester to access SATP and email.",
+    });
   const control = controls.get(credentialType);
   if (control && !control.passwordResets)
     return res.status(503).json({
@@ -577,12 +565,10 @@ export async function requestNewVoucher(req, res) {
       .status(401)
       .json({ message: "Session expired. Please verify again." });
   if (session.satpOnly)
-    return res
-      .status(403)
-      .json({
-        message:
-          "Only SATP and institutional email are available before enrollment is active for this semester.",
-      });
+    return res.status(403).json({
+      message:
+        "Only SATP and institutional email are available before enrollment is active for this semester.",
+    });
   const controls = await moduleControls();
   const control = controls.get("VOUCHER");
   if (control && (!control.visible || control.maintenance))
@@ -664,12 +650,10 @@ export async function requestAccount(req, res) {
     session.satpOnly &&
     !["SATP", "EMAIL"].includes(String(req.body?.credentialType).toUpperCase())
   )
-    return res
-      .status(403)
-      .json({
-        message:
-          "Only SATP and institutional email are available before enrollment is active for this semester.",
-      });
+    return res.status(403).json({
+      message:
+        "Only SATP and institutional email are available before enrollment is active for this semester.",
+    });
   const credentialType = String(req.body?.credentialType || "").toUpperCase();
   const table = accountTables[credentialType];
   if (!table)
@@ -679,12 +663,10 @@ export async function requestAccount(req, res) {
     session.satpOnly &&
     controls.get("SATP")?.allowSatpBeforeEnrollment === false
   )
-    return res
-      .status(403)
-      .json({
-        message:
-          "Your enrollment must be active this semester to access SATP and email.",
-      });
+    return res.status(403).json({
+      message:
+        "Your enrollment must be active this semester to access SATP and email.",
+    });
   const control = controls.get(credentialType);
   if (credentialType !== "SATP" && control && !control.accountRequests)
     return res.status(503).json({

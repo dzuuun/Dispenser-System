@@ -132,12 +132,10 @@ export async function updateMssqlSyncSchedule(req, res, next) {
     const { enabled, intervalMinutes, deactivateMissingStudents } =
       req.body || {};
     if (typeof deactivateMissingStudents !== "boolean")
-      return res
-        .status(400)
-        .json({
-          message:
-            "Choose whether to deactivate students missing from the SQL Server list.",
-        });
+      return res.status(400).json({
+        message:
+          "Choose whether to deactivate students missing from the SQL Server list.",
+      });
     if (
       typeof enabled !== "boolean" ||
       !Number.isInteger(intervalMinutes) ||

@@ -31,11 +31,9 @@ export async function updateModuleControl(req, res) {
   const acceptVoucherRequests = req.body?.acceptVoucherRequests;
   const allowSatpBeforeEnrollment = req.body?.allowSatpBeforeEnrollment;
   if (allowSatpBeforeEnrollment !== undefined && moduleKey !== "SATP")
-    return res
-      .status(400)
-      .json({
-        message: "Access before enrollment is supported only for SATP.",
-      });
+    return res.status(400).json({
+      message: "Access before enrollment is supported only for SATP.",
+    });
   const wifiNote = req.body?.wifiNote;
   if (
     wifiNote !== undefined &&

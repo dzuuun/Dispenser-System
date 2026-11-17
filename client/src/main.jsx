@@ -8594,9 +8594,12 @@ function Kiosk() {
           </header>
           {result.satpOnly && (
             <p className="voucher-exhausted-notice">
-              SATP and institutional email are available before enrollment. WiFi
-              and other accounts will be available once your enrollment is
-              active for this semester.
+              Your enrollment for this semester has not been verified yet.
+              Please proceed to the Records Section to verify your enrollment.
+              You can still access SATP and institutional email. Your other
+              accounts and WiFi voucher will appear here once you are officially
+              enrolled for this semester and your enrollment is updated in the
+              system.
             </p>
           )}
           <section className="credential-summary-panel">
