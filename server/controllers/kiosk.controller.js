@@ -150,7 +150,7 @@ export async function verify(req, res) {
   )
     return res.status(403).json({
       message:
-        "Your enrollment must be active this semester to access SATP and email.",
+        "Your enrollment for this semester has not been verified yet. Please proceed to the Records Section to verify your enrollment.",
     });
   if (enrollmentInactive) {
     const [[course]] = await pool.execute(
@@ -246,7 +246,7 @@ export async function credentials(req, res) {
       await conn.rollback();
       return res.status(403).json({
         message:
-          "Your enrollment must be active this semester to access SATP and email.",
+          "Your enrollment for this semester has not been verified yet. Please proceed to the Records Section to verify your enrollment.",
       });
     }
     const kioskControl = controls.get("KIOSK");
@@ -396,7 +396,7 @@ export async function revealCredentials(req, res) {
     if (satpOnly && controls.get("SATP")?.allowSatpBeforeEnrollment === false)
       return res.status(403).json({
         message:
-          "Your enrollment must be active this semester to access SATP and email.",
+          "Your enrollment for this semester has not been verified yet. Please proceed to the Records Section to verify your enrollment.",
       });
     if (!student) {
       [[student]] = await pool.execute(
@@ -496,7 +496,7 @@ export async function requestPasswordReset(req, res) {
   )
     return res.status(403).json({
       message:
-        "Your enrollment must be active this semester to access SATP and email.",
+        "Your enrollment for this semester has not been verified yet. Please proceed to the Records Section to verify your enrollment.",
     });
   const control = controls.get(credentialType);
   if (control && !control.passwordResets)
@@ -665,7 +665,7 @@ export async function requestAccount(req, res) {
   )
     return res.status(403).json({
       message:
-        "Your enrollment must be active this semester to access SATP and email.",
+        "Your enrollment for this semester has not been verified yet. Please proceed to the Records Section to verify your enrollment.",
     });
   const control = controls.get(credentialType);
   if (credentialType !== "SATP" && control && !control.accountRequests)

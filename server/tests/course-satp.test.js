@@ -341,7 +341,10 @@ test("disabling pre-enrollment access blocks existing SATP-only sessions", async
   for (const handler of [credentials, revealCredentials, requestAccount]) {
     await handler(req, res);
     assert.equal(res.statusCode, 403);
-    assert.match(res.body.message, /enrollment must be active/);
+    assert.match(
+      res.body.message,
+      /enrollment for this semester has not been verified yet/,
+    );
   }
 });
 test("disabling pre-enrollment access preserves enrolled student access", async (t) => {
