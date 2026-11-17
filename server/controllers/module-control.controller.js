@@ -31,10 +31,21 @@ export async function updateModuleControl(req, res) {
   const acceptVoucherRequests = req.body?.acceptVoucherRequests;
   const allowSatpBeforeEnrollment = req.body?.allowSatpBeforeEnrollment;
   if (allowSatpBeforeEnrollment !== undefined && moduleKey !== "SATP")
-    return res.status(400).json({ message: "Access before enrollment is supported only for SATP." });
+    return res
+      .status(400)
+      .json({
+        message: "Access before enrollment is supported only for SATP.",
+      });
   const wifiNote = req.body?.wifiNote;
-  if (wifiNote !== undefined && (moduleKey !== "VOUCHER" || typeof wifiNote !== "string" || wifiNote.trim().length > 500))
-    return res.status(400).json({ message: "Enter a WiFi note of up to 500 characters." });
+  if (
+    wifiNote !== undefined &&
+    (moduleKey !== "VOUCHER" ||
+      typeof wifiNote !== "string" ||
+      wifiNote.trim().length > 500)
+  )
+    return res
+      .status(400)
+      .json({ message: "Enter a WiFi note of up to 500 characters." });
   const pausedMessage = req.body?.voucherPausedMessage;
   const settings = {
     isVisible,

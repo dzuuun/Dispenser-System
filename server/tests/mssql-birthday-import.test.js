@@ -597,9 +597,15 @@ for (const deactivateMissingStudents of [false, true]) {
     });
     assert.equal(result.statusCode, 200);
     assert.equal(result.body.deactivated, deactivateMissingStudents ? 1 : 0);
-    assert.equal(store.students.find((s) => s.student_id === "ABSENT").is_active, deactivateMissingStudents ? 0 : 1);
+    assert.equal(
+      store.students.find((s) => s.student_id === "ABSENT").is_active,
+      deactivateMissingStudents ? 0 : 1,
+    );
     assert.ok(store.students.some((s) => s.student_id === "NEW"));
-    assert.equal(store.students.find((s) => s.student_id === "OLD").first_name, "Updated");
+    assert.equal(
+      store.students.find((s) => s.student_id === "OLD").first_name,
+      "Updated",
+    );
   });
 }
 

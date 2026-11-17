@@ -45,6 +45,7 @@ export function createStudentStore() {
       course_code: "BSIT",
       course_name: "Information Technology",
       is_active: 1,
+      academic_period_id: 1,
       voucher_id: null,
     },
   };
@@ -54,6 +55,10 @@ export function createStudentStore() {
   const execute = async (sql, values = []) => {
     calls.push({ sql, values });
     const data = staged || stored;
+    if (sql.trimStart().startsWith("SELECT id, school_year, semester"))
+      return [[{ id: 2 }]];
+    if (sql.startsWith("SELECT is_active FROM students"))
+      return [[{ ...data.student }]];
     if (sql.includes("FROM courses WHERE id=?")) return [[{ id: 1 }]];
     if (sql.startsWith("UPDATE students SET student_id=")) {
       if (values.at(-1) !== data.student.id) return [{ affectedRows: 0 }];
@@ -67,6 +72,8 @@ export function createStudentStore() {
         data.student.course_id,
         data.student.is_active,
       ] = values;
+      if (sql.includes("academic_period_id=?"))
+        data.student.academic_period_id = values[8];
       return [{ affectedRows: 1 }];
     }
     if (sql.includes("FROM students s JOIN courses"))

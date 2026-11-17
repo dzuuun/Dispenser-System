@@ -132,6 +132,10 @@ function setup(t, options = {}) {
       return [
         data.students[values[0]] ? [{ ...data.students[values[0]] }] : [],
       ];
+    if (sql.startsWith("SELECT is_active FROM students"))
+      return [
+        data.students[values[0]] ? [{ ...data.students[values[0]] }] : [],
+      ];
     if (sql.startsWith("SELECT id FROM courses")) return [[{ id: 1 }]];
     if (sql.startsWith("UPDATE students SET student_id="))
       return [{ affectedRows: data.students[values.at(-1)] ? 1 : 0 }];

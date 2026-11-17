@@ -54,7 +54,9 @@ const studentVoucher =
 function studentListQuery(query) {
   const showCpaRefresher = query.showCpaRefresher ?? "true";
   if (!["true", "false"].includes(showCpaRefresher))
-    throw Object.assign(new Error("Choose a valid CPA refresher filter."), { status: 400 });
+    throw Object.assign(new Error("Choose a valid CPA refresher filter."), {
+      status: 400,
+    });
   const missingAccount = query.missingAccount ?? "";
   const voucherStatus = query.voucherStatus ?? "all";
   if (
@@ -91,7 +93,9 @@ function studentListQuery(query) {
   const filters = [],
     values = [];
   if (showCpaRefresher === "false") {
-    filters.push("NOT EXISTS (SELECT 1 FROM courses cpa_course WHERE cpa_course.id=s.course_id AND (UPPER(TRIM(cpa_course.code))=? OR UPPER(TRIM(cpa_course.name))=?))");
+    filters.push(
+      "NOT EXISTS (SELECT 1 FROM courses cpa_course WHERE cpa_course.id=s.course_id AND (UPPER(TRIM(cpa_course.code))=? OR UPPER(TRIM(cpa_course.name))=?))",
+    );
     values.push("CPA REFRESHER", "CPA REFRESHER COURSE");
   }
   if (search.sql) {
@@ -506,8 +510,23 @@ export async function updateStudent(req, res) {
       await connection.rollback();
       return res.status(400).json({ message: "Select an active course." });
     }
+    const [[existingStudent]] = await connection.execute(
+      "SELECT is_active FROM students WHERE id=? FOR UPDATE",
+      [id],
+    );
+    if (!existingStudent) {
+      await connection.rollback();
+      return res.status(404).json({ message: "Student record not found." });
+    }
+    const statusChanged =
+      req.body.statusChanged === true ||
+      (typeof req.body.isActive === "boolean" &&
+        Boolean(existingStudent.is_active) !== isActive);
+    const period = statusChanged
+      ? await requireCurrentAcademicPeriod(connection)
+      : null;
     const [updated] = await connection.execute(
-      "UPDATE students SET student_id=?, kumosoft_id=?, first_name=?, middle_name=?, last_name=?, birth_date=?, course_id=?, is_active=? WHERE id=?",
+      `UPDATE students SET student_id=?, kumosoft_id=?, first_name=?, middle_name=?, last_name=?, birth_date=?, course_id=?, is_active=?${period ? ", academic_period_id=?" : ""} WHERE id=?`,
       [
         studentId,
         kumosoftId,
@@ -517,6 +536,7 @@ export async function updateStudent(req, res) {
         birthDate,
         courseId,
         isActive,
+        ...(period ? [period.id] : []),
         id,
       ],
     );

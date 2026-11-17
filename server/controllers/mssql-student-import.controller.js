@@ -451,9 +451,10 @@ export async function importMssqlStudents(req, res, next) {
       ...options,
       birthdayStudentIds,
     });
-    const deactivated = req.scheduledImport && req.body?.deactivateMissingStudents === false
-      ? 0
-      : await deactivateStudentsMissingFromSource(sourceIds, connection);
+    const deactivated =
+      req.scheduledImport && req.body?.deactivateMissingStudents === false
+        ? 0
+        : await deactivateStudentsMissingFromSource(sourceIds, connection);
     await connection.commit();
     const counts = summary(result);
     res.json({

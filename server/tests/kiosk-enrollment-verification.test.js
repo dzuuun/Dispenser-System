@@ -19,7 +19,16 @@ const activeStudent = {
 async function runVerification(t, student, allowSatpBeforeEnrollment = true) {
   const calls = [];
   t.mock.method(pool, "query", async (sql) => {
-    if (sql.includes("credential_module_controls")) return [[{module_key:"SATP", is_visible:1, allow_satp_before_enrollment: Number(allowSatpBeforeEnrollment)}]];
+    if (sql.includes("credential_module_controls"))
+      return [
+        [
+          {
+            module_key: "SATP",
+            is_visible: 1,
+            allow_satp_before_enrollment: Number(allowSatpBeforeEnrollment),
+          },
+        ],
+      ];
     if (sql.includes("academic_periods")) return [[{ id: 10 }]];
     throw new Error(`Unexpected query: ${sql}`);
   });
@@ -69,7 +78,11 @@ test("students outside the current period or inactive can verify for SATP", asyn
       async (subtest) => {
         const { res, calls } = await runVerification(subtest, student);
         assert.equal(res.statusCode, 200);
-        assert.equal(JSON.parse(Buffer.from(res.body.token.split(".")[1], "base64url")).satpOnly, true);
+        assert.equal(
+          JSON.parse(Buffer.from(res.body.token.split(".")[1], "base64url"))
+            .satpOnly,
+          true,
+        );
         assert.deepEqual(calls[0].values, ["20231422", "20231422", 10]);
         assert.equal(calls.length, 3);
       },
@@ -93,7 +106,15 @@ test("a current active student can verify, while an unknown student remains not 
 });
 
 test("disabled SATP exception rejects verification before enrollment", async (t) => {
- const {res,calls}=await runVerification(t,{...activeStudent,is_active:0},false);
- assert.equal(res.statusCode,403);
- assert.ok(!calls.some(call=>call.sql.includes("INSERT INTO kiosk_credential_sessions")));
+  const { res, calls } = await runVerification(
+    t,
+    { ...activeStudent, is_active: 0 },
+    false,
+  );
+  assert.equal(res.statusCode, 403);
+  assert.ok(
+    !calls.some((call) =>
+      call.sql.includes("INSERT INTO kiosk_credential_sessions"),
+    ),
+  );
 });

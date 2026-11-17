@@ -229,3 +229,30 @@ test("a later save failure rolls back cleared passwords and student details toge
   );
   assert.deepEqual(db.stored, before);
 });
+
+for (const isActive of [true, false]) {
+  test(`manual status change to ${isActive} moves the student to the current period`, async (t) => {
+    const { db, save } = setup(t);
+    db.stored.student.is_active = Number(!isActive);
+    assert.equal((await save({ isActive })).statusCode, 200);
+    assert.equal(db.stored.student.academic_period_id, 2);
+    assert.equal(Boolean(db.stored.student.is_active), isActive);
+  });
+}
+test("explicitly activating an old-period student updates the period even if stored status was active", async (t) => {
+  const { db, save } = setup(t);
+  await save({ isActive: true, statusChanged: true });
+  assert.equal(db.stored.student.academic_period_id, 2);
+});
+test("profile-only changes preserve the existing academic period", async (t) => {
+  const { db, save } = setup(t);
+  await save({ firstName: "Edited" });
+  assert.equal(db.stored.student.academic_period_id, 1);
+});
+test("status changes without a current period roll back", async (t) => {
+  const { db, save } = setup(t);
+  t.mock.method(db.connection, "query", async () => [[]]);
+  await assert.rejects(save({ isActive: false }), { status: 409 });
+  assert.equal(db.stored.student.academic_period_id, 1);
+  assert.equal(db.stored.student.is_active, 1);
+});

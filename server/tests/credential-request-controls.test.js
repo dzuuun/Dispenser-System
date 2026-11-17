@@ -67,10 +67,9 @@ function setup(t) {
         .split(", ")
         .forEach((assignment, index) => {
           const field = assignment.split("=")[0];
-          row[field] =
-            ["voucher_paused_message", "wifi_note"].includes(field)
-              ? values[index]
-              : Number(values[index]);
+          row[field] = ["voucher_paused_message", "wifi_note"].includes(field)
+            ? values[index]
+            : Number(values[index]);
         });
       return [{ affectedRows: 1 }];
     }
@@ -446,24 +445,52 @@ test("concurrent startup tolerates an already-added request-control column", asy
 
 test("WiFi note can be saved, read, cleared, and rejects invalid updates", async (t) => {
   const { update, res } = setup(t);
-  for (const [input, expected] of [["  Connect to Campus WiFi.  ", "Connect to Campus WiFi."], ["", ""]]) {
-    assert.equal((await update("VOUCHER", { wifiNote: input })).statusCode, 200);
+  for (const [input, expected] of [
+    ["  Connect to Campus WiFi.  ", "Connect to Campus WiFi."],
+    ["", ""],
+  ]) {
+    assert.equal(
+      (await update("VOUCHER", { wifiNote: input })).statusCode,
+      200,
+    );
     const response = res();
     await publicModuleControls({}, response);
-    assert.equal(response.body.find(row => row.module_key === "VOUCHER").wifi_note, expected);
+    assert.equal(
+      response.body.find((row) => row.module_key === "VOUCHER").wifi_note,
+      expected,
+    );
   }
   for (const input of [null, 1, "x".repeat(501)])
-    assert.equal((await update("VOUCHER", { wifiNote: input })).statusCode, 400);
+    assert.equal(
+      (await update("VOUCHER", { wifiNote: input })).statusCode,
+      400,
+    );
   assert.equal((await update("EMAIL", { wifiNote: "test" })).statusCode, 400);
 });
 
 test("SATP pre-enrollment toggle is persisted and validated", async (t) => {
- const {update,res} = setup(t);
- for (const enabled of [false,true]) {
-   assert.equal((await update("SATP", {allowSatpBeforeEnrollment: enabled})).statusCode,200);
-   const response=res(); await publicModuleControls({},response);
-   assert.equal(Boolean(response.body.find(row=>row.module_key==="SATP").allow_satp_before_enrollment),enabled);
- }
- assert.equal((await update("EMAIL", {allowSatpBeforeEnrollment:true})).statusCode,400);
- assert.equal((await update("SATP", {allowSatpBeforeEnrollment:"false"})).statusCode,400);
+  const { update, res } = setup(t);
+  for (const enabled of [false, true]) {
+    assert.equal(
+      (await update("SATP", { allowSatpBeforeEnrollment: enabled })).statusCode,
+      200,
+    );
+    const response = res();
+    await publicModuleControls({}, response);
+    assert.equal(
+      Boolean(
+        response.body.find((row) => row.module_key === "SATP")
+          .allow_satp_before_enrollment,
+      ),
+      enabled,
+    );
+  }
+  assert.equal(
+    (await update("EMAIL", { allowSatpBeforeEnrollment: true })).statusCode,
+    400,
+  );
+  assert.equal(
+    (await update("SATP", { allowSatpBeforeEnrollment: "false" })).statusCode,
+    400,
+  );
 });

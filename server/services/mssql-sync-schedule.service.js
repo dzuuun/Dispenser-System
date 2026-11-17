@@ -1,6 +1,47 @@
 import { pool } from "../config/db.js";
 import { importMssqlStudents } from "../controllers/mssql-student-import.controller.js";
 
+// Stored schedule timestamps use Asia/Shanghai wall time, independent of server timezone.
+const scheduleClockSql =
+  "DATE_FORMAT(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR), '%Y-%m-%d %H:%i:%s')";
+const MINUTE = 60000;
+const DAY = 1440 * MINUTE;
+const WEEK_ANCHOR = Date.UTC(1970, 0, 5, 7, 30); // Monday, 07:30 local wall time.
+
+export function fixedSyncSchedule(localNow, intervalMinutes) {
+  const now = Date.parse(localNow.replace(" ", "T") + "Z");
+  if (
+    !Number.isFinite(now) ||
+    !Number.isInteger(intervalMinutes) ||
+    intervalMinutes < 5 ||
+    intervalMinutes > 10080
+  )
+    throw new Error("Invalid SQL synchronization schedule.");
+  const minute = Math.floor(now / MINUTE) * MINUTE;
+  const today = Math.floor(minute / DAY) * DAY;
+  const format = (value) =>
+    new Date(value).toISOString().slice(0, 19).replace("T", " ");
+  let due = false;
+  for (let day = today; day <= today + 15 * DAY; day += DAY) {
+    if (new Date(day).getUTCDay() === 0) continue; // No Sunday imports.
+    const opening = day + 450 * MINUTE;
+    const closing = day + 1020 * MINUTE;
+    // Short intervals restart at opening. Daily/weekly intervals use a fixed calendar anchor.
+    const first =
+      intervalMinutes < 1440
+        ? opening
+        : WEEK_ANCHOR +
+          Math.ceil((opening - WEEK_ANCHOR) / (intervalMinutes * MINUTE)) *
+            intervalMinutes *
+            MINUTE;
+    for (let slot = first; slot <= closing; slot += intervalMinutes * MINUTE) {
+      if (slot === minute) due = true;
+      if (slot > minute) return { due, nextRunAt: format(slot) };
+    }
+  }
+  throw new Error("No synchronization slot found.");
+}
+
 const LOCK_NAME = "dispenser_mssql_scheduled_sync";
 
 export async function ensureMssqlSyncScheduleSchema(executor = pool) {
@@ -60,14 +101,12 @@ export async function listMssqlSyncActivity(req, res, next) {
       "SELECT id, started_at, finished_at, status, period_label, created_count, updated_count, unchanged_count, deactivated_count, invalid_count, message FROM mssql_sync_activity ORDER BY id DESC LIMIT ? OFFSET ?",
       [limit, (page - 1) * limit],
     );
-    res
-      .set("Cache-Control", "no-store")
-      .json({
-        rows,
-        page,
-        pages: Math.max(1, Math.ceil(Number(count.total) / limit)),
-        total: Number(count.total),
-      });
+    res.set("Cache-Control", "no-store").json({
+      rows,
+      page,
+      pages: Math.max(1, Math.ceil(Number(count.total) / limit)),
+      total: Number(count.total),
+    });
   } catch (error) {
     next(error);
   }
@@ -76,9 +115,13 @@ export async function listMssqlSyncActivity(req, res, next) {
 export async function getMssqlSyncSchedule(_req, res, next) {
   try {
     const [[row]] = await pool.query(
-      "SELECT enabled, deactivate_missing_students, interval_minutes, next_run_at, last_started_at, last_finished_at, last_status, last_message FROM mssql_sync_schedule WHERE id=1",
+      "SELECT enabled, deactivate_missing_students, interval_minutes, DATE_FORMAT(next_run_at, '%Y-%m-%dT%H:%i:%s+08:00') AS next_run_at, last_started_at, last_finished_at, last_status, last_message FROM mssql_sync_schedule WHERE id=1",
     );
-    res.json({ ...row, enabled: Boolean(row.enabled), deactivate_missing_students: Boolean(row.deactivate_missing_students) });
+    res.json({
+      ...row,
+      enabled: Boolean(row.enabled),
+      deactivate_missing_students: Boolean(row.deactivate_missing_students),
+    });
   } catch (error) {
     next(error);
   }
@@ -86,9 +129,15 @@ export async function getMssqlSyncSchedule(_req, res, next) {
 
 export async function updateMssqlSyncSchedule(req, res, next) {
   try {
-    const { enabled, intervalMinutes, deactivateMissingStudents } = req.body || {};
+    const { enabled, intervalMinutes, deactivateMissingStudents } =
+      req.body || {};
     if (typeof deactivateMissingStudents !== "boolean")
-      return res.status(400).json({ message: "Choose whether to deactivate students missing from the SQL Server list." });
+      return res
+        .status(400)
+        .json({
+          message:
+            "Choose whether to deactivate students missing from the SQL Server list.",
+        });
     if (
       typeof enabled !== "boolean" ||
       !Number.isInteger(intervalMinutes) ||
@@ -98,9 +147,15 @@ export async function updateMssqlSyncSchedule(req, res, next) {
       return res
         .status(400)
         .json({ message: "Choose an interval between 5 minutes and 7 days." });
+    const [[clock]] = await pool.query(
+      `SELECT ${scheduleClockSql} AS local_now`,
+    );
+    const nextRunAt = enabled
+      ? fixedSyncSchedule(clock.local_now, intervalMinutes).nextRunAt
+      : null;
     await pool.execute(
-      "UPDATE mssql_sync_schedule SET enabled=?, interval_minutes=?, deactivate_missing_students=?, next_run_at=IF(?=1, DATE_ADD(NOW(), INTERVAL ? MINUTE), NULL) WHERE id=1",
-      [enabled, intervalMinutes, deactivateMissingStudents, enabled, intervalMinutes],
+      "UPDATE mssql_sync_schedule SET enabled=?, interval_minutes=?, deactivate_missing_students=?, next_run_at=? WHERE id=1",
+      [enabled, intervalMinutes, deactivateMissingStudents, nextRunAt],
     );
     return getMssqlSyncSchedule(req, res, next);
   } catch (error) {
@@ -132,14 +187,35 @@ export async function runDueMssqlSync(
       await lock.query(
         "UPDATE mssql_sync_schedule SET last_finished_at=NOW(), last_status='interrupted', last_message='The server stopped before this run finished.' WHERE id=1 AND last_status='running'",
       );
-      [claimed] = await lock.query(
-        "UPDATE mssql_sync_schedule SET last_started_at=NOW(), last_finished_at=NULL, last_status='running', last_message=NULL, next_run_at=DATE_ADD(NOW(), INTERVAL interval_minutes MINUTE) WHERE id=1 AND enabled=1 AND next_run_at<=NOW()",
+      const [[settings]] = await lock.query(
+        `SELECT enabled, interval_minutes, deactivate_missing_students, DATE_FORMAT(next_run_at, '%Y-%m-%d %H:%i:%s') AS scheduled_at, ${scheduleClockSql} AS local_now FROM mssql_sync_schedule WHERE id=1 FOR UPDATE`,
       );
-      if (claimed.affectedRows) {
-        const [[settings]] = await lock.query(
-          "SELECT deactivate_missing_students FROM mssql_sync_schedule WHERE id=1",
+      claimed = { affectedRows: 0 };
+      if (settings.enabled) {
+        const slot = fixedSyncSchedule(
+          settings.local_now,
+          Number(settings.interval_minutes),
         );
-        deactivateMissingStudents = Boolean(settings.deactivate_missing_students);
+        const due =
+          slot.due &&
+          (!settings.scheduled_at ||
+            settings.scheduled_at <= settings.local_now);
+        if (due) {
+          [claimed] = await lock.query(
+            "UPDATE mssql_sync_schedule SET last_started_at=NOW(), last_finished_at=NULL, last_status='running', last_message=NULL, next_run_at=? WHERE id=1 AND enabled=1",
+            [slot.nextRunAt],
+          );
+        } else if (settings.scheduled_at !== slot.nextRunAt) {
+          await lock.query(
+            "UPDATE mssql_sync_schedule SET next_run_at=? WHERE id=1",
+            [slot.nextRunAt],
+          );
+        }
+      }
+      if (claimed.affectedRows) {
+        deactivateMissingStudents = Boolean(
+          settings.deactivate_missing_students,
+        );
         const [created] = await lock.query(
           "INSERT INTO mssql_sync_activity (started_at, status) VALUES (NOW(), 'running')",
         );
@@ -157,7 +233,10 @@ export async function runDueMssqlSync(
     let status, message;
     try {
       await runImport(
-        { scheduledImport: true, body: { updateExistingBirthdays: false, deactivateMissingStudents } },
+        {
+          scheduledImport: true,
+          body: { updateExistingBirthdays: false, deactivateMissingStudents },
+        },
         {
           status(code) {
             statusCode = code;

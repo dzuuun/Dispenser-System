@@ -3,13 +3,21 @@ import { after, test } from "node:test";
 import { pool } from "../config/db.js";
 import {
   runDueMssqlSync,
+  fixedSyncSchedule,
   updateMssqlSyncSchedule,
   listMssqlSyncActivity,
 } from "../services/mssql-sync-schedule.service.js";
 
 after(() => pool.end());
 
-function fakeDb({ acquired = 1, due = true, deactivateMissingStudents = true } = {}) {
+function fakeDb({
+  acquired = 1,
+  due = true,
+  deactivateMissingStudents = true,
+  localNow = "2026-11-17 08:30:20",
+  scheduledAt = "2026-11-17 08:30:00",
+  enabled = true,
+} = {}) {
   const calls = [];
   let released = false;
   const connection = {
@@ -17,8 +25,25 @@ function fakeDb({ acquired = 1, due = true, deactivateMissingStudents = true } =
       calls.push({ sql, values });
       if (sql.includes("GET_LOCK")) return [[{ acquired }]];
       if (sql.startsWith("SELECT deactivate_missing_students"))
-        return [[{ deactivate_missing_students: Number(deactivateMissingStudents) }]];
-      if (sql.includes("next_run_at=DATE_ADD"))
+        return [
+          [{ deactivate_missing_students: Number(deactivateMissingStudents) }],
+        ];
+      if (sql.startsWith("SELECT enabled, interval_minutes"))
+        return [
+          [
+            {
+              enabled,
+              interval_minutes: 60,
+              deactivate_missing_students: Number(deactivateMissingStudents),
+              local_now: localNow,
+              scheduled_at: scheduledAt,
+            },
+          ],
+        ];
+      if (
+        sql.includes("last_started_at=NOW()") &&
+        sql.includes("next_run_at=?")
+      )
         return [{ affectedRows: due ? 1 : 0 }];
       if (sql.startsWith("INSERT INTO mssql_sync_activity"))
         return [{ insertId: 42 }];
@@ -50,7 +75,10 @@ test("scheduled run claims the job and preserves birthdays", async () => {
     }),
     true,
   );
-  assert.deepEqual(request.body, { updateExistingBirthdays: false, deactivateMissingStudents: true });
+  assert.deepEqual(request.body, {
+    updateExistingBirthdays: false,
+    deactivateMissingStudents: true,
+  });
   assert.equal(request.scheduledImport, true);
   assert.ok(
     db.calls.some(
@@ -76,23 +104,49 @@ test("not due or locked jobs do not run", async () => {
 });
 
 test("scheduled runs pass the disabled deactivation setting", async () => {
-  await runDueMssqlSync(fakeDb({ deactivateMissingStudents: false }), async (req, res) => {
-    assert.equal(req.body.deactivateMissingStudents, false);
-    res.json({ message: "Done" });
-  });
+  await runDueMssqlSync(
+    fakeDb({ deactivateMissingStudents: false }),
+    async (req, res) => {
+      assert.equal(req.body.deactivateMissingStudents, false);
+      res.json({ message: "Done" });
+    },
+  );
 });
 
 test("schedule saves and returns the deactivation setting", async (t) => {
   let saved;
-  t.mock.method(pool, "execute", async (_sql, values) => { saved = values; });
-  t.mock.method(pool, "query", async () => [[{ enabled: 1, deactivate_missing_students: 0, interval_minutes: 60 }]]);
-  const res = { json(body) { this.body = body; } };
+  t.mock.method(pool, "execute", async (_sql, values) => {
+    saved = values;
+  });
+  t.mock.method(pool, "query", async () => [
+    [
+      {
+        local_now: "2026-11-17 08:42:00",
+        enabled: 1,
+        deactivate_missing_students: 0,
+        interval_minutes: 60,
+      },
+    ],
+  ]);
+  const res = {
+    json(body) {
+      this.body = body;
+    },
+  };
   await updateMssqlSyncSchedule(
-    { body: { enabled: true, intervalMinutes: 60, deactivateMissingStudents: false } },
+    {
+      body: {
+        enabled: true,
+        intervalMinutes: 60,
+        deactivateMissingStudents: false,
+      },
+    },
     res,
-    (error) => { throw error; },
+    (error) => {
+      throw error;
+    },
   );
-  assert.deepEqual(saved, [true, 60, false, true, 60]);
+  assert.deepEqual(saved, [true, 60, false, "2026-11-17 09:30:00"]);
   assert.equal(res.body.deactivate_missing_students, false);
 });
 
@@ -198,4 +252,56 @@ test("schedule updates reject invalid settings", async () => {
     },
   );
   assert.equal(res.code, 400);
+});
+
+test("fixed schedules follow office hours without drifting", () => {
+  for (const [now, interval, due, next] of [
+    ["2026-11-21 17:01:00", 30, false, "2026-11-23 07:30:00"],
+    ["2026-11-22 07:30:00", 60, false, "2026-11-23 07:30:00"],
+    ["2026-11-22 12:30:00", 1440, false, "2026-11-23 07:30:00"],
+    ["2026-11-17 07:29:59", 60, false, "2026-11-17 07:30:00"],
+    ["2026-11-17 07:30:45", 60, true, "2026-11-17 08:30:00"],
+    ["2026-11-17 08:42:00", 60, false, "2026-11-17 09:30:00"],
+    ["2026-11-17 16:30:10", 60, true, "2026-11-18 07:30:00"],
+    ["2026-11-17 17:00:00", 30, true, "2026-11-18 07:30:00"],
+    ["2026-11-17 17:01:00", 30, false, "2026-11-18 07:30:00"],
+    ["2026-11-17 23:00:00", 60, false, "2026-11-18 07:30:00"],
+    ["2026-11-17 07:30:00", 1440, true, "2026-11-18 07:30:00"],
+    ["2026-11-17 07:30:00", 10080, false, "2026-11-23 07:30:00"],
+    ["2026-11-23 07:30:00", 10080, true, "2026-11-30 07:30:00"],
+    ["2026-11-17 13:30:00", 360, true, "2026-11-18 07:30:00"],
+    ["2026-11-17 07:30:00", 720, true, "2026-11-18 07:30:00"],
+  ])
+    assert.deepEqual(
+      fixedSyncSchedule(now, interval),
+      { due, nextRunAt: next },
+      now,
+    );
+});
+test("scheduler skips missed slots, outside hours, disabled schedules and already claimed slots", async () => {
+  for (const config of [
+    { localNow: "2026-11-22 07:30:00" },
+    { localNow: "2026-11-17 06:30:00" },
+    { localNow: "2026-11-17 17:30:00" },
+    { localNow: "2026-11-17 08:42:00" },
+    { enabled: false },
+    { scheduledAt: "2026-11-17 09:30:00" },
+  ]) {
+    const db = fakeDb(config);
+    assert.equal(
+      await runDueMssqlSync(db, () => assert.fail("Unexpected import")),
+      false,
+    );
+    assert.equal(db.released, true);
+  }
+});
+test("claimed runs use the next fixed slot instead of the actual start time", async () => {
+  const db = fakeDb();
+  await runDueMssqlSync(db, async (_req, res) => res.json({ message: "Done" }));
+  const claim = db.calls.find(
+    (call) =>
+      call.sql.includes("last_started_at=NOW()") &&
+      call.sql.includes("next_run_at=?"),
+  );
+  assert.deepEqual(claim.values, ["2026-11-17 09:30:00"]);
 });

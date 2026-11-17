@@ -6332,16 +6332,33 @@ function MssqlSyncActivity({ token, onClose }) {
     const previous = document.activeElement;
     modalRef.current?.querySelector("button")?.focus();
     const handleKey = (event) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
       if (event.key === "Tab") {
-        const buttons = [...(modalRef.current?.querySelectorAll("button:not(:disabled)") || [])];
+        const buttons = [
+          ...(modalRef.current?.querySelectorAll("button:not(:disabled)") ||
+            []),
+        ];
         if (!buttons.length) return;
-        if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons.at(-1).focus(); }
-        else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0].focus(); }
+        if (event.shiftKey && document.activeElement === buttons[0]) {
+          event.preventDefault();
+          buttons.at(-1).focus();
+        } else if (
+          !event.shiftKey &&
+          document.activeElement === buttons.at(-1)
+        ) {
+          event.preventDefault();
+          buttons[0].focus();
+        }
       }
     };
     document.addEventListener("keydown", handleKey);
-    return () => { document.removeEventListener("keydown", handleKey); previous?.focus(); };
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      previous?.focus();
+    };
   }, []);
   useEffect(() => {
     let active = true;
@@ -6376,75 +6393,102 @@ function MssqlSyncActivity({ token, onClose }) {
       : "—";
   return (
     <ImportModalFrame onClose={onClose}>
-    <section className="student-modal mssql-activity-modal" role="dialog" aria-modal="true" aria-labelledby="mssql-activity-title" ref={modalRef} onMouseDown={(event) => event.stopPropagation()}>
-      <header><div><p className="eyebrow">AUTOMATIC SYNCHRONIZATION</p><h2 id="mssql-activity-title">Activity log</h2><p>Automatic runs only · times shown in Philippine time</p></div><button className="modal-close" type="button" aria-label="Close activity log" onClick={onClose}>×</button></header>
-      <div className="mssql-activity">
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {!data && !error && <p>Loading activity...</p>}
-      {data &&
-        (data.rows.length ? (
-          <div className="mssql-activity-list">
-            {data.rows.map((row) => (
-              <article key={row.id}>
-                <div className="mssql-activity-row-heading">
-                  <strong>{date(row.started_at)}</strong>
-                  <span className={`mssql-activity-status ${row.status}`}>
-                    {{
-                      running: "Running",
-                      success: "Completed",
-                      failed: "Failed",
-                      interrupted: "Interrupted",
-                    }[row.status] || row.status}
-                  </span>
-                </div>
-                <p>
-                  {row.period_label && <>{row.period_label} · </>}Finished:{" "}
-                  {date(row.finished_at)}
-                </p>
-                {row.created_count != null && (
-                  <p className="mssql-activity-counts">
-                    {row.created_count} created · {row.updated_count} updated ·{" "}
-                    {row.unchanged_count} unchanged · {row.deactivated_count}{" "}
-                    deactivated · {row.invalid_count} invalid
-                  </p>
-                )}
-                {row.message && <p>{row.message}</p>}
-              </article>
-            ))}
+      <section
+        className="student-modal mssql-activity-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mssql-activity-title"
+        ref={modalRef}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">AUTOMATIC SYNCHRONIZATION</p>
+            <h2 id="mssql-activity-title">Activity log</h2>
+            <p>Automatic runs only · times shown in Philippine time</p>
           </div>
-        ) : (
-          <p>
-            No automatic sync activity recorded yet. New runs will appear here.
-          </p>
-        ))}
-      {data && data.pages > 1 && (
-        <div className="mssql-activity-pagination">
-          <Button
-            variant="secondary"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
+          <button
+            className="modal-close"
+            type="button"
+            aria-label="Close activity log"
+            onClick={onClose}
           >
-            Previous
-          </Button>
-          <span>
-            Page {data.page} of {data.pages} · {data.total} runs
-          </span>
-          <Button
-            variant="secondary"
-            disabled={page >= data.pages}
-            onClick={() => setPage(page + 1)}
-          >
-            Next
-          </Button>
+            ×
+          </button>
+        </header>
+        <div className="mssql-activity">
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          {!data && !error && <p>Loading activity...</p>}
+          {data &&
+            (data.rows.length ? (
+              <div className="mssql-activity-list">
+                {data.rows.map((row) => (
+                  <article key={row.id}>
+                    <div className="mssql-activity-row-heading">
+                      <strong>{date(row.started_at)}</strong>
+                      <span className={`mssql-activity-status ${row.status}`}>
+                        {{
+                          running: "Running",
+                          success: "Completed",
+                          failed: "Failed",
+                          interrupted: "Interrupted",
+                        }[row.status] || row.status}
+                      </span>
+                    </div>
+                    <p>
+                      {row.period_label && <>{row.period_label} · </>}Finished:{" "}
+                      {date(row.finished_at)}
+                    </p>
+                    {row.created_count != null && (
+                      <p className="mssql-activity-counts">
+                        {row.created_count} created · {row.updated_count}{" "}
+                        updated · {row.unchanged_count} unchanged ·{" "}
+                        {row.deactivated_count} deactivated ·{" "}
+                        {row.invalid_count} invalid
+                      </p>
+                    )}
+                    {row.message && <p>{row.message}</p>}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p>
+                No automatic sync activity recorded yet. New runs will appear
+                here.
+              </p>
+            ))}
+          {data && data.pages > 1 && (
+            <div className="mssql-activity-pagination">
+              <Button
+                variant="secondary"
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+              >
+                Previous
+              </Button>
+              <span>
+                Page {data.page} of {data.pages} · {data.total} runs
+              </span>
+              <Button
+                variant="secondary"
+                disabled={page >= data.pages}
+                onClick={() => setPage(page + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          )}
         </div>
-      )}
-      </div>
-      <footer className="mssql-activity-modal-footer"><Button variant="secondary" onClick={onClose}>Close</Button></footer>
-    </section>
+        <footer className="mssql-activity-modal-footer">
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </footer>
+      </section>
     </ImportModalFrame>
   );
 }
@@ -6452,7 +6496,8 @@ function MssqlSyncActivity({ token, onClose }) {
 function MssqlSchedule({ token }) {
   const [schedule, setSchedule] = useState(null);
   const [enabled, setEnabled] = useState(false);
-  const [deactivateMissingStudents, setDeactivateMissingStudents] = useState(true);
+  const [deactivateMissingStudents, setDeactivateMissingStudents] =
+    useState(true);
   const [intervalMinutes, setIntervalMinutes] = useState(1440);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -6506,6 +6551,20 @@ function MssqlSchedule({ token }) {
       setSaving(false);
     }
   };
+  const hasChanges =
+    schedule &&
+    (enabled !== schedule.enabled ||
+      deactivateMissingStudents !== schedule.deactivate_missing_students ||
+      Number(intervalMinutes) !== Number(schedule.interval_minutes));
+  const formatScheduleTime = (value) =>
+    new Date(value).toLocaleString(undefined, {
+      timeZone: "Asia/Shanghai",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   return (
     <div className="mssql-schedule">
       <div className="mssql-schedule-heading">
@@ -6513,9 +6572,17 @@ function MssqlSchedule({ token }) {
         <span>{schedule?.enabled ? "Enabled" : "Disabled"}</span>
       </div>
       <p>
-        Creates and updates students in the current academic period. Choose whether
-        to deactivate active students missing from the SQL Server list. Existing birthdays are kept.
+        Creates and updates students in the current academic period while
+        preserving existing birthdays.
       </p>
+      <div className="mssql-schedule-window">
+        <strong>Monday to Saturday, 7:30 AM to 5:00 PM</strong>
+        <span>Asia/Shanghai (UTC+8). No Sunday runs.</span>
+        <p>
+          Fixed times start at 7:30 AM. Missed runs are skipped without shifting
+          the schedule.
+        </p>
+      </div>
       {error && (
         <p className="error" role="alert">
           {error}
@@ -6536,12 +6603,14 @@ function MssqlSchedule({ token }) {
               <input
                 type="checkbox"
                 checked={deactivateMissingStudents}
-                onChange={(event) => setDeactivateMissingStudents(event.target.checked)}
+                onChange={(event) =>
+                  setDeactivateMissingStudents(event.target.checked)
+                }
               />{" "}
               Deactivate students missing from SQL source
             </label>
-            <label>
-              Run every{" "}
+            <label className="mssql-schedule-interval">
+              Frequency{" "}
               <select
                 value={intervalMinutes}
                 onChange={(event) =>
@@ -6551,23 +6620,63 @@ function MssqlSchedule({ token }) {
                 <option value={30}>30 minutes</option>
                 <option value={60}>1 hour</option>
                 <option value={360}>6 hours</option>
-                <option value={720}>12 hours</option>
-                <option value={1440}>24 hours</option>
-                <option value={10080}>7 days</option>
+                <option value={720}>Daily at 7:30 AM (12-hour interval)</option>
+                <option value={1440}>Daily at 7:30 AM</option>
+                <option value={10080}>Mondays at 7:30 AM</option>
               </select>
             </label>
-            <Button variant="secondary" onClick={save} disabled={saving}>
+            <Button
+              variant="secondary"
+              onClick={save}
+              disabled={saving || !hasChanges}
+            >
               {saving ? "Saving..." : "Save schedule"}
             </Button>
           </div>
-          <p className="mssql-schedule-status" role="status">
-            {schedule.enabled && schedule.next_run_at
-              ? `Next run: ${new Date(schedule.next_run_at).toLocaleString()}. `
-              : ""}
-            {schedule.last_status
-              ? `Last run: ${schedule.last_status}${schedule.last_finished_at ? ` (${new Date(schedule.last_finished_at).toLocaleString()})` : ""}. ${schedule.last_message || ""}`
-              : "No scheduled runs yet."}
-          </p>
+          {hasChanges && (
+            <p className="mssql-schedule-unsaved" role="status">
+              Unsaved changes. Save to apply these settings.
+            </p>
+          )}
+          <dl className="mssql-schedule-details" aria-live="polite">
+            <div>
+              <dt>Next run</dt>
+              <dd>
+                {schedule.enabled && schedule.next_run_at
+                  ? formatScheduleTime(schedule.next_run_at)
+                  : schedule.enabled
+                    ? "Waiting for schedule"
+                    : "Automatic sync is off"}
+              </dd>
+            </div>
+            <div>
+              <dt>Last run</dt>
+              <dd>
+                {schedule.last_status ? (
+                  <>
+                    <strong>
+                      {{
+                        success: "Completed",
+                        failed: "Failed",
+                        interrupted: "Interrupted",
+                        running: "Running",
+                      }[schedule.last_status] || schedule.last_status}
+                    </strong>
+                    {schedule.last_finished_at
+                      ? " - " + formatScheduleTime(schedule.last_finished_at)
+                      : ""}
+                  </>
+                ) : (
+                  "No scheduled runs yet"
+                )}
+                {schedule.last_message && (
+                  <span className="mssql-schedule-result">
+                    {schedule.last_message}
+                  </span>
+                )}
+              </dd>
+            </div>
+          </dl>
           <button
             type="button"
             className="btn secondary mssql-activity-toggle"
@@ -6576,7 +6685,12 @@ function MssqlSchedule({ token }) {
           >
             View activity log
           </button>
-          {showActivity && <MssqlSyncActivity token={token} onClose={() => setShowActivity(false)} />}
+          {showActivity && (
+            <MssqlSyncActivity
+              token={token}
+              onClose={() => setShowActivity(false)}
+            />
+          )}
         </>
       )}
     </div>
@@ -8478,7 +8592,13 @@ function Kiosk() {
               )}
             </p>
           </header>
-          {result.satpOnly && <p className="voucher-exhausted-notice">SATP and institutional email are available before enrollment. WiFi and other accounts will be available once your enrollment is active for this semester.</p>}
+          {result.satpOnly && (
+            <p className="voucher-exhausted-notice">
+              SATP and institutional email are available before enrollment. WiFi
+              and other accounts will be available once your enrollment is
+              active for this semester.
+            </p>
+          )}
           <section className="credential-summary-panel">
             <div>
               <h2>{result.student.fullName}</h2>
@@ -8532,7 +8652,15 @@ function Kiosk() {
                       )}
                   </p>
                   {voucherControl?.wifi_note && (
-                    <p className="voucher-exhausted-notice" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{voucherControl.wifi_note}</p>
+                    <p
+                      className="voucher-exhausted-notice"
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {voucherControl.wifi_note}
+                    </p>
                   )}
                   {voucherRequestsPaused &&
                     result.voucherState !== "MAINTENANCE" && (
@@ -8909,7 +9037,9 @@ function Kiosk() {
   );
 }
 function VoucherMessageEditor({ item, busy, update, note = false }) {
-  const [message, setMessage] = useState(() => note ? item.wifi_note || "" : voucherPausedMessage(item));
+  const [message, setMessage] = useState(() =>
+    note ? item.wifi_note || "" : voucherPausedMessage(item),
+  );
   const savedMessage = note ? item.wifi_note || "" : voucherPausedMessage(item);
   const editorId = note ? "wifi-note" : "voucher-paused-message";
   const action = note ? "wifi-note" : "voucher-message";
@@ -8919,7 +9049,9 @@ function VoucherMessageEditor({ item, busy, update, note = false }) {
         {note ? "WiFi note" : "Message when requests are paused"}
       </label>
       <p>
-        {note ? "Shown below the WiFi voucher. Clear the note to hide it." : "Students see this message on the kiosk while voucher requests are paused."}
+        {note
+          ? "Shown below the WiFi voucher. Clear the note to hide it."
+          : "Students see this message on the kiosk while voucher requests are paused."}
       </p>
       <textarea
         id={editorId}
@@ -8934,7 +9066,9 @@ function VoucherMessageEditor({ item, busy, update, note = false }) {
           type="button"
           className="btn secondary"
           disabled={
-            Boolean(busy) || (!note && !message.trim()) || message.trim() === savedMessage
+            Boolean(busy) ||
+            (!note && !message.trim()) ||
+            message.trim() === savedMessage
           }
           onClick={() =>
             update(
@@ -9073,19 +9207,39 @@ function ModuleControlsPage({ token }) {
                       <div className="module-control-setting">
                         <div>
                           <b>Allow SATP and email before enrollment</b>
-                          <small>Let eligible students access SATP and institutional email before enrollment is active this semester.</small>
+                          <small>
+                            Let eligible students access SATP and institutional
+                            email before enrollment is active this semester.
+                          </small>
                         </div>
                         <button
                           type="button"
                           role="switch"
                           aria-label="Allow SATP and email access before enrollment"
-                          aria-checked={Boolean(item.allow_satp_before_enrollment)}
+                          aria-checked={Boolean(
+                            item.allow_satp_before_enrollment,
+                          )}
                           className="module-request-toggle"
                           disabled={Boolean(busy)}
-                          onClick={() => update(item, { allowSatpBeforeEnrollment: !item.allow_satp_before_enrollment }, "before-enrollment")}
+                          onClick={() =>
+                            update(
+                              item,
+                              {
+                                allowSatpBeforeEnrollment:
+                                  !item.allow_satp_before_enrollment,
+                              },
+                              "before-enrollment",
+                            )
+                          }
                         >
                           <i aria-hidden="true" />
-                          <span>{busy === "SATP-before-enrollment" ? "Saving..." : item.allow_satp_before_enrollment ? "On" : "Off"}</span>
+                          <span>
+                            {busy === "SATP-before-enrollment"
+                              ? "Saving..."
+                              : item.allow_satp_before_enrollment
+                                ? "On"
+                                : "Off"}
+                          </span>
                         </button>
                       </div>
                     )}
@@ -9153,12 +9307,17 @@ function ModuleControlsPage({ token }) {
                     )}
                     {item.module_key === "VOUCHER" && (
                       <>
-                      <VoucherMessageEditor note item={item} busy={busy} update={update} />
-                      <VoucherMessageEditor
-                        item={item}
-                        busy={busy}
-                        update={update}
-                      />
+                        <VoucherMessageEditor
+                          note
+                          item={item}
+                          busy={busy}
+                          update={update}
+                        />
+                        <VoucherMessageEditor
+                          item={item}
+                          busy={busy}
+                          update={update}
+                        />
                       </>
                     )}
                   </div>
@@ -12239,7 +12398,9 @@ function StudentsPage({ token }) {
               }}
             >
               <i aria-hidden="true" />
-              <span>CPA refresher: {showCpaRefresher ? "Shown" : "Hidden"}</span>
+              <span>
+                CPA refresher: {showCpaRefresher ? "Shown" : "Hidden"}
+              </span>
             </button>
             <label className="records-table-field">
               <span>Status</span>
@@ -12529,7 +12690,8 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
     lastName: student.last_name,
     birthDate: String(student.birth_date).slice(0, 10),
     courseId: "",
-    isActive: Boolean(student.is_active),
+    isActive: Boolean(student.current_period_active ?? student.is_active),
+    statusChanged: false,
     satpPassword: accounts.SATP?.password || "",
     schoologyPassword: accounts.SCHOOLOGY?.password || "",
     kumosoftPassword: accounts.KUMOSOFT?.password || "",
@@ -12555,6 +12717,7 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
     setForm((current) => ({
       ...current,
       [key]: value,
+      ...(key === "isActive" ? { statusChanged: true } : {}),
       ...(key === "emailAddress" && !value.trim() ? { emailPassword: "" } : {}),
     }));
   const generateVoucher = async () => {
@@ -12582,7 +12745,12 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          isActive: form.statusChanged
+            ? form.isActive
+            : Boolean(student.is_active),
+        }),
       });
       onSaved();
     } catch (err) {
@@ -12729,7 +12897,10 @@ function StudentEditModal({ record, token, onClose, onSaved }) {
             <label className="status-toggle">
               <span>
                 <b>Active student</b>
-                <small>Student can verify at the kiosk.</small>
+                <small>
+                  Changing status also moves the student to the current academic
+                  period.
+                </small>
               </span>
               <input
                 type="checkbox"

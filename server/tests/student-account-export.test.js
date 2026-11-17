@@ -281,26 +281,34 @@ test("export database failures return an error without a downloadable workbook",
 });
 
 test("CPA refresher visibility applies to counts, pages, and exports", async (t) => {
-  const {calls,get}=await setup(t,{count:2});
-  const response=await get("/students?showCpaRefresher=false");
-  assert.equal(response.status,200);
-  const listCalls=calls.filter(call=>call.sql.includes("FROM students s"));
-  assert.equal(listCalls.length,2);
-  for(const call of listCalls) {
-    assert.match(call.sql,/NOT EXISTS \(SELECT 1 FROM courses cpa_course/);
-    assert.deepEqual(call.values.slice(0,2),["CPA REFRESHER","CPA REFRESHER COURSE"]);
+  const { calls, get } = await setup(t, { count: 2 });
+  const response = await get("/students?showCpaRefresher=false");
+  assert.equal(response.status, 200);
+  const listCalls = calls.filter((call) =>
+    call.sql.includes("FROM students s"),
+  );
+  assert.equal(listCalls.length, 2);
+  for (const call of listCalls) {
+    assert.match(call.sql, /NOT EXISTS \(SELECT 1 FROM courses cpa_course/);
+    assert.deepEqual(call.values.slice(0, 2), [
+      "CPA REFRESHER",
+      "CPA REFRESHER COURSE",
+    ]);
   }
-  calls.length=0;
-  const exported=await get("/students/export?showCpaRefresher=false");
-  assert.equal(exported.status,200);
+  calls.length = 0;
+  const exported = await get("/students/export?showCpaRefresher=false");
+  assert.equal(exported.status, 200);
   await exported.arrayBuffer();
-  const exportCall=calls.find(call=>call.sql.startsWith("SELECT s.id"));
-  assert.match(exportCall.sql,/cpa_course/);
-  assert.deepEqual(exportCall.values,["CPA REFRESHER","CPA REFRESHER COURSE"]);
-  for(const query of ["", "?showCpaRefresher=true"]) {
-    calls.length=0;
-    assert.equal((await get("/students"+query)).status,200);
-    assert.ok(calls.every(call=>!call.sql.includes("cpa_course")));
+  const exportCall = calls.find((call) => call.sql.startsWith("SELECT s.id"));
+  assert.match(exportCall.sql, /cpa_course/);
+  assert.deepEqual(exportCall.values, [
+    "CPA REFRESHER",
+    "CPA REFRESHER COURSE",
+  ]);
+  for (const query of ["", "?showCpaRefresher=true"]) {
+    calls.length = 0;
+    assert.equal((await get("/students" + query)).status, 200);
+    assert.ok(calls.every((call) => !call.sql.includes("cpa_course")));
   }
-  assert.equal((await get("/students?showCpaRefresher=invalid")).status,400);
+  assert.equal((await get("/students?showCpaRefresher=invalid")).status, 400);
 });
