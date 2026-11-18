@@ -6510,27 +6510,47 @@ function MssqlSchedule({ token }) {
   useEffect(() => {
     if (!scheduleReady) return;
     const controller = new AbortController();
-    setForecastLoading(true);
-    setForecastError("");
-    setForecast(null);
-    request(
-      "/admin/imports/mssql-students/preview?updateExistingBirthdays=false",
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: controller.signal,
-      },
-    )
-      .then((data) => {
-        if (!controller.signal.aborted)
+    let timer;
+    let pending = false;
+    const load = async () => {
+      if (pending || controller.signal.aborted || document.hidden) return;
+      clearTimeout(timer);
+      pending = true;
+      setForecastLoading(true);
+      try {
+        const data = await request(
+          "/admin/imports/mssql-students/preview?updateExistingBirthdays=false",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          },
+        );
+        if (!controller.signal.aborted) {
           setForecast({ ...data, checkedAt: new Date() });
-      })
-      .catch((err) => {
+          setForecastError("");
+        }
+      } catch (err) {
         if (!controller.signal.aborted) setForecastError(err.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setForecastLoading(false);
-      });
-    return () => controller.abort();
+      } finally {
+        pending = false;
+        if (!controller.signal.aborted) {
+          setForecastLoading(false);
+          timer = setTimeout(load, 30000);
+        }
+      }
+    };
+    const resume = () => {
+      if (!document.hidden) load();
+    };
+    load();
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("focus", resume);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("focus", resume);
+    };
   }, [token, scheduleReady, schedule?.last_finished_at, forecastRefresh]);
   const headers = { Authorization: `Bearer ${token}` };
   useEffect(() => {
@@ -6688,7 +6708,7 @@ function MssqlSchedule({ token }) {
               </Button>
             </div>
 
-            {forecastLoading && (
+            {forecastLoading && !forecast && (
               <p role="status">
                 Checking students against the SQL Server source...
               </p>
@@ -6720,7 +6740,8 @@ function MssqlSchedule({ token }) {
                   ))}
                 </dl>
                 <p className="mssql-forecast-checked">
-                  Estimate checked {formatScheduleTime(forecast.checkedAt)}.{" "}
+                  Updates automatically every 30 seconds. Last checked{" "}
+                  {formatScheduleTime(forecast.checkedAt)}.{" "}
                   {!schedule.deactivate_missing_students &&
                     "Student deactivation is off."}{" "}
                   {!schedule.enabled &&
