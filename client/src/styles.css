@@ -6199,6 +6199,85 @@ strong {
   border-top: 1px solid #d8e8df;
   font-size: 0.82rem;
 }
+.mssql-sync-forecast {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid #d8e8df;
+  border-radius: 8px;
+  background: #fff;
+}
+.mssql-sync-forecast .mssql-schedule-heading {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mssql-sync-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.mssql-sync-counts > div {
+  padding: 12px;
+  border-radius: 6px;
+  background: #edf5f0;
+}
+.mssql-sync-counts dt {
+  font-size: 0.8rem;
+  color: #587064;
+}
+.mssql-sync-counts dd {
+  margin: 6px 0 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #07553d;
+}
+.mssql-schedule-settings {
+  margin-top: 8px;
+}
+.mssql-schedule-settings > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  width: fit-content;
+}
+.mssql-schedule-settings .mssql-schedule-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-top: 10px;
+}
+.mssql-sync-forecast {
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+.mssql-sync-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 8px 0;
+}
+.mssql-sync-counts > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0;
+  background: transparent;
+}
+.mssql-sync-counts dd {
+  order: -1;
+  margin: 0;
+  font-size: 1.1rem;
+}
+.mssql-schedule .mssql-forecast-checked {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: #587064;
+}
+.mssql-schedule-details {
+  margin-top: 12px;
+  padding-top: 10px;
+  gap: 6px;
+}
 .mssql-schedule-details > div {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);

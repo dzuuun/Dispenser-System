@@ -6502,6 +6502,36 @@ function MssqlSchedule({ token }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
+  const [forecast, setForecast] = useState(null);
+  const [forecastError, setForecastError] = useState("");
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastRefresh, setForecastRefresh] = useState(0);
+  const scheduleReady = schedule !== null;
+  useEffect(() => {
+    if (!scheduleReady) return;
+    const controller = new AbortController();
+    setForecastLoading(true);
+    setForecastError("");
+    setForecast(null);
+    request(
+      "/admin/imports/mssql-students/preview?updateExistingBirthdays=false",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      },
+    )
+      .then((data) => {
+        if (!controller.signal.aborted)
+          setForecast({ ...data, checkedAt: new Date() });
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) setForecastError(err.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setForecastLoading(false);
+      });
+    return () => controller.abort();
+  }, [token, scheduleReady, schedule?.last_finished_at, forecastRefresh]);
   const headers = { Authorization: `Bearer ${token}` };
   useEffect(() => {
     let live = true;
@@ -6571,18 +6601,9 @@ function MssqlSchedule({ token }) {
         <strong>Automatic synchronization</strong>
         <span>{schedule?.enabled ? "Enabled" : "Disabled"}</span>
       </div>
-      <p>
-        Creates and updates students in the current academic period while
-        preserving existing birthdays.
+      <p className="mssql-schedule-hours">
+        Mon-Sat, 7:30 AM-5:00 PM (UTC+8). Sundays skipped.
       </p>
-      <div className="mssql-schedule-window">
-        <strong>Monday to Saturday, 7:30 AM to 5:00 PM</strong>
-        <span>Asia/Shanghai (UTC+8). No Sunday runs.</span>
-        <p>
-          Fixed times start at 7:30 AM. Missed runs are skipped without shifting
-          the schedule.
-        </p>
-      </div>
       {error && (
         <p className="error" role="alert">
           {error}
@@ -6590,54 +6611,136 @@ function MssqlSchedule({ token }) {
       )}
       {schedule && (
         <>
-          <div className="mssql-schedule-controls">
-            <label>
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
-              />{" "}
-              Enable automatic sync
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={deactivateMissingStudents}
-                onChange={(event) =>
-                  setDeactivateMissingStudents(event.target.checked)
-                }
-              />{" "}
-              Deactivate students missing from SQL source
-            </label>
-            <label className="mssql-schedule-interval">
-              Frequency{" "}
-              <select
-                value={intervalMinutes}
-                onChange={(event) =>
-                  setIntervalMinutes(Number(event.target.value))
-                }
-              >
-                <option value={30}>30 minutes</option>
-                <option value={60}>1 hour</option>
-                <option value={360}>6 hours</option>
-                <option value={720}>Daily at 7:30 AM (12-hour interval)</option>
-                <option value={1440}>Daily at 7:30 AM</option>
-                <option value={10080}>Mondays at 7:30 AM</option>
-              </select>
-            </label>
-            <Button
-              variant="secondary"
-              onClick={save}
-              disabled={saving || !hasChanges}
-            >
-              {saving ? "Saving..." : "Save schedule"}
-            </Button>
-          </div>
-          {hasChanges && (
-            <p className="mssql-schedule-unsaved" role="status">
-              Unsaved changes. Save to apply these settings.
+          <details className="mssql-schedule-settings">
+            <summary>
+              Schedule settings{hasChanges ? " (unsaved changes)" : ""}
+            </summary>
+            <p>
+              Fixed times start at 7:30 AM; missed runs are skipped. Existing
+              birthdays are preserved.
             </p>
-          )}
+            <div className="mssql-schedule-controls">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(event) => setEnabled(event.target.checked)}
+                />{" "}
+                Enable automatic sync
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={deactivateMissingStudents}
+                  onChange={(event) =>
+                    setDeactivateMissingStudents(event.target.checked)
+                  }
+                />{" "}
+                Deactivate students missing from SQL source
+              </label>
+              <label className="mssql-schedule-interval">
+                Frequency{" "}
+                <select
+                  value={intervalMinutes}
+                  onChange={(event) =>
+                    setIntervalMinutes(Number(event.target.value))
+                  }
+                >
+                  <option value={30}>30 minutes</option>
+                  <option value={60}>1 hour</option>
+                  <option value={360}>6 hours</option>
+                  <option value={720}>
+                    Daily at 7:30 AM (12-hour interval)
+                  </option>
+                  <option value={1440}>Daily at 7:30 AM</option>
+                  <option value={10080}>Mondays at 7:30 AM</option>
+                </select>
+              </label>
+              <Button
+                variant="secondary"
+                onClick={save}
+                disabled={saving || !hasChanges}
+              >
+                {saving ? "Saving..." : "Save schedule"}
+              </Button>
+            </div>
+            {hasChanges && (
+              <p className="mssql-schedule-unsaved" role="status">
+                Unsaved changes. Save to apply these settings.
+              </p>
+            )}
+          </details>
+          <section
+            className="mssql-sync-forecast"
+            aria-label="Next import preview"
+            aria-busy={forecastLoading}
+          >
+            <div className="mssql-schedule-heading">
+              <strong title="Expected changes using saved settings. Counts may change before the next run.">
+                Next import preview
+              </strong>
+              <Button
+                variant="secondary"
+                disabled={forecastLoading}
+                onClick={() => setForecastRefresh((value) => value + 1)}
+              >
+                {forecastLoading ? "Checking..." : "Refresh preview"}
+              </Button>
+            </div>
+
+            {forecastLoading && (
+              <p role="status">
+                Checking students against the SQL Server source...
+              </p>
+            )}
+            {forecastError && (
+              <p className="error" role="alert">
+                Unable to preview: {forecastError}
+              </p>
+            )}
+            {forecast && (
+              <>
+                <dl className="mssql-sync-counts">
+                  {[
+                    ["To create", forecast.new],
+                    ["To update", forecast.update],
+                    ["Unchanged", forecast.unchanged],
+                    [
+                      "To deactivate",
+                      schedule.deactivate_missing_students &&
+                      forecast.new + forecast.update + forecast.unchanged > 0
+                        ? forecast.deactivate
+                        : 0,
+                    ],
+                  ].map(([label, count]) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>{Number(count || 0).toLocaleString()}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="mssql-forecast-checked">
+                  Estimate checked {formatScheduleTime(forecast.checkedAt)}.{" "}
+                  {!schedule.deactivate_missing_students &&
+                    "Student deactivation is off."}{" "}
+                  {!schedule.enabled &&
+                    "Automatic sync is off; no run is scheduled."}
+                </p>
+                {forecast.invalid > 0 && (
+                  <p className="mssql-schedule-unsaved">
+                    {forecast.invalid} invalid source rows will be skipped.
+                    Review the manual import preview for details.
+                  </p>
+                )}
+                {!forecast.new && !forecast.update && !forecast.unchanged && (
+                  <p className="error">
+                    No valid student rows are available. The import will not run
+                    any student changes.
+                  </p>
+                )}
+              </>
+            )}
+          </section>
           <dl className="mssql-schedule-details" aria-live="polite">
             <div>
               <dt>Next run</dt>
