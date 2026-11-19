@@ -344,6 +344,8 @@ function CredentialRequestInfoModal({
   onClose,
 }) {
   const creatingAccount = requestKind === "ACCOUNT_CREATION";
+  const [instructionsUnderstood, setInstructionsUnderstood] = useState(false);
+  const acknowledgmentRef = useRef(null);
   const useDefaultPassword = hasDefaultPassword && !checkForNewPassword;
   return (
     <div
@@ -471,6 +473,19 @@ function CredentialRequestInfoModal({
             </span>
           </article>
         </div>
+        <label className="request-instructions-acknowledgment">
+          <input
+            ref={acknowledgmentRef}
+            required
+            type="checkbox"
+            checked={instructionsUnderstood}
+            disabled={submitting}
+            onChange={(event) =>
+              setInstructionsUnderstood(event.target.checked)
+            }
+          />
+          <span>I have read and understand the instructions above.</span>
+        </label>
         <footer>
           <button
             type="button"
@@ -484,7 +499,10 @@ function CredentialRequestInfoModal({
             type="button"
             className="btn primary"
             disabled={submitting}
-            onClick={onSubmit}
+            onClick={() => {
+              if (!acknowledgmentRef.current.reportValidity()) return;
+              if (instructionsUnderstood && !submitting) onSubmit();
+            }}
           >
             {submitting ? "Submitting..." : "Submit request"}
           </button>
@@ -500,6 +518,8 @@ function VoucherRequestModal({
   onSubmit,
   onClose,
 }) {
+  const [instructionsUnderstood, setInstructionsUnderstood] = useState(false);
+  const acknowledgmentRef = useRef(null);
   const valid = reason.trim().length >= 10;
   return (
     <div
@@ -550,6 +570,19 @@ function VoucherRequestModal({
             </small>
           </span>
         </div>
+        <label className="request-instructions-acknowledgment">
+          <input
+            ref={acknowledgmentRef}
+            required
+            type="checkbox"
+            checked={instructionsUnderstood}
+            disabled={submitting}
+            onChange={(event) =>
+              setInstructionsUnderstood(event.target.checked)
+            }
+          />
+          <span>I have read and understand the instructions above.</span>
+        </label>
         <footer>
           <button
             type="button"
@@ -563,7 +596,10 @@ function VoucherRequestModal({
             type="button"
             className="btn primary"
             disabled={submitting || !valid}
-            onClick={onSubmit}
+            onClick={() => {
+              if (!acknowledgmentRef.current.reportValidity()) return;
+              if (instructionsUnderstood && valid && !submitting) onSubmit();
+            }}
           >
             {submitting ? "Submitting..." : "Submit request"}
           </button>
@@ -6500,6 +6536,7 @@ function MssqlSchedule({ token }) {
     useState(true);
   const [intervalMinutes, setIntervalMinutes] = useState(1440);
   const [error, setError] = useState("");
+  const [scheduleError, setScheduleError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const [forecast, setForecast] = useState(null);
@@ -6545,40 +6582,58 @@ function MssqlSchedule({ token }) {
     load();
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("focus", resume);
+    window.addEventListener("online", resume);
     return () => {
       controller.abort();
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("focus", resume);
+      window.removeEventListener("online", resume);
     };
   }, [token, scheduleReady, schedule?.last_finished_at, forecastRefresh]);
   const headers = { Authorization: `Bearer ${token}` };
   useEffect(() => {
-    let live = true;
+    const controller = new AbortController();
     let initial = true;
-    const load = () =>
-      request("/admin/imports/mssql-schedule", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((data) => {
-          if (live) {
-            setSchedule(data);
-            if (initial) {
-              setEnabled(data.enabled);
-              setDeactivateMissingStudents(data.deactivate_missing_students);
-              setIntervalMinutes(data.interval_minutes);
-              initial = false;
-            }
-          }
-        })
-        .catch((err) => {
-          if (live) setError(err.message);
+    let pending = false;
+    const load = async () => {
+      if (pending || controller.signal.aborted || document.hidden) return;
+      pending = true;
+      try {
+        const data = await request("/admin/imports/mssql-schedule", {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
+        if (!controller.signal.aborted) {
+          setSchedule(data);
+          setScheduleError("");
+          if (initial) {
+            setEnabled(data.enabled);
+            setDeactivateMissingStudents(data.deactivate_missing_students);
+            setIntervalMinutes(data.interval_minutes);
+            initial = false;
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted)
+          setScheduleError(
+            `Unable to refresh synchronization status. Retrying automatically. ${err.message}`,
+          );
+      } finally {
+        pending = false;
+      }
+    };
     load();
     const timer = setInterval(load, 30000);
+    document.addEventListener("visibilitychange", load);
+    window.addEventListener("focus", load);
+    window.addEventListener("online", load);
     return () => {
-      live = false;
+      controller.abort();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", load);
+      window.removeEventListener("focus", load);
+      window.removeEventListener("online", load);
     };
   }, [token]);
   const save = async () => {
@@ -6624,6 +6679,11 @@ function MssqlSchedule({ token }) {
       <p className="mssql-schedule-hours">
         Mon-Sat, 7:30 AM-5:00 PM (UTC+8). Sundays skipped.
       </p>
+      {scheduleError && (
+        <p className="error" role="alert">
+          {scheduleError}
+        </p>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}

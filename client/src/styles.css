@@ -2725,8 +2725,28 @@ body:has(.kiosk-page) > .toast-notification {
   line-height: 1.45;
 }
 
-.password-reset-info-modal footer .btn:disabled {
-  cursor: wait;
+.request-instructions-acknowledgment {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+  color: var(--brand-green-deep);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.request-instructions-acknowledgment input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin: 1px 0 0;
+  accent-color: var(--brand-green-accent);
+}
+
+.password-reset-info-modal footer .btn:disabled,
+.voucher-request-info-modal footer .btn:disabled {
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
