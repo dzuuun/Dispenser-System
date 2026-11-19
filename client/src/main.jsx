@@ -11814,8 +11814,36 @@ function ReleaseVouchersPage({ token }) {
     }
   };
   const copyCodes = async () => {
+    setError("");
+    setToast("");
     try {
-      await navigator.clipboard.writeText(codes);
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(codes);
+          copied = true;
+        } catch {
+          // Try the selection-based fallback if clipboard access is denied.
+        }
+      }
+      if (!copied) {
+        // HTTP LAN deployments do not expose the Clipboard API.
+        const field = document.createElement("textarea");
+        const previousFocus = document.activeElement;
+        field.value = codes;
+        field.readOnly = true;
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.append(field);
+        try {
+          field.focus({ preventScroll: true });
+          field.select();
+          if (!document.execCommand("copy")) throw new Error("Copy failed.");
+        } finally {
+          field.remove();
+          previousFocus?.focus({ preventScroll: true });
+        }
+      }
       setToast("Released voucher codes copied.");
     } catch {
       setError(
