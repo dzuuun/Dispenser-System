@@ -1,3 +1,4 @@
+import { deactivateGraduateSatp } from "../services/satp-eligibility.service.js";
 import { studentFullName } from "../../shared/student-name.mjs";
 import ExcelJS from "exceljs";
 import { pool } from "../config/db.js";
@@ -139,6 +140,7 @@ export async function matchStudentAccounts(_req, res) {
   try {
     await connection.beginTransaction();
     const result = await matchPendingAccounts(connection);
+    await deactivateGraduateSatp(connection);
     await connection.commit();
     res.set("Cache-Control", "no-store").json(result);
   } catch (error) {
@@ -452,6 +454,7 @@ export async function createStudent(req, res) {
       kumosoftId || studentId,
     );
     await addAccount("institutional_email_accounts", emailPassword, true);
+    await deactivateGraduateSatp(connection, { studentId: created.insertId });
     await connection.commit();
     res
       .status(201)
@@ -719,6 +722,7 @@ export async function updateStudent(req, res) {
         [voucher.id],
       );
     }
+    await deactivateGraduateSatp(connection, { studentId: id });
     await connection.commit();
     res.json({ id, message: "Student updated successfully." });
   } catch (error) {

@@ -26,6 +26,22 @@ import {
 } from "./helpers/import-store.js";
 
 after(() => pool.end());
+
+test("course imports deactivate old graduate SATP records and later SATP imports keep them inactive", async (t) => {
+  const store = database(t);
+  const original = { ...store.state.accounts.satp_accounts[0] };
+  const courseResult = await invoke(importCourses, "courses", [
+    { Code: "BSIT", Name: "Information Technology", AcademicLevel: "GRADUATE_SCHOOL" },
+  ]);
+  assert.equal(courseResult.statusCode, 200);
+  assert.deepEqual(store.state.accounts.satp_accounts[0], { ...original, is_active: 0 });
+  assert.equal(store.state.accounts.schoology_accounts[0].is_active, 1);
+  const result = await invoke(importData, "satp", [
+    { SchoolID: "A", Username: "A", Password: "replacement-password" },
+  ]);
+  assert.equal(result.statusCode, 200);
+  assert.equal(store.state.accounts.satp_accounts[0].is_active, 0);
+});
 function database(t, options) {
   const store = createImportStore(options);
   t.mock.method(pool, "query", store.query);

@@ -57,6 +57,20 @@ function setup(t) {
   return { db, save, read };
 }
 
+test("moving to graduate school deactivates SATP while retaining credentials and other accounts", async (t) => {
+  const { db, save } = setup(t);
+  const original = { ...db.stored.accounts.satp_accounts[1] };
+  await save({ courseId: 2 });
+  assert.deepEqual(db.stored.accounts.satp_accounts[1], { ...original, is_active: 0 });
+  for (const table of studentAccountTables.filter((table) => table !== "satp_accounts"))
+    assert.equal(db.stored.accounts[table][1].is_active, 1);
+  assert.equal(db.stored.accounts.satp_accounts[2].is_active, 1);
+  await save({ courseId: 2, satpPassword: "New password" });
+  assert.equal(db.stored.accounts.satp_accounts[1].is_active, 0);
+  await save({ courseId: 1 });
+  assert.equal(db.stored.accounts.satp_accounts[1].is_active, 0);
+});
+
 for (const [field, table, type] of [
   ["satpPassword", "satp_accounts", "SATP"],
   ["schoologyPassword", "schoology_accounts", "SCHOOLOGY"],

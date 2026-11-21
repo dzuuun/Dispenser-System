@@ -1,3 +1,4 @@
+import { deactivateGraduateSatp } from "../services/satp-eligibility.service.js";
 import { displayMiddleName } from "../../shared/student-name.mjs";
 import sql from "mssql";
 import { createHash } from "node:crypto";
@@ -455,6 +456,7 @@ export async function importMssqlStudents(req, res, next) {
       req.scheduledImport && req.body?.deactivateMissingStudents === false
         ? 0
         : await deactivateStudentsMissingFromSource(sourceIds, connection);
+    await deactivateGraduateSatp(connection);
     await connection.commit();
     const counts = summary(result);
     res.json({

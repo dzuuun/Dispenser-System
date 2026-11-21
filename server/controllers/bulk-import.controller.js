@@ -1,3 +1,4 @@
+import { deactivateGraduateSatp } from "../services/satp-eligibility.service.js";
 import {
   displayMiddleName,
   studentFullName,
@@ -1302,6 +1303,7 @@ export async function importData(req, res) {
         (item) => item.status === "update",
       ).length;
     }
+    await deactivateGraduateSatp(connection);
     await connection.commit();
     res.json({
       inserted: result.new,

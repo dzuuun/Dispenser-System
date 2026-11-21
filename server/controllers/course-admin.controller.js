@@ -1,3 +1,4 @@
+import { deactivateGraduateSatp } from "../services/satp-eligibility.service.js";
 import { pool } from "../config/db.js";
 import {
   importPreview,
@@ -100,13 +101,19 @@ export async function updateCourse(req, res) {
     return res
       .status(400)
       .json({ message: "Course code and course name are required." });
+  const connection = await pool.getConnection();
   try {
-    const [updated] = await pool.execute(
+    await connection.beginTransaction();
+    const [updated] = await connection.execute(
       "UPDATE courses SET code = ?, name = ?, academic_level=COALESCE(?, academic_level), is_active = ? WHERE id = ?",
       [code, name, academicLevel, isActive, req.params.id],
     );
-    if (!updated.affectedRows)
+    if (!updated.affectedRows) {
+      await connection.rollback();
       return res.status(404).json({ message: "Course not found." });
+    }
+    await deactivateGraduateSatp(connection, { courseId: req.params.id });
+    await connection.commit();
     res.json({
       id: Number(req.params.id),
       code,
@@ -115,11 +122,14 @@ export async function updateCourse(req, res) {
       is_active: Boolean(isActive),
     });
   } catch (error) {
+    await connection.rollback();
     if (error.code === "ER_DUP_ENTRY")
       return res
         .status(409)
         .json({ message: "That course code already exists." });
     throw error;
+  } finally {
+    connection.release();
   }
 }
 async function readImportRows(file) {
@@ -324,6 +334,7 @@ export async function importCourses(req, res) {
       }
       await connection.query("RELEASE SAVEPOINT import_row");
     }
+    await deactivateGraduateSatp(connection);
     await connection.commit();
     res.json({
       total: result.total,

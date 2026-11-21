@@ -87,6 +87,18 @@ export function createImportStore(options = {}) {
     const data = staged || stored,
       text = sql.trim();
     const done = (affectedRows = 1) => [{ affectedRows }];
+    if (text.startsWith("UPDATE satp_accounts a")) {
+      let changed = 0;
+      for (const account of data.accounts.satp_accounts) {
+        const student = data.students.find((s) => s.id === account.student_id);
+        const course = data.courses.find((c) => c.id === student?.course_id);
+        if (course?.academic_level === "GRADUATE_SCHOOL" && account.is_active === 1) {
+          account.is_active = 0;
+          changed++;
+        }
+      }
+      return done(changed);
+    }
     if (text.includes("FROM academic_periods"))
       return [
         [{ id: 7, school_year: "2026-2027", semester: "First semester" }],

@@ -5060,15 +5060,11 @@ function StudentProfileModal({ record, onClose, onEdit }) {
   if (!record) return null;
   const student = record.student,
     name = studentFullName(student);
-  const accounts = {
-    SATP: null,
-    SCHOOLOGY: null,
-    KUMOSOFT: null,
-    EMAIL: null,
-    ...Object.fromEntries(
-      record.accounts.map((account) => [account.type, account]),
-    ),
-  };
+  const accounts = Object.fromEntries(
+    record.accounts
+      .filter((account) => account.isActive)
+      .map((account) => [account.type, account]),
+  );
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section
@@ -5143,6 +5139,7 @@ function StudentProfileModal({ record, onClose, onEdit }) {
           </article>
           <article className="account-panel">
             <h3>Linked accounts</h3>
+            {Object.keys(accounts).length === 0 && <em>No linked accounts</em>}
             {Object.entries(accounts).map(([type, account]) => (
               <div className="account-row" key={type}>
                 <b>{type === "EMAIL" ? "Institutional email" : type}</b>

@@ -55,6 +55,13 @@ export function createStudentStore() {
   const execute = async (sql, values = []) => {
     calls.push({ sql, values });
     const data = staged || stored;
+    if (sql.startsWith("UPDATE satp_accounts a")) {
+      const account = data.accounts.satp_accounts[data.student.id];
+      const graduate = data.student.course_id === 2;
+      const changed = graduate && account?.is_active === 1;
+      if (changed) account.is_active = 0;
+      return [{ affectedRows: Number(changed) }];
+    }
     if (sql.trimStart().startsWith("SELECT id, school_year, semester"))
       return [[{ id: 2 }]];
     if (sql.startsWith("SELECT is_active FROM students"))

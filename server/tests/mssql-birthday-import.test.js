@@ -94,6 +94,7 @@ function setup(t, options = {}) {
   const run = async (query, values = []) => {
     calls.push({ sql: query, values });
     const students = staged || stored;
+    if (query.startsWith("UPDATE satp_accounts a")) return [{ affectedRows: 0 }];
     if (query.includes("FROM academic_periods"))
       return [
         [{ id: 7, school_year: "2026-2027", semester: "First semester" }],

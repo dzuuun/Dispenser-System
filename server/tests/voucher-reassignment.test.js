@@ -137,6 +137,7 @@ function setup(t, options = {}) {
         data.students[values[0]] ? [{ ...data.students[values[0]] }] : [],
       ];
     if (sql.startsWith("SELECT id FROM courses")) return [[{ id: 1 }]];
+    if (sql.startsWith("UPDATE satp_accounts a")) return [{ affectedRows: 0 }];
     if (sql.startsWith("UPDATE students SET student_id="))
       return [{ affectedRows: data.students[values.at(-1)] ? 1 : 0 }];
     if (/^UPDATE (satp|schoology|kumosoft)_accounts SET username/.test(sql))
